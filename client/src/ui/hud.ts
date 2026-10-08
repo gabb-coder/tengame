@@ -34,3 +34,12 @@ export function renderPlayerList(players: PlayerInfo[], localId: string): void {
 export function showDisconnected(): void {
   $('disconnected').hidden = false;
 }
+
+/** `speed` in m/s, `gear` -1 for reverse, `rpm` as a 0..1 fraction of redline. */
+export function renderGauges(speed: number, gear: number, rpm: number): void {
+  $('hud-speed').textContent = String(Math.round(Math.abs(speed) * 3.6));
+  $('hud-gear').textContent = gear < 0 ? 'R' : String(gear);
+  const bar = $('hud-rpm');
+  bar.style.width = `${Math.round(rpm * 100)}%`;
+  bar.classList.toggle('redline', rpm > 0.88);
+}

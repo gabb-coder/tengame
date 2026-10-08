@@ -3,8 +3,9 @@
 A browser-based 3D multiplayer driving game (up to 4 players per room).
 See [PLAN.md](PLAN.md) for the roadmap.
 
-**Current status: milestone 1.** You drive a placeholder box around a test area,
-and friends who join your room appear as their own colored boxes with name tags.
+**Current status: milestone 2.** You drive a car with suspension, steering, tire grip,
+an automatic 6-speed gearbox, and synthesized engine and tire sounds around a test area.
+Friends who join your room appear as their own cars, with name tags and engine sound.
 
 ## Run locally
 
@@ -20,10 +21,12 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 
 | Key | Action |
 |---|---|
-| W / ↑ | Forward |
-| S / ↓ | Reverse |
+| W / ↑ | Accelerate |
+| S / ↓ | Brake; hold when stopped to reverse |
 | A D / ← → | Steer |
-| Space | Jump |
+| Space | Handbrake |
+| R | Reset car onto its wheels |
+| M | Mute sound |
 
 `npm run dev` starts the game server on port 8080 and the Vite dev server on 5173
 (which proxies `/ws` to the game server).
@@ -31,7 +34,7 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 ## Other commands
 
 ```sh
-npm test          # server tests (rooms, sync, limits, validation)
+npm test          # car handling tests + server tests (rooms, sync, limits, validation)
 npm run typecheck # client + server
 npm run build     # build client into client/dist
 npm start         # serve client/dist + WebSocket server on $PORT (default 8080)

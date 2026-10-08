@@ -200,3 +200,66 @@ button:disabled {
   font-weight: 600;
   white-space: nowrap;
 }
+
+.hud-speed {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  min-width: 160px;
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+#hud-speed {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.speed-row small,
+#hud-gear {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.gear-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#hud-gear {
+  width: 1.2em;
+  font-weight: 700;
+  color: var(--panel-text);
+}
+
+.rpm {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+#hud-rpm {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+
+#hud-rpm.redline {
+  background: var(--error);
+}
+
+@media (max-width: 720px) {
+  .hud-help {
+    display: none;
+  }
+}

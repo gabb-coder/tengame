@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import {
+  type CarState,
   MAX_NAME_LENGTH,
   MAX_PLAYERS,
   ROOM_CODE_LENGTH,
@@ -19,6 +20,7 @@ export interface Player extends PlayerInfo {
   socket: WebSocket;
   p: Vec3;
   q: Quat;
+  car: CarState;
 }
 
 export class Room {
@@ -40,6 +42,7 @@ export class Room {
       socket,
       p: [0, 1, 0],
       q: [0, 0, 0, 1],
+      car: { steer: 0, rpm: 0, load: 0, speed: 0, braking: false },
     };
     this.broadcast({ type: 'player_joined', player: toInfo(player) });
     this.players.set(player.id, player);
@@ -60,7 +63,7 @@ export class Room {
     if (this.players.size < 2) return;
     this.broadcast({
       type: 'snapshot',
-      players: [...this.players.values()].map(({ id, p, q }) => ({ id, p, q })),
+      players: [...this.players.values()].map(({ id, p, q, car }) => ({ id, p, q, car })),
     });
   }
 

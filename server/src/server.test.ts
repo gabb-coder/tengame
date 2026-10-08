@@ -72,13 +72,15 @@ test('players in the same room see each other move', async () => {
   assert.equal(joined.player.name, 'Bob');
   assert.notEqual(joined.player.color, welcomeA.players[0].color);
 
-  b.send({ type: 'state', p: [3, 1, -2], q: [0, 0, 0, 1] });
+  const car = { steer: 0.2, rpm: 3000, load: 1, speed: 12, braking: false };
+  b.send({ type: 'state', p: [3, 1, -2], q: [0, 0, 0, 1], car: { ...car, extra: 'dropped' } });
   let bob;
   for (let i = 0; i < 10 && !bob; i++) {
     const snap = await a.next('snapshot');
     bob = snap.players.find((p) => p.id === welcomeB.id && p.p[0] === 3);
   }
   assert.deepEqual(bob?.p, [3, 1, -2]);
+  assert.deepEqual(bob?.car, car);
 
   b.close();
   assert.equal((await a.next('player_left')).id, welcomeB.id);
@@ -91,8 +93,11 @@ test('rejects invalid state and sanitizes names', async () => {
   const welcome = await a.next('welcome');
   assert.equal(welcome.players[0].name, 'scriptalert1scri');
 
-  a.send({ type: 'state', p: [Infinity, 0, 0], q: [0, 0, 0, 1] });
-  a.send({ type: 'state', p: [1, 2], q: [0, 0, 0, 1] });
+  const car = { steer: 0, rpm: 900, load: 0, speed: 0, braking: false };
+  a.send({ type: 'state', p: [Infinity, 0, 0], q: [0, 0, 0, 1], car });
+  a.send({ type: 'state', p: [1, 2], q: [0, 0, 0, 1], car });
+  a.send({ type: 'state', p: [5, 5, 5], q: [0, 0, 0, 1] });
+  a.send({ type: 'state', p: [5, 5, 5], q: [0, 0, 0, 1], car: { ...car, braking: 'yes' } });
   a.ws.send('not json');
   assert.equal((await a.next('error')).code, 'bad_request');
   a.send(null as unknown as object);

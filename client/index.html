@@ -32,7 +32,11 @@
         <button id="copy-link" type="button">Copy invite link</button>
         <ul id="hud-players"></ul>
       </div>
-      <div class="panel hud-help">WASD / arrows to move · Space to jump</div>
+      <div class="panel hud-speed" aria-live="off">
+        <div class="speed-row"><span id="hud-speed">0</span><small>km/h</small></div>
+        <div class="gear-row"><span id="hud-gear">N</span><div class="rpm"><div id="hud-rpm"></div></div></div>
+      </div>
+      <div class="panel hud-help">W accelerate · S brake/reverse · A D steer · Space handbrake · R reset · M mute</div>
     </div>
 
     <div id="disconnected" class="overlay" hidden>

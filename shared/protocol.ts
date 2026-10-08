@@ -15,10 +15,23 @@ export interface PlayerInfo {
   color: string;
 }
 
+/** Vehicle state used to animate and voice other players' cars. */
+export interface CarState {
+  /** Front wheel angle in radians. */
+  steer: number;
+  rpm: number;
+  /** Throttle 0..1, drives engine sound. */
+  load: number;
+  /** Forward speed in m/s. */
+  speed: number;
+  braking: boolean;
+}
+
 export interface PlayerTransform {
   id: string;
   p: Vec3;
   q: Quat;
+  car: CarState;
 }
 
 // ---- client -> server ----
@@ -34,6 +47,7 @@ export interface StateMessage {
   type: 'state';
   p: Vec3;
   q: Quat;
+  car: CarState;
 }
 
 export type ClientMessage = JoinMessage | StateMessage;

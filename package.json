@@ -10,7 +10,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "npm run build -w client",
     "start": "npm run start -w server",
-    "test": "npm test -w server",
+    "test": "npm test --workspaces",
     "typecheck": "npm run typecheck -w client && npm run typecheck -w server"
   },
   "devDependencies": {

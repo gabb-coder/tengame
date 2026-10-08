@@ -2,7 +2,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { TICK_RATE, type ClientMessage, type ServerMessage } from '../../shared/protocol.ts';
+import { TICK_RATE, type CarState, type ClientMessage, type ServerMessage } from '../../shared/protocol.ts';
 import { RoomManager, type Player, type Room } from './rooms.ts';
 
 const MIME: Record<string, string> = {
@@ -95,9 +95,11 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         player = room.add(socket, String(msg.name ?? ''));
         send(socket, { type: 'welcome', id: player.id, room: room.code, players: room.info() });
       } else if (msg.type === 'state') {
-        if (!player || !isVec(msg.p, 3) || !isVec(msg.q, 4)) return;
+        if (!player || !isVec(msg.p, 3) || !isVec(msg.q, 4) || !isCarState(msg.car)) return;
         player.p = msg.p;
         player.q = msg.q;
+        const { steer, rpm, load, speed, braking } = msg.car;
+        player.car = { steer, rpm, load, speed, braking };
       }
     });
 
@@ -138,6 +140,12 @@ function isVec(v: unknown, length: number): v is number[] {
     v.length === length &&
     v.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) < 1e5)
   );
+}
+
+function isCarState(c: unknown): c is CarState {
+  if (typeof c !== 'object' || c === null) return false;
+  const { steer, rpm, load, speed, braking } = c as Record<string, unknown>;
+  return isVec([steer, rpm, load, speed], 4) && typeof braking === 'boolean';
 }
 
 function send(socket: WebSocket, msg: ServerMessage): void {
