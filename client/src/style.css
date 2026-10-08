@@ -290,3 +290,220 @@ button:disabled {
     display: none;
   }
 }
+
+/* ---- Lobby mode picker ---- */
+.modes {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.modes legend {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.modes label {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  color: var(--panel-text);
+}
+
+.modes label:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(41, 163, 224, 0.12);
+}
+
+.modes input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.modes span {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.modes strong {
+  font-size: 14px;
+  color: var(--panel-text);
+}
+
+/* ---- HUD additions ---- */
+.mode-badge {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+}
+
+#hud-players li {
+  display: flex;
+  align-items: center;
+}
+
+#hud-players .points {
+  margin-left: auto;
+  padding-left: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-mission {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(440px, calc(100vw - 380px));
+  min-width: 260px;
+  text-align: center;
+}
+
+.mission-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+}
+
+#mission-timer {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+#mission-timer.urgent {
+  color: var(--error);
+  font-weight: 700;
+}
+
+#mission-objective {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.hud-waypoint {
+  position: absolute;
+  top: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+}
+
+.hud-waypoint svg {
+  width: 34px;
+  height: 34px;
+  fill: #ffd24a;
+  stroke: #3a2a00;
+  stroke-width: 1;
+  transition: transform 0.08s linear;
+}
+
+#waypoint-distance {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-notices {
+  position: absolute;
+  top: 168px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.notice {
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: rgba(10, 12, 16, 0.78);
+  font-weight: 600;
+  white-space: nowrap;
+  animation: notice-in 0.25s ease-out;
+  transition: opacity 0.5s;
+}
+
+.notice.leaving {
+  opacity: 0;
+}
+
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.hud-chat {
+  position: absolute;
+  left: 16px;
+  bottom: 72px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: auto;
+}
+
+#chat-log {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow: hidden;
+  justify-content: flex-end;
+  font-size: 14px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+#chat-log li {
+  transition: opacity 0.6s;
+  overflow-wrap: anywhere;
+}
+
+#chat-log li.faded {
+  opacity: 0;
+}
+
+#chat-log.open li {
+  opacity: 1;
+}
+
+#chat-log li.system {
+  color: var(--muted);
+  font-style: italic;
+}
+
+#chat-input {
+  width: 100%;
+  background: rgba(10, 12, 16, 0.85);
+}
+
+@media (max-width: 720px) {
+  .hud-mission {
+    top: auto;
+    bottom: 120px;
+    width: calc(100vw - 32px);
+  }
+}

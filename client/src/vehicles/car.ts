@@ -53,8 +53,12 @@ export class Car {
 
   /** Teleports the car back to its spawn point. */
   respawn(): void {
+    this.teleport(this.spawn.position, this.spawn.yaw);
+  }
+
+  /** Places the car at `position` facing `yaw` (0 = +Z), at rest. */
+  teleport(position: THREE.Vector3Like, yaw: number): void {
     const body = this.physics.body;
-    const { position, yaw } = this.spawn;
     body.setTranslation(position, true);
     body.setRotation(new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw), true);
     body.setLinvel({ x: 0, y: 0, z: 0 }, true);

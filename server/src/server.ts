@@ -102,7 +102,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
             return sendError(socket, 'room_full', 'That room is full');
           }
         } else {
-          room = rooms.create();
+          room = rooms.create(msg.mode === 'missions' ? 'missions' : 'freeroam');
         }
         player = room.add(socket, String(msg.name ?? ''));
         send(socket, {
@@ -111,7 +111,12 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           room: room.code,
           players: room.info(),
           openDoors: [...room.openDoors],
+          mode: room.mode,
+          scores: room.scoreTable(),
+          mission: room.missions?.snapshot(Date.now()) ?? null,
         });
+      } else if (msg.type === 'chat') {
+        if (room && player) room.chat(player, String(msg.text ?? ''));
       } else if (msg.type === 'state') {
         if (!player || !isVec(msg.p, 3) || !isVec(msg.q, 4) || !isCarState(msg.car)) return;
         const avatar = msg.avatar ?? null;

@@ -3,13 +3,21 @@
 A browser-based 3D multiplayer driving game (up to 4 players per room).
 See [PLAN.md](PLAN.md) for the roadmap.
 
-**Current status: milestone 5.** You drive a car with suspension, steering, tire grip,
-an automatic 6-speed gearbox, and synthesized engine and tire sounds around a small town:
-a 3×3 grid of blocks with named streets, 48 houses, sidewalks, street lamps, trees, and a
-stunt park with ramps in the middle. Get out of the car to walk around, open front doors
-and go inside: every house has a furnished living room, kitchen, bedroom(s) and bathroom,
-real windows, and two-story houses have stairs to an upper floor. Friends who join your room appear as their own
-cars or characters, and doors they open open for you too.
+**Current status: milestone 6.** Drive a car with suspension, steering, tire grip, an
+automatic gearbox and engine sound around a small town of 48 houses. Get out to walk around,
+open front doors and explore furnished rooms (two-story houses have stairs).
+
+Two modes, chosen when you create a room:
+
+- **Free roam**: explore at your own pace.
+- **Missions**: the server runs one mission after another for everyone in the room, and
+  keeps score:
+  - *Special delivery*: pick up a package and walk it to another house's front door.
+  - *Street race*: everyone lines up on a grid and races through checkpoints.
+  - *Lost and found*: find an item left on a table, bed or counter inside a house.
+
+A yellow arrow at the top of the screen points to your next target, and beams of light
+mark targets around town. Press **Enter** to chat in either mode.
 
 ## Run locally
 
@@ -52,7 +60,7 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 ## Other commands
 
 ```sh
-npm test          # car handling, walking, town and floor-plan, and server tests
+npm test          # car handling, walking, town/floor-plan, missions and server tests
 npm run typecheck # client + server
 npm run build     # build client into client/dist
 npm start         # serve client/dist + WebSocket server on $PORT (default 8080)

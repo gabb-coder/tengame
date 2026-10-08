@@ -186,7 +186,14 @@ function glaze(builder: MeshBuilder, inside: MeshBuilder, m: TownMaterials, M: T
   if (!isWindow) return;
   const mid = M.clone().multiply(middle);
   const at = (x: number, y: number) => mid.clone().multiply(placement(x, y, 0));
-  builder.add(box(o.width, height, 0.02), o.kind === 'smallWindow' ? m.frostedGlass : m.glass, at(0, height / 2), undefined, { castShadow: false });
+  // One-sided panes a few centimeters into the opening from each face (see the glass materials).
+  const pane = new THREE.PlaneGeometry(o.width, height).translate(0, height / 2, -T / 2 + 0.01);
+  if (o.kind === 'smallWindow') {
+    builder.add(box(o.width, height, 0.02), m.frostedGlass, at(0, height / 2), undefined, { castShadow: false });
+  } else {
+    builder.add(pane, m.glassOutside, M.clone().multiply(outer), undefined, { castShadow: false });
+    inside.add(pane, m.glass, M.clone().multiply(inner), undefined, { castShadow: false });
+  }
   // Sash bars: a cross for big windows.
   builder.add(box(o.width, 0.05, 0.05), m.trim, at(0, height / 2));
   if (o.kind === 'window') builder.add(box(0.05, height, 0.05), m.trim, at(0, height / 2));

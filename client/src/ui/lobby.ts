@@ -1,4 +1,4 @@
-import { ROOM_CODE_LENGTH } from '../../../shared/protocol.ts';
+import { type GameMode, ROOM_CODE_LENGTH } from '../../../shared/protocol.ts';
 
 const NAME_KEY = 'tengame.name';
 
@@ -6,6 +6,8 @@ export interface LobbyChoice {
   name: string;
   /** Room to join; undefined means create a new one. */
   room?: string;
+  /** Mode for a new room. */
+  mode: GameMode;
 }
 
 /**
@@ -38,7 +40,8 @@ export function runLobby(onSubmit: (choice: LobbyChoice) => Promise<void>): void
     error.textContent = '';
     buttons.forEach((b) => (b.disabled = true));
     try {
-      await onSubmit({ name, room: action === 'join' ? room : undefined });
+      const mode = (form.querySelector<HTMLInputElement>('input[name="mode"]:checked')?.value ?? 'freeroam') as GameMode;
+      await onSubmit({ name, room: action === 'join' ? room : undefined, mode });
       document.getElementById('lobby')!.hidden = true;
     } catch (err) {
       error.textContent = err instanceof Error ? err.message : 'Something went wrong';

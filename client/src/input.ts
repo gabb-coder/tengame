@@ -80,6 +80,13 @@ export class Input {
     return this.pressed.delete(code);
   }
 
+  /** Let go of everything, e.g. when focus moves to the chat box. */
+  releaseAll(): void {
+    this.held.clear();
+    this.pressed.clear();
+    this.mouse.x = this.mouse.y = 0;
+  }
+
   /** Forget presses nobody asked about this frame. */
   endFrame(): void {
     this.pressed.clear();

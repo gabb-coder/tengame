@@ -215,6 +215,13 @@ export function generateTown(seed = TOWN_SEED): TownLayout {
   return { roads, blocks, park: p, houses, trees, spawns };
 }
 
+/** World position of a point in a house's local frame (+Z = front, y from the block surface). */
+export function houseToWorld(h: House, lx: number, ly: number, lz: number): { x: number; y: number; z: number } {
+  const c = Math.cos(h.rotation);
+  const s = Math.sin(h.rotation);
+  return { x: h.x + lx * c + lz * s, y: CURB_HEIGHT + ly, z: h.z - lx * s + lz * c };
+}
+
 /** Front door center at the outer face of the front wall, at ground level. */
 export function doorPosition(h: House): { x: number; z: number } {
   // Local (doorOffset, depth/2) rotated by the house's yaw.

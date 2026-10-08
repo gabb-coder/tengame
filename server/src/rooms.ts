@@ -3,6 +3,8 @@ import type { WebSocket } from 'ws';
 import {
   type AvatarState,
   type CarState,
+  type GameMode,
+  MAX_CHAT_LENGTH,
   MAX_NAME_LENGTH,
   MAX_PLAYERS,
   ROOM_CODE_LENGTH,
@@ -11,6 +13,11 @@ import {
   type ServerMessage,
   type Vec3,
 } from '../../shared/protocol.ts';
+import { MissionManager } from './missions.ts';
+
+/** Chat flood control: at most this many messages per window. */
+const CHAT_BURST = 5;
+const CHAT_WINDOW_MS = 5000;
 
 // Distinct, readable colors assigned by join slot.
 const PLAYER_COLORS = ['#e4572e', '#29a3e0', '#f2c14e', '#6cbf54'];
@@ -29,8 +36,29 @@ export class Room {
   readonly players = new Map<string, Player>();
   /** House ids whose front doors are open. */
   readonly openDoors = new Set<string>();
+  /** Mission points by player id. */
+  readonly scores = new Map<string, number>();
+  readonly missions: MissionManager | null;
+  private chatTimes = new Map<string, number[]>();
 
-  constructor(readonly code: string) {}
+  constructor(
+    readonly code: string,
+    readonly mode: GameMode = 'freeroam',
+    private now: () => number = Date.now,
+  ) {
+    this.missions =
+      mode === 'missions'
+        ? new MissionManager({
+            players: () => [...this.players.values()],
+            publish: (mission) => this.broadcast({ type: 'mission', mission }),
+            notice: (text) => this.broadcast({ type: 'notice', text }),
+            award: (id, points) => {
+              this.scores.set(id, (this.scores.get(id) ?? 0) + points);
+              this.broadcast({ type: 'scores', scores: this.scoreTable() });
+            },
+          })
+        : null;
+  }
 
   get isFull(): boolean {
     return this.players.size >= MAX_PLAYERS;
@@ -51,13 +79,39 @@ export class Room {
     };
     this.broadcast({ type: 'player_joined', player: toInfo(player) });
     this.players.set(player.id, player);
+    if (this.mode === 'missions') this.scores.set(player.id, 0);
     return player;
   }
 
   remove(id: string): void {
     if (this.players.delete(id)) {
+      this.scores.delete(id);
+      this.chatTimes.delete(id);
+      this.missions?.playerLeft(id, this.now());
       this.broadcast({ type: 'player_left', id });
     }
+  }
+
+  scoreTable(): Record<string, number> {
+    return Object.fromEntries(this.scores);
+  }
+
+  /** Relays a chat line from `player`, unless it's empty or they're flooding. */
+  chat(player: Player, raw: string): void {
+    // Strip control characters; the client renders text, never HTML.
+    const text = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_CHAT_LENGTH);
+    if (!text) return;
+    const now = this.now();
+    const recent = (this.chatTimes.get(player.id) ?? []).filter((t) => now - t < CHAT_WINDOW_MS);
+    if (recent.length >= CHAT_BURST) return;
+    recent.push(now);
+    this.chatTimes.set(player.id, recent);
+    this.broadcast({ type: 'chat', id: player.id, name: player.name, text });
+  }
+
+  tick(): void {
+    this.missions?.tick(this.now());
+    this.broadcastSnapshot();
   }
 
   info(): PlayerInfo[] {
@@ -83,12 +137,12 @@ export class Room {
 export class RoomManager {
   readonly rooms = new Map<string, Room>();
 
-  create(): Room {
+  create(mode: GameMode = 'freeroam'): Room {
     let code: string;
     do {
       code = randomCode();
     } while (this.rooms.has(code));
-    const room = new Room(code);
+    const room = new Room(code, mode);
     this.rooms.set(code, room);
     return room;
   }
@@ -104,7 +158,7 @@ export class RoomManager {
   }
 
   tick(): void {
-    for (const room of this.rooms.values()) room.broadcastSnapshot();
+    for (const room of this.rooms.values()) room.tick();
   }
 }
 

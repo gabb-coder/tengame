@@ -1,11 +1,12 @@
-import type { PlayerInfo } from '../../../shared/protocol.ts';
+import type { GameMode, PlayerInfo } from '../../../shared/protocol.ts';
 import type { Interaction, Mode } from '../game/localPlayer.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-export function showHud(roomCode: string): void {
+export function showHud(roomCode: string, mode: GameMode): void {
   $('hud').hidden = false;
   $('hud-code').textContent = roomCode;
+  $('hud-mode').textContent = mode === 'missions' ? 'Missions' : 'Free roam';
 
   const copy = $<HTMLButtonElement>('copy-link');
   copy.onclick = async () => {
@@ -20,13 +21,23 @@ export function showHud(roomCode: string): void {
   };
 }
 
-export function renderPlayerList(players: PlayerInfo[], localId: string): void {
+/** Players with their colors; in missions mode, sorted by score with points shown. */
+export function renderPlayerList(players: PlayerInfo[], localId: string, scores?: Record<string, number>): void {
   const list = $('hud-players');
+  const sorted = scores ? [...players].sort((a, b) => (scores[b.id] ?? 0) - (scores[a.id] ?? 0)) : players;
   list.replaceChildren(
-    ...players.map((p) => {
+    ...sorted.map((p) => {
       const li = document.createElement('li');
       li.style.setProperty('--dot', p.color);
-      li.textContent = p.id === localId ? `${p.name} (you)` : p.name;
+      const name = document.createElement('span');
+      name.textContent = p.id === localId ? `${p.name} (you)` : p.name;
+      li.append(name);
+      if (scores) {
+        const pts = document.createElement('span');
+        pts.className = 'points';
+        pts.textContent = String(scores[p.id] ?? 0);
+        li.append(pts);
+      }
       return li;
     }),
   );
@@ -51,7 +62,7 @@ export function renderMode(mode: Mode, pointerLocked: boolean): void {
   const foot = $('help-foot');
   foot.hidden = mode !== 'foot';
   const look = pointerLocked ? 'Mouse or arrows look' : 'Click to look with the mouse';
-  foot.textContent = `WASD walk · Shift run · Space jump · ${look} · E interact · M mute`;
+  foot.textContent = `WASD walk · Shift run · Space jump · ${look} · E interact · M mute · Enter chat`;
   document.querySelector<HTMLElement>('.hud-speed')!.hidden = mode !== 'car';
 }
 

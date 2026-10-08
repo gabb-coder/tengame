@@ -16,6 +16,11 @@
           Your name
           <input id="name" maxlength="16" autocomplete="off" placeholder="Driver" />
         </label>
+        <fieldset class="modes">
+          <legend>Mode for a new room</legend>
+          <label><input type="radio" name="mode" value="freeroam" checked /><span><strong>Free roam</strong>Drive and explore at your own pace</span></label>
+          <label><input type="radio" name="mode" value="missions" /><span><strong>Missions</strong>Deliveries, races and lost items, for points</span></label>
+        </fieldset>
         <button type="submit" id="create" name="action" value="create">Create room</button>
         <div class="divider"><span>or join a friend</span></div>
         <div class="row">
@@ -28,7 +33,7 @@
 
     <div id="hud" hidden>
       <div class="panel hud-room">
-        <div>Room <strong id="hud-code"></strong></div>
+        <div>Room <strong id="hud-code"></strong> <span id="hud-mode" class="mode-badge"></span></div>
         <button id="copy-link" type="button">Copy invite link</button>
         <ul id="hud-players"></ul>
       </div>
@@ -36,8 +41,21 @@
         <div class="speed-row"><span id="hud-speed">0</span><small>km/h</small></div>
         <div class="gear-row"><span id="hud-gear">N</span><div class="rpm"><div id="hud-rpm"></div></div></div>
       </div>
+      <div id="mission" class="panel hud-mission" hidden>
+        <div class="mission-head"><strong id="mission-title"></strong><span id="mission-timer"></span></div>
+        <div id="mission-objective"></div>
+      </div>
+      <div id="waypoint" class="hud-waypoint" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 L20 20 L12 15 L4 20 Z" /></svg>
+        <span id="waypoint-distance"></span>
+      </div>
+      <div id="notices" class="hud-notices" aria-live="polite"></div>
+      <div id="chat" class="hud-chat">
+        <ul id="chat-log"></ul>
+        <input id="chat-input" maxlength="200" autocomplete="off" placeholder="Say something (Enter to send, Esc to cancel)" hidden />
+      </div>
       <div id="hud-prompt" class="panel hud-prompt" hidden></div>
-      <div class="panel hud-help" id="help-car">W accelerate · S brake/reverse · A D steer · Space handbrake · E get out · R flip upright · T respawn · M mute</div>
+      <div class="panel hud-help" id="help-car">W accelerate · S brake/reverse · A D steer · Space handbrake · E get out · R flip upright · T respawn · M mute · Enter chat</div>
       <div class="panel hud-help" id="help-foot" hidden>WASD walk · Shift run · Space jump · Mouse or arrows look · E interact · M mute</div>
     </div>
 

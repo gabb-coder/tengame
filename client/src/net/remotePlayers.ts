@@ -74,6 +74,14 @@ export class RemotePlayers {
     this.remotes.delete(id);
   }
 
+  /** Where another player is: their character if walking, else their car. */
+  locate(id: string): { position: THREE.Vector3; walking: boolean } | null {
+    const r = this.remotes.get(id);
+    if (!r || !r.model.root.visible) return null;
+    const walking = r.avatar.root.visible;
+    return { position: (walking ? r.avatar.root : r.model.root).position, walking };
+  }
+
   applySnapshot(players: PlayerTransform[], now: number): void {
     for (const { id, p, q, car, avatar } of players) {
       const remote = this.remotes.get(id);

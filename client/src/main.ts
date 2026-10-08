@@ -5,10 +5,13 @@ import { TICK_RATE, type PlayerInfo, type WelcomeMessage } from '../../shared/pr
 import { Sounds } from './audio/sounds.ts';
 import { LocalPlayer } from './game/localPlayer.ts';
 import { Input } from './input.ts';
+import { MissionClient } from './game/missions.ts';
 import { Connection } from './net/connection.ts';
 import { RemotePlayers } from './net/remotePlayers.ts';
 import { renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnected, showHud } from './ui/hud.ts';
+import { Chat } from './ui/chat.ts';
 import { runLobby } from './ui/lobby.ts';
+import { showNotice } from './ui/notices.ts';
 import { CAR } from './vehicles/carPhysics.ts';
 import { Doors } from './world/doors.ts';
 import { InteriorLights } from './world/interiorLights.ts';
@@ -20,11 +23,11 @@ const PHYSICS_STEP = 1 / 60;
 // Load the physics WASM while the player is in the lobby.
 const physicsReady = RAPIER.init();
 
-runLobby(async ({ name, room }) => {
+runLobby(async ({ name, room, mode }) => {
   // Browsers only allow audio to start from a user gesture, like this click.
   const listener = new THREE.AudioListener();
   void listener.context.resume();
-  const [{ conn, welcome }] = await Promise.all([Connection.join(name, room), physicsReady]);
+  const [{ conn, welcome }] = await Promise.all([Connection.join(name, room, mode), physicsReady]);
   history.replaceState(null, '', `?room=${welcome.room}`);
   startGame(conn, welcome, listener);
 });
@@ -72,9 +75,22 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   welcome.players.forEach((p) => remotes.add(p));
 
   const players = new Map<string, PlayerInfo>(welcome.players.map((p) => [p.id, p]));
-  const refreshList = () => renderPlayerList([...players.values()], welcome.id);
-  showHud(welcome.room);
+  const missionsMode = welcome.mode === 'missions';
+  let scores = welcome.scores;
+  const refreshList = () => renderPlayerList([...players.values()], welcome.id, missionsMode ? scores : undefined);
+  showHud(welcome.room, welcome.mode);
   refreshList();
+
+  const missions = new MissionClient(world.scene, welcome.id, player, (id) =>
+    id === welcome.id ? { position: player.focus, walking: player.mode === 'foot' } : remotes.locate(id),
+  );
+  missions.apply(welcome.mission, performance.now());
+
+  const input = new Input(world.renderer.domElement);
+  const chat = new Chat();
+  chat.onSend = (text) => conn.send({ type: 'chat', text });
+  chat.onOpen = () => input.releaseAll();
+  chat.system(missionsMode ? 'Missions mode: follow the arrow at the top of the screen. Press Enter to chat.' : 'Free roam. Press Enter to chat.');
 
   conn.on((msg) => {
     switch (msg.type) {
@@ -82,10 +98,25 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
         players.set(msg.player.id, msg.player);
         remotes.add(msg.player);
         refreshList();
+        chat.system(`${msg.player.name} joined`);
         break;
       case 'player_left':
+        chat.system(`${players.get(msg.id)?.name ?? 'Someone'} left`);
         players.delete(msg.id);
         remotes.remove(msg.id);
+        refreshList();
+        break;
+      case 'chat':
+        chat.add(msg, players.get(msg.id)?.color ?? '#fff');
+        break;
+      case 'notice':
+        showNotice(msg.text);
+        break;
+      case 'mission':
+        missions.apply(msg.mission, performance.now());
+        break;
+      case 'scores':
+        scores = msg.scores;
         refreshList();
         break;
       case 'snapshot':
@@ -98,7 +129,6 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   });
   conn.onClose = showDisconnected;
 
-  const input = new Input(world.renderer.domElement);
   let accumulator = 0;
   let lastSend = 0;
   let last = performance.now();
@@ -130,6 +160,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     }
 
     remotes.update(now, dt);
+    missions.update(now, world.camera);
     world.followSun(player.focus);
     interiorLights.update(player.focus);
     world.setIndoor(interiorLights.inside, dt);

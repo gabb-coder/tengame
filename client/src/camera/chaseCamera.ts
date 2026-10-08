@@ -24,6 +24,12 @@ export class ChaseCamera {
     private obstruct?: (from: THREE.Vector3, to: THREE.Vector3) => number | null,
   ) {}
 
+  /** Jump straight behind the target next update instead of easing over (after a teleport). */
+  snap(): void {
+    this.initialized = false;
+    this.position.set(0, 0, 0);
+  }
+
   update(target: THREE.Object3D, speed: number, dt: number): void {
     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(target.quaternion);
     let targetYaw = Math.atan2(forward.x, forward.z);

@@ -50,7 +50,7 @@ Realistic art style, up to 4 players per room, two modes (free-roam and missions
 3. ✅ **Town** – roads, house shells with collision, streaming/LOD.
 4. ✅ **Enter/exit** – car ⇄ on-foot, walking controller, door interaction, synced door state.
 5. ✅ **Interiors** – modular room system, 2 furnished house layouts (living room, kitchen, bedroom, bathroom).
-6. **Missions** – mission manager, 3 starter mission types, lobby with mode selector, text chat.
+6. ✅ **Missions** – mission manager, 3 starter mission types, lobby with mode selector, text chat.
 7. **Realism pass** – PBR assets, baked lighting, HDR sky, day/night cycle.
 8. **Polish & deploy** – HUD, minimap, Fly.io deployment, shareable link.
 

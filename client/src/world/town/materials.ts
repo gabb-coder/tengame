@@ -30,15 +30,25 @@ export function createTownMaterials() {
     door: std({ vertexColors: true, roughness: 0.45, metalness: 0.05 }),
     floor: std({ map: t.wood, color: '#b08a62', roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }),
     brass: std({ color: '#c9a45c', roughness: 0.3, metalness: 1 }),
-    // See-through window glass: mostly reflections from outside, a clear view from inside.
+    // Windows have two one-sided panes: darker and reflective seen from outside (like real
+    // windows in daylight), nearly clear seen from inside.
     glass: new THREE.MeshPhysicalMaterial({
       color: '#a9bfcc',
       roughness: 0.03,
       metalness: 0,
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.15,
       depthWrite: false,
-      envMapIntensity: 1.4,
+      envMapIntensity: 1.2,
+    }),
+    glassOutside: new THREE.MeshPhysicalMaterial({
+      color: '#33424f',
+      roughness: 0.04,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      envMapIntensity: 1.8,
     }),
     frostedGlass: std({ color: '#e8eef0', roughness: 0.4, transparent: true, opacity: 0.75 }),
     interiorWall: std({ map: t.plaster, vertexColors: true, roughness: 0.95 }),

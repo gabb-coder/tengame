@@ -32,6 +32,8 @@ export type Interaction =
 /** The player's own car and character, and switching between them. */
 export class LocalPlayer {
   mode: Mode = 'car';
+  /** Held in place (e.g. on a race grid before the start): brakes on, can't get out. */
+  frozen = false;
   readonly car: Car;
   private character: CharacterPhysics;
   private avatar: AvatarModel;
@@ -66,7 +68,7 @@ export class LocalPlayer {
   /** Fixed-step physics update; call before `world.physics.step()`. */
   fixedStep(input: Input, dt: number): void {
     if (this.mode === 'car') {
-      this.car.step(input.car, dt);
+      this.car.step(this.frozen ? PARKED : input.car, dt);
       return;
     }
     this.car.step(PARKED, dt);
@@ -81,7 +83,7 @@ export class LocalPlayer {
   update(input: Input, dt: number): void {
     this.interaction = this.findInteraction();
     if (input.wasPressed('KeyE')) this.interact();
-    if (this.mode === 'car') {
+    if (this.mode === 'car' && !this.frozen) {
       if (input.wasPressed('KeyR')) this.car.reset();
       if (input.wasPressed('KeyT')) this.car.respawn();
     }
@@ -112,7 +114,15 @@ export class LocalPlayer {
     return { p: [round(f.x), round(f.y), round(f.z)], yaw: round(this.character.yaw), speed: round(this.character.speed) };
   }
 
+  /** Puts the player in their car at a race grid slot. */
+  lineUp(position: THREE.Vector3, yaw: number): void {
+    if (this.mode === 'foot') this.enterCar();
+    this.car.teleport(position, yaw);
+    this.chase.snap();
+  }
+
   private findInteraction(): Interaction {
+    if (this.frozen) return null;
     if (this.mode === 'car') {
       return Math.abs(this.car.physics.speed) <= MAX_EXIT_SPEED ? { kind: 'exit-car' } : { kind: 'too-fast' };
     }

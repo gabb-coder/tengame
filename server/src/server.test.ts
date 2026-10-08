@@ -194,3 +194,57 @@ test('rejects malformed avatar state', async () => {
   assert.deepEqual(stored.avatar, { p: [1, 2, 3], yaw: 0.5, speed: 1 });
   a.close();
 });
+
+test('missions rooms start a mission and keep scores; free roam has none', async () => {
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice', mode: 'missions' });
+  const welcome = await a.next('welcome');
+  assert.equal(welcome.mode, 'missions');
+  assert.deepEqual(welcome.scores, { [welcome.id]: 0 });
+  const { mission } = await a.next('mission');
+  assert.equal(mission!.phase, 'briefing');
+  assert.equal(mission!.id, 1);
+  assert.ok(mission!.timeLeft > 0);
+
+  // A late joiner gets the mission in progress with their welcome.
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room: welcome.room });
+  const wb = await b.next('welcome');
+  assert.equal(wb.mission?.id, 1);
+  assert.deepEqual(Object.keys(wb.scores).sort(), [welcome.id, wb.id].sort());
+
+  const c = await TestClient.connect();
+  c.send({ type: 'join', name: 'Cat' });
+  const wc = await c.next('welcome');
+  assert.equal(wc.mode, 'freeroam');
+  assert.equal(wc.mission, null);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(c.inbox.filter((m) => m.type === 'mission').length, 0);
+  for (const x of [a, b, c]) x.close();
+});
+
+test('chat is relayed to the room, cleaned up, and rate limited', async () => {
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const { room } = await a.next('welcome');
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room });
+  await b.next('welcome');
+
+  a.send({ type: 'chat', text: '  hi\nthere <b>bob</b>  ' });
+  const msg = await b.next('chat');
+  assert.equal(msg.name, 'Alice');
+  assert.equal(msg.text, 'hi there <b>bob</b>'); // control chars stripped; HTML is rendered as text by clients
+  assert.equal((await a.next('chat')).text, msg.text);
+
+  a.send({ type: 'chat', text: '   ' });
+  a.send({ type: 'chat', text: 'x'.repeat(500) });
+  assert.equal((await b.next('chat')).text.length, 200);
+
+  // Flooding: only the first few in a burst get through.
+  for (let i = 0; i < 10; i++) a.send({ type: 'chat', text: `spam ${i}` });
+  await new Promise((r) => setTimeout(r, 200));
+  const spam = b.inbox.filter((m) => m.type === 'chat');
+  assert.ok(spam.length <= 4, `${spam.length} spam messages got through`);
+  for (const x of [a, b]) x.close();
+});
