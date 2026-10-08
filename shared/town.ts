@@ -232,6 +232,32 @@ export function doorPosition(h: House): { x: number; z: number } {
   return { x: h.x + lx * c + lz * s, z: h.z - lx * s + lz * c };
 }
 
+/**
+ * A name for where (x, z) is: a street or intersection, a house's address, or the park.
+ * Empty outside the town.
+ */
+export function locationName(layout: TownLayout, x: number, z: number): string {
+  const inside = (r: Rect) => x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ;
+  if (inside(layout.park)) return 'Town Park';
+  if (layout.blocks.some(inside)) {
+    let best: House | undefined;
+    let bestDistance = Infinity;
+    for (const h of layout.houses) {
+      const d = Math.hypot(h.x - x, h.z - z);
+      if (d < bestDistance) [best, bestDistance] = [h, d];
+    }
+    return best?.address ?? '';
+  }
+  const on = layout.roads.filter((r) => Math.abs((r.axis === 'x' ? z : x) - r.center) <= ROAD_WIDTH / 2);
+  const span = (v: number) => Math.abs(v) <= TOWN_HALF_EXTENT;
+  if (!span(x) || !span(z)) return '';
+  // Streets (east-west) first, then avenues: "Oak Street & 2nd Avenue".
+  return on
+    .sort((a, b) => (a.axis === b.axis ? 0 : a.axis === 'x' ? -1 : 1))
+    .map((r) => r.name)
+    .join(' & ');
+}
+
 /** Even numbers on the south side of a street, odd on the north, increasing eastward. */
 function houseNumber(x: number, facing: 'north' | 'south'): number {
   const base = Math.round((x + TOWN_HALF_EXTENT) / 10) * 2 + 100;

@@ -5,6 +5,7 @@ import type { Sounds } from '../audio/sounds.ts';
 import { ChaseCamera } from '../camera/chaseCamera.ts';
 import { OrbitCamera } from '../camera/orbitCamera.ts';
 import type { Input } from '../input.ts';
+import { CAMERA_RAY_GROUPS } from '../net/remotePlayers.ts';
 import { AvatarModel } from '../player/avatarModel.ts';
 import { CharacterPhysics } from '../player/character.ts';
 import { Car } from '../vehicles/car.ts';
@@ -53,6 +54,7 @@ export class LocalPlayer {
     listener: THREE.AudioListener,
   ) {
     this.car = new Car(world.physics, color, spawn, listener);
+    this.car.onImpact = (strength) => sounds.crash(this.car.object.position, strength);
     world.scene.add(this.car.object);
 
     this.character = new CharacterPhysics(world.physics, HIDDEN_FEET);
@@ -106,6 +108,11 @@ export class LocalPlayer {
   /** Where the camera's attention is, for the sun's shadow area. */
   get focus(): THREE.Vector3 {
     return this.mode === 'car' ? this.car.object.position : this.avatar.root.position;
+  }
+
+  /** Which way the player faces (yaw, 0 = +Z): the car, or the character on foot. */
+  get facing(): number {
+    return this.mode === 'car' ? yawOf(this.car.object.quaternion) : this.character.yaw;
   }
 
   get avatarState(): AvatarState | null {
@@ -200,13 +207,13 @@ export class LocalPlayer {
     return hit ? from.y - hit.timeOfImpact : null;
   }
 
-  /** Distance to the first obstacle between two points, ignoring `exclude`; null if clear. */
+  /** Distance to the first obstacle between two points (not counting other players or `exclude`); null if clear. */
   private castRay(from: THREE.Vector3, to: THREE.Vector3, exclude: RAPIER.RigidBody): number | null {
     const dir = to.clone().sub(from);
     const max = dir.length();
     if (max < 1e-6) return null;
     const ray = new RAPIER.Ray(from, dir.divideScalar(max));
-    const hit = this.world.physics.castRay(ray, max, true, undefined, undefined, undefined, exclude);
+    const hit = this.world.physics.castRay(ray, max, true, undefined, CAMERA_RAY_GROUPS, undefined, exclude);
     return hit ? hit.timeOfImpact : null;
   }
 }

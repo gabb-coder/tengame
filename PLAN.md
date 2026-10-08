@@ -52,7 +52,7 @@ Realistic art style, up to 4 players per room, two modes (free-roam and missions
 5. ✅ **Interiors** – modular room system, 2 furnished house layouts (living room, kitchen, bedroom, bathroom).
 6. ✅ **Missions** – mission manager, 3 starter mission types, lobby with mode selector, text chat.
 7. ✅ **Realism pass** – day/night cycle with a dynamic sky, bloom and ambient occlusion, normal-mapped materials, a new car model. (Downloadable CC0 asset sites are blocked from the build environment, so models and textures are still procedural; real glTF/texture assets can be dropped in later.)
-8. **Polish & deploy** – HUD, minimap, Fly.io deployment, shareable link.
+8. ✅ **Polish & deploy** – heading-up minimap with players, mission target and street/address names; cars and people collide between players (with a crash sound); fullscreen and hide-help keys; lobby works on short screens; the server sends the client precompressed (5.1 MB → 1.4 MB) with long-term caching. Fly.io deploy steps are in the README (they need the owner's Fly account, so the deploy itself is run by the owner).
 
 ## Proposed layout
 
@@ -79,5 +79,12 @@ fly.toml
 
 - Assets: confirm whether the build environment can download CC0 packs
   (Poly Haven, Quaternius, Sketchfab CC0); otherwise use placeholders until the user supplies assets.
-- Fly.io: deploying needs the user's Fly account (`flyctl auth login` or an API token);
-  Dockerfile/`fly.toml` can be prepared in advance.
+- Fly.io: deploying needs the user's Fly account; Dockerfile and `fly.toml` are ready
+  (see README, "Put it online with Fly.io").
+
+## Possible next steps
+
+- Real CC0/purchased 3D models and textures in place of the procedural ones.
+- Doors inside houses (two-story houses currently have open doorways only).
+- More mission types, more car choices, a bigger town.
+- Server-side sanity checks on player positions (not needed among friends).

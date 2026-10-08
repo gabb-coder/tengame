@@ -31,6 +31,12 @@ const MIME: Record<string, string> = {
   '.ktx2': 'image/ktx2',
 };
 
+/** Precompressed copies written by scripts/compress.mjs, best first. */
+const ENCODINGS = [
+  ['br', '.br'],
+  ['gzip', '.gz'],
+] as const;
+
 export interface GameServer {
   http: Server;
   rooms: RoomManager;
@@ -67,8 +73,25 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
     if (!file.startsWith(root + sep) || !existsSync(file) || statSync(file).isDirectory()) {
       file = join(root, 'index.html');
     }
-    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
-    createReadStream(file).pipe(res);
+    const headers: Record<string, string | number> = {
+      'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+      // Built assets have content hashes in their names, so they never change; the page itself might.
+      'cache-control': file.startsWith(join(root, 'assets') + sep) ? 'public, max-age=31536000, immutable' : 'no-cache',
+      vary: 'accept-encoding',
+    };
+    // Send a precompressed copy (made at build time) when the browser accepts one.
+    const accepted = String(req.headers['accept-encoding'] ?? '');
+    for (const [encoding, suffix] of ENCODINGS) {
+      if (new RegExp(`\\b${encoding}\\b`).test(accepted) && existsSync(file + suffix)) {
+        file += suffix;
+        headers['content-encoding'] = encoding;
+        break;
+      }
+    }
+    headers['content-length'] = statSync(file).size;
+    res.writeHead(200, headers);
+    if (req.method === 'HEAD') res.end();
+    else createReadStream(file).pipe(res);
   });
 
   const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 16 * 1024 });

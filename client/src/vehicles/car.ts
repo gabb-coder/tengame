@@ -6,6 +6,9 @@ import { CarPhysics, type CarControls } from './carPhysics.ts';
 import { EngineSound, TireSound } from './engineSound.ts';
 
 const RESPAWN_BELOW_Y = -20;
+/** Sideways/forward deceleration (m/s²) that counts as hitting something; hard braking is ~10. */
+const IMPACT_ACCEL = 35;
+const IMPACT_COOLDOWN = 0.4; // s
 
 /** The player's own car: physics, visuals and sound. */
 export class Car {
@@ -21,6 +24,9 @@ export class Car {
   private lastVelocity = new THREE.Vector3();
   private velocity = new THREE.Vector3();
   private inverse = new THREE.Quaternion();
+  private impactCooldown = 0;
+  /** Called when the car hits something hard; `strength` is 0..1. */
+  onImpact: (strength: number) => void = () => {};
 
   constructor(
     world: RAPIER.World,
@@ -66,6 +72,7 @@ export class Car {
   /** Puts the car back on its wheels where it is. */
   reset(): void {
     this.physics.reset();
+    this.impactCooldown = IMPACT_COOLDOWN; // stopping dead here isn't a crash
   }
 
   /** Teleports the car back to its spawn point. */
@@ -80,6 +87,7 @@ export class Car {
     body.setRotation(new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw), true);
     body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    this.impactCooldown = IMPACT_COOLDOWN;
   }
 
   get bodyHandle(): RAPIER.RigidBody {
@@ -102,8 +110,15 @@ export class Car {
     // Body lean from acceleration in the car's own frame.
     const v = body.linvel();
     this.velocity.set(v.x, v.y, v.z);
+    this.impactCooldown -= dt;
     if (dt > 0) {
       const accel = this.velocity.clone().sub(this.lastVelocity).divideScalar(dt);
+      // Landing from a jump is vertical; crashes are horizontal.
+      const jolt = Math.hypot(accel.x, accel.z);
+      if (jolt > IMPACT_ACCEL && this.impactCooldown <= 0) {
+        this.impactCooldown = IMPACT_COOLDOWN;
+        this.onImpact(Math.min(1, (jolt - IMPACT_ACCEL) / 120 + 0.25));
+      }
       accel.applyQuaternion(this.inverse.copy(this.model.root.quaternion).invert());
       this.model.lean(accel.x, accel.z, dt);
     }

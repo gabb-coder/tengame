@@ -9,9 +9,10 @@ import { Input } from './input.ts';
 import { MissionClient } from './game/missions.ts';
 import { Connection } from './net/connection.ts';
 import { RemotePlayers } from './net/remotePlayers.ts';
-import { renderClock, renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnected, showHud } from './ui/hud.ts';
+import { renderClock, renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnected, showHud, toggleHelp } from './ui/hud.ts';
 import { Chat } from './ui/chat.ts';
-import { runLobby } from './ui/lobby.ts';
+import { runLobby, setLobbyStatus } from './ui/lobby.ts';
+import { Minimap } from './ui/minimap.ts';
 import { showNotice } from './ui/notices.ts';
 import { CAR } from './vehicles/carPhysics.ts';
 import { Doors } from './world/doors.ts';
@@ -33,6 +34,9 @@ runLobby(async ({ name, room, mode }) => {
   void listener.context.resume();
   const [{ conn, welcome }] = await Promise.all([Connection.join(name, room, mode), physicsReady]);
   history.replaceState(null, '', `?room=${welcome.room}`);
+  // Building the town takes a moment; let the status text show first.
+  setLobbyStatus('Building the town…');
+  await new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
   startGame(conn, welcome, listener);
 });
 
@@ -85,7 +89,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   player.requestDoor = (id, open) => conn.send({ type: 'door', id, open });
   const car = player.car;
 
-  const remotes = new RemotePlayers(world.scene, welcome.id, listener);
+  const remotes = new RemotePlayers(world.scene, world.physics, welcome.id, listener);
   welcome.players.forEach((p) => remotes.add(p));
 
   const players = new Map<string, PlayerInfo>(welcome.players.map((p) => [p.id, p]));
@@ -101,6 +105,9 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   );
   missions.apply(welcome.mission, performance.now());
   world.dayNight.setClock(welcome.clock, performance.now());
+
+  const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, document.getElementById('map-label')!, world.town.layout);
+  const view = new THREE.Vector3();
 
   const input = new Input(world.renderer.domElement);
   const chat = new Chat();
@@ -163,6 +170,11 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
       muted = !muted;
       listener.setMasterVolume(muted ? 0 : 1);
     }
+    if (input.wasPressed('KeyH')) toggleHelp();
+    if (input.wasPressed('KeyF')) {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void document.documentElement.requestFullscreen?.().catch(() => {});
+    }
 
     // Fixed-step physics keeps handling identical across frame rates.
     while (accumulator >= PHYSICS_STEP) {
@@ -196,6 +208,16 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     renderPrompt(player.interaction);
     const speed = car.physics.speed;
     renderGauges(Math.abs(speed) < 0.3 ? 0 : speed, car.physics.gear, car.physics.rpm / CAR.redlineRpm);
+    world.camera.getWorldDirection(view);
+    const focus = player.focus;
+    minimap.update(
+      { x: focus.x, z: focus.z, yaw: player.facing, color: me.color },
+      Math.atan2(view.x, view.z),
+      player.mode === 'car' ? speed : 0,
+      remotes.markers(),
+      missions.nextTarget,
+      dt,
+    );
 
     postfx.render(night);
     labels.render(world.scene, world.camera);

@@ -31,6 +31,15 @@ export class Sounds {
     this.burst(out, t, 'bandpass', 1800, 0.03, 0.15);
   }
 
+  /** A crash: a low thump plus a metallic crunch, louder for harder hits (`strength` 0..1). */
+  crash(position: THREE.Vector3, strength: number): void {
+    const out = this.at(position);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'lowpass', 140, 0.35, 1.4 * strength);
+    this.burst(out, t, 'bandpass', 900, 0.18, 0.6 * strength);
+    this.burst(out, t + 0.03, 'bandpass', 2600, 0.12, 0.3 * strength);
+  }
+
   /** Filtered noise with a fast attack and exponential decay. */
   private burst(out: AudioNode, start: number, type: BiquadFilterType, freq: number, length: number, level: number): void {
     const src = this.ctx.createBufferSource();

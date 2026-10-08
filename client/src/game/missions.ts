@@ -109,6 +109,11 @@ export class MissionClient {
     return s.objective;
   }
 
+  /** The next thing this player should go to, if any (also shown on the minimap). */
+  get nextTarget(): THREE.Vector3 | null {
+    return this.state ? this.waypoint(this.state) : null;
+  }
+
   /** Where the arrow points: the next thing this player should go to. */
   private waypoint(s: MissionState): THREE.Vector3 | null {
     if (s.phase !== 'active' && !(s.phase === 'briefing' && s.kind !== 'race')) return null;

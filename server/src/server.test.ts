@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, test } from 'node:test';
+import { brotliCompressSync } from 'node:zlib';
 import { WebSocket } from 'ws';
 import { MAX_PLAYERS, type ServerMessage } from '../../shared/protocol.ts';
 import { doorPosition, generateTown } from '../../shared/town.ts';
@@ -271,4 +275,37 @@ test('rooms share a clock; free roam players can skip ahead, missions players ca
   assert.equal(m.inbox.filter((x) => x.type === 'time').length, 0);
   a.close();
   m.close();
+});
+
+test('serves the built client, precompressed when the browser accepts it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tengame-static-'));
+  mkdirSync(join(dir, 'assets'));
+  writeFileSync(join(dir, 'index.html'), '<!doctype html><title>t</title>');
+  writeFileSync(join(dir, 'assets', 'app-123.js'), 'console.log(1)');
+  writeFileSync(join(dir, 'assets', 'app-123.js.br'), brotliCompressSync('console.log(1)'));
+  const web = createGameServer({ staticDir: dir });
+  await new Promise<void>((done) => web.http.listen(0, done));
+  const base = `http://127.0.0.1:${(web.http.address() as AddressInfo).port}`;
+  try {
+    const js = await fetch(`${base}/assets/app-123.js`, { headers: { 'accept-encoding': 'gzip, br' } });
+    assert.equal(js.headers.get('content-encoding'), 'br');
+    assert.equal(js.headers.get('content-type'), 'text/javascript');
+    assert.match(js.headers.get('cache-control') ?? '', /immutable/);
+    assert.equal(await js.text(), 'console.log(1)'); // fetch decodes it
+
+    const plain = await fetch(`${base}/assets/app-123.js`, { headers: { 'accept-encoding': 'identity' } });
+    assert.equal(plain.headers.get('content-encoding'), null);
+    assert.equal(await plain.text(), 'console.log(1)');
+
+    // Unknown paths (like an invite link) get the page, which must not be cached long.
+    const page = await fetch(`${base}/?room=ABCDE`);
+    assert.equal(page.headers.get('cache-control'), 'no-cache');
+    assert.match(await page.text(), /<title>t<\/title>/);
+
+    const escape = await fetch(`${base}/..%2f..%2fetc%2fpasswd`);
+    assert.match(await escape.text(), /<title>t<\/title>/);
+  } finally {
+    await web.close();
+    rmSync(dir, { recursive: true });
+  }
 });

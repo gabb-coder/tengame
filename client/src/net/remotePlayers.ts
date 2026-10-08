@@ -1,7 +1,9 @@
+import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { AvatarState, CarState, PlayerInfo, PlayerTransform } from '../../../shared/protocol.ts';
 import { AvatarModel } from '../player/avatarModel.ts';
+import { AVATAR, CAPSULE_CENTER } from '../player/character.ts';
 import { CAR } from '../vehicles/carPhysics.ts';
 import { CarModel } from '../vehicles/carModel.ts';
 import { EngineSound } from '../vehicles/engineSound.ts';
@@ -11,6 +13,18 @@ const INTERPOLATION_DELAY_MS = 100;
 const MAX_BUFFERED = 30;
 // Suspension isn't synced; draw wheels at the length the car rests at on flat ground.
 const SETTLED_SUSPENSION = CAR.suspensionRest * 0.65;
+/** Where colliders wait while their player isn't there. */
+const PARKED_FAR = { x: 0, y: -200, z: 0 };
+/** A jump further than this between frames is a teleport, not movement to push things with. */
+const TELEPORT_DISTANCE = 8;
+
+/**
+ * Collision groups (memberships << 16 | filter). Other players are solid to everything,
+ * but camera rays use `CAMERA_RAY_GROUPS` and pass through them, so the camera doesn't
+ * jump in whenever a car drives between it and you.
+ */
+export const REMOTE_GROUPS = (0x0002 << 16) | 0xffff;
+export const CAMERA_RAY_GROUPS = (0x0001 << 16) | 0x0001;
 
 interface Sample {
   t: number;
@@ -29,14 +43,21 @@ interface Remote {
   nameTag: CSS2DObject;
   samples: Sample[];
   wheelSpin: number;
+  /** Stand-ins in our physics world, moved to where the player is drawn, so we bump into them. */
+  carBody: RAPIER.RigidBody;
+  avatarBody: RAPIER.RigidBody;
 }
 
-/** Draws and voices other players' cars, smoothing between server snapshots. */
+/**
+ * Draws and voices other players' cars and characters, smoothing between server
+ * snapshots, and gives them solid bodies in our physics world.
+ */
 export class RemotePlayers {
   private remotes = new Map<string, Remote>();
 
   constructor(
     private scene: THREE.Scene,
+    private physics: RAPIER.World,
     private localId: string,
     private listener: THREE.AudioListener,
   ) {}
@@ -59,7 +80,9 @@ export class RemotePlayers {
     model.root.add(audio);
 
     this.scene.add(model.root);
-    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0 });
+    const carBody = this.kinematicBody(RAPIER.ColliderDesc.cuboid(CAR.halfExtents.x, CAR.halfExtents.y, CAR.halfExtents.z));
+    const avatarBody = this.kinematicBody(RAPIER.ColliderDesc.capsule(AVATAR.halfHeight, AVATAR.radius));
+    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0, carBody, avatarBody });
   }
 
   remove(id: string): void {
@@ -71,7 +94,28 @@ export class RemotePlayers {
     remote.audio.disconnect();
     remote.engine.dispose();
     this.scene.remove(remote.model.root);
+    this.physics.removeRigidBody(remote.carBody);
+    this.physics.removeRigidBody(remote.avatarBody);
     this.remotes.delete(id);
+  }
+
+  /** Each other player's position, heading (yaw, 0 = +Z) and color, for the minimap. */
+  markers(): { x: number; z: number; yaw: number; color: string }[] {
+    const out = [];
+    for (const r of this.remotes.values()) {
+      if (!r.model.root.visible) continue;
+      const walking = r.avatar.root.visible;
+      const o = walking ? r.avatar.root : r.model.root;
+      const yaw = walking ? o.rotation.y : yawOf(o.quaternion);
+      out.push({ x: o.position.x, z: o.position.z, yaw, color: r.info.color });
+    }
+    return out;
+  }
+
+  private kinematicBody(shape: RAPIER.ColliderDesc): RAPIER.RigidBody {
+    const body = this.physics.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(PARKED_FAR.x, PARKED_FAR.y, PARKED_FAR.z));
+    this.physics.createCollider(shape.setCollisionGroups(REMOTE_GROUPS), body);
+    return body;
   }
 
   /** Where another player is: their character if walking, else their car. */
@@ -111,6 +155,7 @@ export class RemotePlayers {
       const next = b ?? a;
       model.root.position.lerpVectors(a.p, next.p, k);
       model.root.quaternion.slerpQuaternions(a.q, next.q, k);
+      moveBody(remote.carBody, model.root.position, model.root.quaternion);
 
       const lerp = (key: 'steer' | 'rpm' | 'load' | 'speed') => a.car[key] + (next.car[key] - a.car[key]) * k;
       const speed = lerp('speed');
@@ -129,6 +174,7 @@ export class RemotePlayers {
     const state = b ?? a;
     const walking = state !== null;
     avatar.root.visible = walking;
+    if (!walking) moveBody(remote.avatarBody, PARKED_FAR);
     const tagParent = walking ? avatar.root : model.root;
     if (nameTag.parent !== tagParent) {
       tagParent.add(nameTag);
@@ -142,7 +188,29 @@ export class RemotePlayers {
     const dy = Math.atan2(Math.sin(to.yaw - from.yaw), Math.cos(to.yaw - from.yaw));
     avatar.root.rotation.y = from.yaw + dy * k;
     avatar.animate(from.speed + (to.speed - from.speed) * k, dt);
+    const feet = avatar.root.position;
+    moveBody(remote.avatarBody, { x: feet.x, y: feet.y + CAPSULE_CENTER, z: feet.z });
   }
+}
+
+/**
+ * Moves a kinematic body for the next physics step. Ordinary moves give it a velocity,
+ * so it shoves what it hits; teleports (respawns, getting in or out) just jump.
+ */
+function moveBody(body: RAPIER.RigidBody, p: THREE.Vector3Like, q?: THREE.QuaternionLike): void {
+  const t = body.translation();
+  if (Math.hypot(p.x - t.x, p.y - t.y, p.z - t.z) > TELEPORT_DISTANCE) {
+    body.setTranslation(p, true);
+    if (q) body.setRotation(q, true);
+    return;
+  }
+  body.setNextKinematicTranslation(p);
+  if (q) body.setNextKinematicRotation(q);
+}
+
+function yawOf(q: THREE.Quaternion): number {
+  const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  return Math.atan2(forward.x, forward.z);
 }
 
 function createNameTag(name: string): CSS2DObject {

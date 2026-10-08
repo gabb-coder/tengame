@@ -28,6 +28,7 @@
           <button type="submit" id="join" name="action" value="join">Join</button>
         </div>
         <p id="lobby-error" class="error" role="alert"></p>
+        <p id="lobby-status" class="status" aria-live="polite"></p>
       </form>
     </div>
 
@@ -57,14 +58,18 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 L20 20 L12 15 L4 20 Z" /></svg>
         <span id="waypoint-distance"></span>
       </div>
+      <div class="hud-map">
+        <canvas id="minimap" aria-label="Map"></canvas>
+        <div id="map-label" class="map-label" hidden></div>
+      </div>
       <div id="notices" class="hud-notices" aria-live="polite"></div>
       <div id="chat" class="hud-chat">
         <ul id="chat-log"></ul>
         <input id="chat-input" maxlength="200" autocomplete="off" placeholder="Say something (Enter to send, Esc to cancel)" hidden />
       </div>
       <div id="hud-prompt" class="panel hud-prompt" hidden></div>
-      <div class="panel hud-help" id="help-car">W accelerate · S brake/reverse · A D steer · Space handbrake · E get out · R flip upright · T respawn · M mute · Enter chat</div>
-      <div class="panel hud-help" id="help-foot" hidden>WASD walk · Shift run · Space jump · Mouse or arrows look · E interact · M mute</div>
+      <div class="panel hud-help" id="help-car"></div>
+      <div class="panel hud-help" id="help-foot" hidden></div>
     </div>
 
     <div id="disconnected" class="overlay" hidden>

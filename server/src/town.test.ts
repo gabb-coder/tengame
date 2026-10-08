@@ -8,6 +8,8 @@ import {
   TOWN_HALF_EXTENT,
   doorPosition,
   generateTown,
+  locationName,
+  roadCenter,
 } from '../../shared/town.ts';
 
 const town = generateTown();
@@ -99,4 +101,18 @@ test('door positions lie on the middle of each house front, facing the street', 
     assert.ok(Math.abs(d.x - expectedX) < 1e-9, `${h.address} door x`);
     assert.ok(Math.abs(h.doorOffset) < h.width / 2 - 1, `${h.address} door too close to a corner`);
   }
+});
+
+test('names streets, intersections, houses and the park', () => {
+  const h = town.houses[5];
+  assert.equal(locationName(town, h.x, h.z), h.address);
+  const d = doorPosition(h);
+  assert.equal(locationName(town, d.x, d.z), h.address);
+  // Oak Street runs east-west at roadCenter(1); 2nd Avenue north-south at roadCenter(1).
+  assert.equal(locationName(town, roadCenter(1) + 30, roadCenter(1)), 'Oak Street');
+  assert.equal(locationName(town, roadCenter(1), roadCenter(1) + 30), '2nd Avenue');
+  assert.equal(locationName(town, roadCenter(1), roadCenter(1)), 'Oak Street & 2nd Avenue');
+  const p = town.park;
+  assert.equal(locationName(town, (p.minX + p.maxX) / 2, (p.minZ + p.maxZ) / 2), 'Town Park');
+  assert.equal(locationName(town, TOWN_HALF_EXTENT + 10, 0), '');
 });

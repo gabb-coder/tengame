@@ -56,14 +56,42 @@ export function renderGauges(speed: number, gear: number, rpm: number): void {
   bar.classList.toggle('redline', rpm > 0.88);
 }
 
+const HELP_KEY = 'tengame.hideHelp';
+let helpHidden = load(HELP_KEY) === '1';
+
+/** H shows or hides the key help line; remembered between visits. */
+export function toggleHelp(): void {
+  helpHidden = !helpHidden;
+  save(HELP_KEY, helpHidden ? '1' : '0');
+}
+
+const CAR_HELP = ['W accelerate', 'S brake/reverse', 'A D steer', 'Space handbrake', 'E get out', 'R flip upright', 'T respawn'];
+const COMMON_HELP = ['M mute', 'F fullscreen', 'Enter chat', 'H hide help'];
+
 /** Shows the speedometer and driving help in the car, walking help on foot. */
 export function renderMode(mode: Mode, pointerLocked: boolean): void {
-  $('help-car').hidden = mode !== 'car';
+  const car = $('help-car');
+  car.hidden = helpHidden || mode !== 'car';
   const foot = $('help-foot');
-  foot.hidden = mode !== 'foot';
+  foot.hidden = helpHidden || mode !== 'foot';
   const look = pointerLocked ? 'Mouse or arrows look' : 'Click to look with the mouse';
-  foot.textContent = `WASD walk · Shift run · Space jump · ${look} · E interact · M mute · Enter chat`;
+  setHelp(car, [...CAR_HELP, ...COMMON_HELP]);
+  setHelp(foot, ['WASD walk', 'Shift run', 'Space jump', look, 'E interact', ...COMMON_HELP]);
   document.querySelector<HTMLElement>('.hud-speed')!.hidden = mode !== 'car';
+}
+
+/** Fills a help line, letting it wrap only between items. */
+function setHelp(el: HTMLElement, items: string[]): void {
+  const key = items.join('|');
+  if (el.dataset.items === key) return;
+  el.dataset.items = key;
+  el.replaceChildren(
+    ...items.map((text) => {
+      const span = document.createElement('span');
+      span.textContent = text;
+      return span;
+    }),
+  );
 }
 
 let lastPrompt = '';
@@ -94,4 +122,20 @@ export function renderClock(hours: number): void {
   if (text === lastClock) return;
   lastClock = text;
   $('hud-clock').textContent = text;
+}
+
+function load(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function save(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage unavailable (private mode); the setting just won't be remembered.
+  }
 }

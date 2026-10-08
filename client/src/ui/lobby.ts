@@ -38,6 +38,7 @@ export function runLobby(onSubmit: (choice: LobbyChoice) => Promise<void>): void
 
     saveName(name);
     error.textContent = '';
+    setLobbyStatus('Connecting…');
     buttons.forEach((b) => (b.disabled = true));
     try {
       const mode = (form.querySelector<HTMLInputElement>('input[name="mode"]:checked')?.value ?? 'freeroam') as GameMode;
@@ -46,9 +47,15 @@ export function runLobby(onSubmit: (choice: LobbyChoice) => Promise<void>): void
     } catch (err) {
       error.textContent = err instanceof Error ? err.message : 'Something went wrong';
     } finally {
+      setLobbyStatus('');
       buttons.forEach((b) => (b.disabled = false));
     }
   });
+}
+
+/** Progress text under the lobby buttons, e.g. while the town is being built. */
+export function setLobbyStatus(text: string): void {
+  document.getElementById('lobby-status')!.textContent = text;
 }
 
 function loadName(): string {
