@@ -51,7 +51,7 @@ Realistic art style, up to 4 players per room, two modes (free-roam and missions
 4. ✅ **Enter/exit** – car ⇄ on-foot, walking controller, door interaction, synced door state.
 5. ✅ **Interiors** – modular room system, 2 furnished house layouts (living room, kitchen, bedroom, bathroom).
 6. ✅ **Missions** – mission manager, 3 starter mission types, lobby with mode selector, text chat.
-7. **Realism pass** – PBR assets, baked lighting, HDR sky, day/night cycle.
+7. ✅ **Realism pass** – day/night cycle with a dynamic sky, bloom and ambient occlusion, normal-mapped materials, a new car model. (Downloadable CC0 asset sites are blocked from the build environment, so models and textures are still procedural; real glTF/texture assets can be dropped in later.)
 8. **Polish & deploy** – HUD, minimap, Fly.io deployment, shareable link.
 
 ## Proposed layout

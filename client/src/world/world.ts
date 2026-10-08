@@ -1,26 +1,21 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { Sky } from 'three/addons/objects/Sky.js';
 import { TOWN_HALF_EXTENT } from '../../../shared/town.ts';
+import { DayNight } from './dayNight.ts';
 import { createTownMaterials, type TownMaterials } from './town/materials.ts';
 import { flatRect } from './town/meshBuilder.ts';
 import { setMaxAnisotropy, TEXTURE_TILE } from './town/textures.ts';
 import { buildTown, type Town } from './town/town.ts';
 
 const GROUND_SIZE = 1400;
-const OUTDOOR = { environment: 0.6, hemisphere: 0.4 };
-const INDOOR = { environment: 0.18, hemisphere: 0.1 };
 
-/** Renderer, sky and lighting, physics world, and the town. */
+/** Renderer, sky and time of day, physics world, and the town. */
 export class World {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(60, 1, 0.3, 2000);
   readonly physics: RAPIER.World;
-  readonly sun: THREE.DirectionalLight;
-  private hemisphere!: THREE.HemisphereLight;
-  /** 0 outdoors, 1 indoors; eases between the two. */
-  private indoor = 0;
+  readonly dayNight: DayNight;
   readonly town: Town;
   readonly materials: TownMaterials;
 
@@ -36,7 +31,7 @@ export class World {
 
     this.physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 
-    this.sun = this.addSkyAndLights();
+    this.dayNight = new DayNight(this.renderer, this.scene);
     this.materials = createTownMaterials();
     this.addGround(this.materials);
     this.town = buildTown(this.scene, this.physics, this.materials);
@@ -46,62 +41,6 @@ export class World {
     this.renderer.setSize(width, height);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-  }
-
-  /**
-   * Sky light doesn't know about walls, so indoors it would flood every room. Dim it while
-   * the player is inside (like eyes adjusting) and let the room lights do the work.
-   */
-  setIndoor(inside: boolean, dt: number): void {
-    this.indoor += ((inside ? 1 : 0) - this.indoor) * (1 - Math.exp(-dt * 3));
-    const k = this.indoor;
-    this.scene.environmentIntensity = THREE.MathUtils.lerp(OUTDOOR.environment, INDOOR.environment, k);
-    this.hemisphere.intensity = THREE.MathUtils.lerp(OUTDOOR.hemisphere, INDOOR.hemisphere, k);
-  }
-
-  /** Keeps the shadow-casting area centered on the player. */
-  followSun(target: THREE.Vector3): void {
-    this.sun.position.copy(target).add(new THREE.Vector3(40, 80, 30));
-    this.sun.target.position.copy(target);
-  }
-
-  private addSkyAndLights(): THREE.DirectionalLight {
-    const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(55), THREE.MathUtils.degToRad(50));
-
-    const sky = new Sky();
-    sky.scale.setScalar(1500);
-    const u = sky.material.uniforms;
-    u.turbidity.value = 6;
-    u.rayleigh.value = 1.5;
-    u.mieCoefficient.value = 0.005;
-    u.mieDirectionalG.value = 0.8;
-    u.sunPosition.value.copy(sunDir);
-    this.scene.add(sky);
-
-    // Image-based lighting from the sky gives materials realistic reflections.
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    const envScene = new THREE.Scene();
-    envScene.add(sky.clone());
-    this.scene.environment = pmrem.fromScene(envScene).texture;
-    this.scene.environmentIntensity = OUTDOOR.environment;
-    pmrem.dispose();
-
-    this.scene.fog = new THREE.Fog('#b9c7d6', 160, 750);
-
-    const sun = new THREE.DirectionalLight('#fff4e0', 2.5);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    const s = sun.shadow.camera;
-    s.left = s.bottom = -70;
-    s.right = s.top = 70;
-    s.near = 1;
-    s.far = 250;
-    sun.shadow.bias = -0.0005;
-    sun.shadow.normalBias = 0.02;
-    this.scene.add(sun, sun.target);
-    this.hemisphere = new THREE.HemisphereLight('#cfe3ff', '#4a4034', OUTDOOR.hemisphere);
-    this.scene.add(this.hemisphere);
-    return sun;
   }
 
   /** Grass around the town. The town covers its own area, so nothing overlaps here. */

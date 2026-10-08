@@ -191,12 +191,20 @@ function glaze(builder: MeshBuilder, inside: MeshBuilder, m: TownMaterials, M: T
   if (o.kind === 'smallWindow') {
     builder.add(box(o.width, height, 0.02), m.frostedGlass, at(0, height / 2), undefined, { castShadow: false });
   } else {
-    builder.add(pane, m.glassOutside, M.clone().multiply(outer), undefined, { castShadow: false });
+    // About half the windows have a light on behind them after dark.
+    const lit = hash(`${h.id}:${side}:${o.center.toFixed(2)}:${o.bottom.toFixed(2)}`) % 100 < 55;
+    builder.add(pane, lit ? m.glassOutsideLit : m.glassOutside, M.clone().multiply(outer), undefined, { castShadow: false });
     inside.add(pane, m.glass, M.clone().multiply(inner), undefined, { castShadow: false });
   }
   // Sash bars: a cross for big windows.
   builder.add(box(o.width, 0.05, 0.05), m.trim, at(0, height / 2));
   if (o.kind === 'window') builder.add(box(0.05, height, 0.05), m.trim, at(0, height / 2));
+}
+
+function hash(s: string): number {
+  let h = 2166136261;
+  for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return h >>> 0;
 }
 
 /**

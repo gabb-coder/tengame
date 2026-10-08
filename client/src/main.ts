@@ -3,18 +3,22 @@ import * as THREE from 'three';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { TICK_RATE, type PlayerInfo, type WelcomeMessage } from '../../shared/protocol.ts';
 import { Sounds } from './audio/sounds.ts';
+import { PostFX, type Quality } from './render/postfx.ts';
 import { LocalPlayer } from './game/localPlayer.ts';
 import { Input } from './input.ts';
 import { MissionClient } from './game/missions.ts';
 import { Connection } from './net/connection.ts';
 import { RemotePlayers } from './net/remotePlayers.ts';
-import { renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnected, showHud } from './ui/hud.ts';
+import { renderClock, renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnected, showHud } from './ui/hud.ts';
 import { Chat } from './ui/chat.ts';
 import { runLobby } from './ui/lobby.ts';
 import { showNotice } from './ui/notices.ts';
 import { CAR } from './vehicles/carPhysics.ts';
 import { Doors } from './world/doors.ts';
 import { InteriorLights } from './world/interiorLights.ts';
+import { StreetLights } from './world/streetLights.ts';
+import { lampPositions } from './world/town/roads.ts';
+import { CarModel } from './vehicles/carModel.ts';
 import { World } from './world/world.ts';
 
 const SEND_INTERVAL_MS = 1000 / TICK_RATE;
@@ -43,8 +47,17 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   labels.domElement.style.pointerEvents = 'none';
   container.appendChild(labels.domElement);
 
+  const postfx = new PostFX(world.renderer, world.scene, world.camera);
+  const qualitySelect = document.getElementById('quality') as HTMLSelectElement;
+  qualitySelect.value = postfx.quality;
+  qualitySelect.addEventListener('change', () => {
+    postfx.setQuality(qualitySelect.value as Quality);
+    qualitySelect.blur(); // so game keys don't change the selection
+  });
+
   const resize = () => {
     world.resize(innerWidth, innerHeight);
+    postfx.setSize(innerWidth, innerHeight);
     labels.setSize(innerWidth, innerHeight);
   };
   addEventListener('resize', resize);
@@ -62,6 +75,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   doors.onSwing = (position, opening) => sounds.door(position, opening);
   for (const id of welcome.openDoors) doors.setOpen(id, true, true);
   const interiorLights = new InteriorLights(world.scene, world.town.layout.houses, world.town.interiors);
+  const streetLights = new StreetLights(world.scene, lampPositions(world.town.layout), world.materials.lampGlow);
 
   const me = welcome.players.find((p) => p.id === welcome.id)!;
   // Separate spawn points so players don't start inside each other.
@@ -79,12 +93,14 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   let scores = welcome.scores;
   const refreshList = () => renderPlayerList([...players.values()], welcome.id, missionsMode ? scores : undefined);
   showHud(welcome.room, welcome.mode);
+  document.getElementById('hud-clock-hint')!.hidden = welcome.mode !== 'freeroam';
   refreshList();
 
   const missions = new MissionClient(world.scene, welcome.id, player, (id) =>
     id === welcome.id ? { position: player.focus, walking: player.mode === 'foot' } : remotes.locate(id),
   );
   missions.apply(welcome.mission, performance.now());
+  world.dayNight.setClock(welcome.clock, performance.now());
 
   const input = new Input(world.renderer.domElement);
   const chat = new Chat();
@@ -115,6 +131,9 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
       case 'mission':
         missions.apply(msg.mission, performance.now());
         break;
+      case 'time':
+        world.dayNight.setClock(msg.clock, performance.now());
+        break;
       case 'scores':
         scores = msg.scores;
         refreshList();
@@ -139,6 +158,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     accumulator += dt;
     last = now;
 
+    if (input.wasPressed('KeyN') && welcome.mode === 'freeroam') conn.send({ type: 'time', skip: 2 });
     if (input.wasPressed('KeyM')) {
       muted = !muted;
       listener.setMasterVolume(muted ? 0 : 1);
@@ -161,9 +181,15 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
 
     remotes.update(now, dt);
     missions.update(now, world.camera);
-    world.followSun(player.focus);
     interiorLights.update(player.focus);
-    world.setIndoor(interiorLights.inside, dt);
+    world.dayNight.update(now, dt, player.focus, interiorLights.inside);
+    const night = world.dayNight.night;
+    streetLights.update(player.focus, night, dt);
+    world.materials.glassOutsideLit.emissiveIntensity = night * 1.4;
+    CarModel.setHeadlights(night);
+    car.setNight(night);
+    remotes.setNight(night);
+    renderClock(world.dayNight.hours(now));
     world.town.updateInteriors(world.camera.position);
 
     renderMode(player.mode, input.pointerLocked);
@@ -171,7 +197,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     const speed = car.physics.speed;
     renderGauges(Math.abs(speed) < 0.3 ? 0 : speed, car.physics.gear, car.physics.rpm / CAR.redlineRpm);
 
-    world.renderer.render(world.scene, world.camera);
+    postfx.render(night);
     labels.render(world.scene, world.camera);
   });
 }

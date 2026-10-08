@@ -248,3 +248,27 @@ test('chat is relayed to the room, cleaned up, and rate limited', async () => {
   assert.ok(spam.length <= 4, `${spam.length} spam messages got through`);
   for (const x of [a, b]) x.close();
 });
+
+test('rooms share a clock; free roam players can skip ahead, missions players cannot', async () => {
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const w = await a.next('welcome');
+  assert.ok(w.clock.hours >= 9 && w.clock.hours < 9.1, `starts at ${w.clock.hours}`);
+  assert.ok(w.clock.rate > 0);
+  a.send({ type: 'time', skip: 3 });
+  const t = await a.next('time');
+  assert.ok(Math.abs(t.clock.hours - 12) < 0.1, `skipped to ${t.clock.hours}`);
+  // Too soon after the last skip: ignored.
+  a.send({ type: 'time', skip: 3 });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(a.inbox.filter((m) => m.type === 'time').length, 0);
+
+  const m = await TestClient.connect();
+  m.send({ type: 'join', name: 'Max', mode: 'missions' });
+  await m.next('welcome');
+  m.send({ type: 'time', skip: 5 });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(m.inbox.filter((x) => x.type === 'time').length, 0);
+  a.close();
+  m.close();
+});

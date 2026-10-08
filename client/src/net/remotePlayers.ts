@@ -91,6 +91,11 @@ export class RemotePlayers {
     }
   }
 
+  /** Tail lights glow after dark. */
+  setNight(night: number): void {
+    for (const r of this.remotes.values()) r.model.setNight(night);
+  }
+
   update(now: number, dt: number): void {
     const renderTime = now - INTERPOLATION_DELAY_MS;
     for (const remote of this.remotes.values()) {

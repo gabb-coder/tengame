@@ -11,6 +11,17 @@ export const MAX_CHAT_LENGTH = 200;
 
 export type GameMode = 'freeroam' | 'missions';
 
+/** Game hours that pass per real second: a full day takes 24 minutes. */
+export const DAY_RATE = 1 / 60;
+/** Time of day new rooms start at. */
+export const START_HOUR = 9;
+
+/** Time of day: `hours` (0..24) at the moment it was sent, advancing at `rate` game hours per real second. */
+export interface Clock {
+  hours: number;
+  rate: number;
+}
+
 export type Vec3 = [number, number, number];
 export type Quat = [number, number, number, number];
 
@@ -67,6 +78,12 @@ export interface ChatRequestMessage {
   text: string;
 }
 
+/** Free roam: skip the clock ahead by some hours. */
+export interface TimeRequestMessage {
+  type: 'time';
+  skip: number;
+}
+
 export interface StateMessage {
   type: 'state';
   p: Vec3;
@@ -82,7 +99,7 @@ export interface DoorRequestMessage {
   open: boolean;
 }
 
-export type ClientMessage = JoinMessage | StateMessage | DoorRequestMessage | ChatRequestMessage;
+export type ClientMessage = JoinMessage | StateMessage | DoorRequestMessage | ChatRequestMessage | TimeRequestMessage;
 
 // ---- server -> client ----
 
@@ -97,6 +114,13 @@ export interface WelcomeMessage {
   /** Mission points by player id (missions mode). */
   scores: Record<string, number>;
   mission: MissionState | null;
+  clock: Clock;
+}
+
+/** The clock was changed (someone skipped time). */
+export interface TimeMessage {
+  type: 'time';
+  clock: Clock;
 }
 
 export interface ChatMessage {
@@ -204,4 +228,5 @@ export type ServerMessage =
   | NoticeMessage
   | MissionMessage
   | ScoresMessage
+  | TimeMessage
   | ErrorMessage;

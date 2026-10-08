@@ -133,23 +133,39 @@ export interface WallRect {
 
 /**
  * Splits a wall from `lo` to `hi` (along it) and `bottom` to `top` into solid pieces
- * around rectangular openings: full-height columns between openings, plus the
- * pieces below and above each opening.
+ * around rectangular openings, which may overlap along the wall (a window above a door).
+ * The wall is cut into vertical strips at every opening edge; each strip is filled
+ * between the openings that span it. Neighboring strips with the same layout merge.
  */
 export function wallPieces(lo: number, hi: number, bottom: number, top: number, openings: { center: number; width: number; bottom: number; top: number }[]): WallRect[] {
-  const pieces: WallRect[] = [];
-  const sorted = openings
+  const eps = 1e-4;
+  const holes = openings
     .filter((o) => o.top > bottom && o.bottom < top)
     .map((o) => ({ u0: Math.max(lo, o.center - o.width / 2), u1: Math.min(hi, o.center + o.width / 2), v0: Math.max(bottom, o.bottom), v1: Math.min(top, o.top) }))
-    .sort((a, b) => a.u0 - b.u0);
-  let cursor = lo;
-  for (const o of sorted) {
-    if (o.u0 > cursor + 1e-4) pieces.push({ u0: cursor, u1: o.u0, v0: bottom, v1: top });
-    if (o.v0 > bottom + 1e-4) pieces.push({ u0: o.u0, u1: o.u1, v0: bottom, v1: o.v0 });
-    if (o.v1 < top - 1e-4) pieces.push({ u0: o.u0, u1: o.u1, v0: o.v1, v1: top });
-    cursor = Math.max(cursor, o.u1);
+    .filter((o) => o.u1 - o.u0 > eps);
+  const cuts = [...new Set([lo, hi, ...holes.flatMap((o) => [o.u0, o.u1])])].sort((a, b) => a - b);
+  const pieces: WallRect[] = [];
+  let previous: { key: string; pieces: WallRect[] } | null = null;
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const [a, b] = [cuts[i], cuts[i + 1]];
+    if (b - a < eps) continue;
+    const spanning = holes.filter((o) => o.u0 <= a + eps && o.u1 >= b - eps).sort((x, y) => x.v0 - y.v0);
+    const strip: WallRect[] = [];
+    let cursor = bottom;
+    for (const o of spanning) {
+      if (o.v0 > cursor + eps) strip.push({ u0: a, u1: b, v0: cursor, v1: o.v0 });
+      cursor = Math.max(cursor, o.v1);
+    }
+    if (cursor < top - eps) strip.push({ u0: a, u1: b, v0: cursor, v1: top });
+    const key = strip.map((r) => `${r.v0.toFixed(4)}:${r.v1.toFixed(4)}`).join('|');
+    if (previous && previous.key === key) {
+      // Same vertical layout as the strip to the left: widen those pieces instead.
+      for (const r of previous.pieces) r.u1 = b;
+      continue;
+    }
+    pieces.push(...strip);
+    previous = { key, pieces: strip };
   }
-  if (cursor < hi - 1e-4) pieces.push({ u0: cursor, u1: hi, v0: bottom, v1: top });
   return pieces;
 }
 

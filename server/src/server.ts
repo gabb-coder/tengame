@@ -114,7 +114,10 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           mode: room.mode,
           scores: room.scoreTable(),
           mission: room.missions?.snapshot(Date.now()) ?? null,
+          clock: room.clock(),
         });
+      } else if (msg.type === 'time') {
+        if (room) room.skipTime(Number(msg.skip));
       } else if (msg.type === 'chat') {
         if (room && player) room.chat(player, String(msg.text ?? ''));
       } else if (msg.type === 'state') {

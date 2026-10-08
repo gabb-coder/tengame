@@ -5,8 +5,8 @@ import { cylinderCollider } from './colliders.ts';
 import type { TownMaterials } from './materials.ts';
 
 const FOLIAGE_COLORS = ['#4f6b33', '#5d7a3a', '#3f5a2e', '#6b7f3c', '#486634'];
-const LAMP_HEIGHT = 6;
-const ARM_LENGTH = 1.6;
+export const LAMP_HEIGHT = 6;
+export const ARM_LENGTH = 1.6;
 
 /**
  * Deciduous trees as instanced meshes (trunk + three foliage clumps).

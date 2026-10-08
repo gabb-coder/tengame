@@ -21,6 +21,42 @@ function canvasTexture(size: number, seed: number, draw: (ctx: CanvasRenderingCo
   return tex;
 }
 
+/**
+ * Normal map from a texture's brightness (darker = lower), so grooves like mortar,
+ * plank gaps and shingle edges catch the light. `strength` scales the bumps.
+ */
+export function normalMapFrom(tex: THREE.CanvasTexture, strength: number): THREE.CanvasTexture {
+  const src = tex.image as HTMLCanvasElement;
+  const size = src.width;
+  const data = src.getContext('2d')!.getImageData(0, 0, size, size).data;
+  const height = new Float32Array(size * size);
+  for (let i = 0; i < size * size; i++) height[i] = (data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114) / 255;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const out = ctx.createImageData(size, size);
+  const at = (x: number, y: number) => height[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Canvas rows run down while texture V runs up, hence the sign on Y.
+      const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+      const len = Math.hypot(dx, dy, 1);
+      const i = (y * size + x) * 4;
+      out.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
+      out.data[i + 1] = ((dy / len) * 0.5 + 0.5) * 255;
+      out.data[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      out.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+  const normal = new THREE.CanvasTexture(canvas);
+  normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
+  normal.colorSpace = THREE.NoColorSpace;
+  normal.anisotropy = maxAnisotropy;
+  return normal;
+}
+
 /** Fills with a base gray and sprinkles `count` dots of varying lightness. */
 function speckle(ctx: CanvasRenderingContext2D, rng: () => number, base: number, spread: number, count: number, maxRadius: number): void {
   const size = ctx.canvas.width;
@@ -51,18 +87,18 @@ function blotches(ctx: CanvasRenderingContext2D, rng: () => number, count: numbe
 }
 
 export interface TownTextures {
-  asphalt: THREE.Texture;
-  grass: THREE.Texture;
-  sidewalk: THREE.Texture;
-  concrete: THREE.Texture;
-  plaster: THREE.Texture;
-  brick: THREE.Texture;
-  siding: THREE.Texture;
-  shingles: THREE.Texture;
-  bark: THREE.Texture;
-  wood: THREE.Texture;
-  tile: THREE.Texture;
-  carpet: THREE.Texture;
+  asphalt: THREE.CanvasTexture;
+  grass: THREE.CanvasTexture;
+  sidewalk: THREE.CanvasTexture;
+  concrete: THREE.CanvasTexture;
+  plaster: THREE.CanvasTexture;
+  brick: THREE.CanvasTexture;
+  siding: THREE.CanvasTexture;
+  shingles: THREE.CanvasTexture;
+  bark: THREE.CanvasTexture;
+  wood: THREE.CanvasTexture;
+  tile: THREE.CanvasTexture;
+  carpet: THREE.CanvasTexture;
 }
 
 /** Meters covered by one repeat of each texture. */
@@ -119,7 +155,7 @@ export function createTownTextures(): TownTextures {
       blotches(ctx, rng, 8, 'rgba(180,175,165,A)', 0.15);
     }),
     brick: canvasTexture(256, 6, (ctx, rng) => {
-      ctx.fillStyle = '#d8d2c8'; // mortar
+      ctx.fillStyle = '#a9a49b'; // mortar, recessed (darker reads as lower in the normal map)
       ctx.fillRect(0, 0, 256, 256);
       const rows = 16;
       const h = 256 / rows;

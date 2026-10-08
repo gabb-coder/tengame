@@ -3,7 +3,10 @@ import type { WebSocket } from 'ws';
 import {
   type AvatarState,
   type CarState,
+  type Clock,
+  DAY_RATE,
   type GameMode,
+  START_HOUR,
   MAX_CHAT_LENGTH,
   MAX_NAME_LENGTH,
   MAX_PLAYERS,
@@ -40,12 +43,17 @@ export class Room {
   readonly scores = new Map<string, number>();
   readonly missions: MissionManager | null;
   private chatTimes = new Map<string, number[]>();
+  /** Hours on the clock at `clockSetAt` (real ms). */
+  private clockHours = START_HOUR;
+  private clockSetAt: number;
+  private lastSkip = -Infinity;
 
   constructor(
     readonly code: string,
     readonly mode: GameMode = 'freeroam',
     private now: () => number = Date.now,
   ) {
+    this.clockSetAt = now();
     this.missions =
       mode === 'missions'
         ? new MissionManager({
@@ -107,6 +115,23 @@ export class Room {
     recent.push(now);
     this.chatTimes.set(player.id, recent);
     this.broadcast({ type: 'chat', id: player.id, name: player.name, text });
+  }
+
+  clock(): Clock {
+    const elapsed = (this.now() - this.clockSetAt) / 1000;
+    return { hours: (this.clockHours + elapsed * DAY_RATE) % 24, rate: DAY_RATE };
+  }
+
+  /** Free roam only: jump the clock forward 1-12 hours (at most once a second). */
+  skipTime(hours: number): void {
+    if (this.mode !== 'freeroam' || !Number.isFinite(hours)) return;
+    const now = this.now();
+    if (now - this.lastSkip < 1000) return;
+    this.lastSkip = now;
+    const current = this.clock().hours;
+    this.clockHours = (current + Math.min(12, Math.max(1, Math.round(hours)))) % 24;
+    this.clockSetAt = now;
+    this.broadcast({ type: 'time', clock: this.clock() });
   }
 
   tick(): void {

@@ -83,3 +83,15 @@ export function renderPrompt(i: Interaction): void {
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
+
+let lastClock = '';
+
+/** Time of day, e.g. "18:40". */
+export function renderClock(hours: number): void {
+  const h = Math.floor(hours);
+  const m = Math.floor((hours - h) * 60);
+  const text = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  if (text === lastClock) return;
+  lastClock = text;
+  $('hud-clock').textContent = text;
+}

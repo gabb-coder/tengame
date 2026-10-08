@@ -507,3 +507,36 @@ button:disabled {
     width: calc(100vw - 32px);
   }
 }
+
+.clock-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+#hud-clock {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.clock-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.quality {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.quality select {
+  font: inherit;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--panel-text);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}

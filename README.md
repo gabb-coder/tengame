@@ -3,7 +3,7 @@
 A browser-based 3D multiplayer driving game (up to 4 players per room).
 See [PLAN.md](PLAN.md) for the roadmap.
 
-**Current status: milestone 6.** Drive a car with suspension, steering, tire grip, an
+**Current status: milestone 7.** Drive a car with suspension, steering, tire grip, an
 automatic gearbox and engine sound around a small town of 48 houses. Get out to walk around,
 open front doors and explore furnished rooms (two-story houses have stairs).
 
@@ -18,6 +18,11 @@ Two modes, chosen when you create a room:
 
 A yellow arrow at the top of the screen points to your next target, and beams of light
 mark targets around town. Press **Enter** to chat in either mode.
+
+Time of day is shared by everyone in a room: a full day takes 24 minutes, with sunrise,
+sunset and night (street lamps, lit windows, headlights, stars). In free roam, press **N**
+to skip ahead 2 hours. The **Graphics** menu in the top-left panel trades looks for speed:
+Low (no post-processing), Medium (glow), High (glow plus ambient occlusion).
 
 ## Run locally
 
@@ -43,6 +48,8 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 | R | Flip the car upright where it is |
 | T | Respawn at your starting spot |
 | M | Mute sound |
+| N | Skip 2 hours (free roam) |
+| Enter | Chat |
 
 **On foot**
 

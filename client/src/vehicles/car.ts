@@ -16,6 +16,8 @@ export class Car {
   private controls: CarControls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
   /** Off while parked with nobody inside: silent and reported as 0 rpm. */
   engineOn = true;
+  /** Real headlights for the player's own car (other cars just glow). */
+  private beams: THREE.SpotLight[] = [];
   private lastVelocity = new THREE.Vector3();
   private velocity = new THREE.Vector3();
   private inverse = new THREE.Quaternion();
@@ -33,6 +35,21 @@ export class Car {
     this.engine.output.connect(audio.getInput());
     this.tires = new TireSound(audio.context);
     this.tires.output.connect(audio.getInput());
+
+    for (const side of [-1, 1]) {
+      const beam = new THREE.SpotLight('#fff3dc', 0, 90, 0.45, 0.5, 1.1);
+      beam.position.set(side * 0.62, 0.15, 2.2);
+      beam.target.position.set(side * 0.5, -1.2, 22);
+      this.model.root.add(beam, beam.target);
+      this.beams.push(beam);
+    }
+  }
+
+  /** Headlights on at night, while the engine runs. */
+  setNight(night: number): void {
+    const on = this.engineOn ? THREE.MathUtils.smoothstep(night, 0.25, 0.6) : 0;
+    for (const beam of this.beams) beam.intensity = on * 260;
+    this.model.setNight(night);
   }
 
   get object(): THREE.Object3D {

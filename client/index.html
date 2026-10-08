@@ -34,7 +34,15 @@
     <div id="hud" hidden>
       <div class="panel hud-room">
         <div>Room <strong id="hud-code"></strong> <span id="hud-mode" class="mode-badge"></span></div>
+        <div class="clock-row"><span id="hud-clock">--:--</span><small id="hud-clock-hint">N: skip 2 h</small></div>
         <button id="copy-link" type="button">Copy invite link</button>
+        <label class="quality">Graphics
+          <select id="quality">
+            <option value="low">Low (fastest)</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
         <ul id="hud-players"></ul>
       </div>
       <div class="panel hud-speed" aria-live="off">

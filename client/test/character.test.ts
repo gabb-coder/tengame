@@ -162,3 +162,17 @@ test('furniture blocks walking', () => {
   const into = new THREE.Vector3(p.x - bed.x, 0, p.z - bed.z).dot(toward);
   assert.ok(into < -bed.d / 2, `walked into the bed (${into.toFixed(2)} from its center)`);
 });
+
+test('every house can be entered through its open front door', () => {
+  for (const h of generateTown().houses) {
+    const { world, doors } = setup(h);
+    doors.setOpen(h.id, true, true);
+    world.step();
+    const d = doorPosition(h);
+    const out = localDir(h, 0, 1);
+    const c = new CharacterPhysics(world, { x: d.x + out.x * 2.5, y: CURB_HEIGHT, z: d.z + out.z * 2.5 });
+    walk(world, c, out.clone().negate(), 3);
+    const p = c.feet.clone().applyMatrix4(houseMatrix(h).invert());
+    assert.ok(p.z < h.depth / 2 - 1.2, `${h.address} (${h.stories} stories): stuck at local z=${p.z.toFixed(2)}`);
+  }
+});
