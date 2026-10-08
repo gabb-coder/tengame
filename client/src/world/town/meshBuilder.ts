@@ -86,16 +86,71 @@ export function box(width: number, height: number, depth: number, tile = 1): THR
   return g;
 }
 
-/** Horizontal rectangle facing up, with UVs in world meters / `tile`. */
-export function flatRect(minX: number, minZ: number, maxX: number, maxZ: number, y: number, tile = 1): THREE.BufferGeometry {
+/** Horizontal rectangle facing up (or down, for ceilings), with UVs in world meters / `tile`. */
+export function flatRect(minX: number, minZ: number, maxX: number, maxZ: number, y: number, tile = 1, facingDown = false): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
-  const positions = [minX, y, minZ, minX, y, maxZ, maxX, y, maxZ, minX, y, minZ, maxX, y, maxZ, maxX, y, minZ];
+  const up = [minX, y, minZ, minX, y, maxZ, maxX, y, maxZ, minX, y, minZ, maxX, y, maxZ, maxX, y, minZ];
+  const down = [minX, y, minZ, maxX, y, maxZ, minX, y, maxZ, minX, y, minZ, maxX, y, minZ, maxX, y, maxZ];
+  const positions = facingDown ? down : up;
   const uvs: number[] = [];
   for (let i = 0; i < positions.length; i += 3) uvs.push(positions[i] / tile, -positions[i + 2] / tile);
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(Array(18).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(Array(18).fill(0).map((_, i) => (i % 3 === 1 ? (facingDown ? -1 : 1) : 0)), 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   return g;
+}
+
+/**
+ * Box spanning `min`..`max` whose UVs come from its position (meters / `tile`), so
+ * textures line up across neighboring boxes, e.g. wall segments around windows.
+ */
+export function projectedBox(min: THREE.Vector3Like, max: THREE.Vector3Like, tile = 1): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(max.x - min.x, max.y - min.y, max.z - min.z).translate(
+    (min.x + max.x) / 2,
+    (min.y + max.y) / 2,
+    (min.z + max.z) / 2,
+  );
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const normal = g.attributes.normal as THREE.BufferAttribute;
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const [x, y, z] = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+    const [nx, ny] = [Math.abs(normal.getX(i)), Math.abs(normal.getY(i))];
+    if (ny > 0.5) uv.setXY(i, x / tile, z / tile);
+    else if (nx > 0.5) uv.setXY(i, z / tile, y / tile);
+    else uv.setXY(i, x / tile, y / tile);
+  }
+  return g;
+}
+
+/** A rectangle in a wall's plane: `u` along the wall, `v` up. */
+export interface WallRect {
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+}
+
+/**
+ * Splits a wall from `lo` to `hi` (along it) and `bottom` to `top` into solid pieces
+ * around rectangular openings: full-height columns between openings, plus the
+ * pieces below and above each opening.
+ */
+export function wallPieces(lo: number, hi: number, bottom: number, top: number, openings: { center: number; width: number; bottom: number; top: number }[]): WallRect[] {
+  const pieces: WallRect[] = [];
+  const sorted = openings
+    .filter((o) => o.top > bottom && o.bottom < top)
+    .map((o) => ({ u0: Math.max(lo, o.center - o.width / 2), u1: Math.min(hi, o.center + o.width / 2), v0: Math.max(bottom, o.bottom), v1: Math.min(top, o.top) }))
+    .sort((a, b) => a.u0 - b.u0);
+  let cursor = lo;
+  for (const o of sorted) {
+    if (o.u0 > cursor + 1e-4) pieces.push({ u0: cursor, u1: o.u0, v0: bottom, v1: top });
+    if (o.v0 > bottom + 1e-4) pieces.push({ u0: o.u0, u1: o.u1, v0: bottom, v1: o.v0 });
+    if (o.v1 < top - 1e-4) pieces.push({ u0: o.u0, u1: o.u1, v0: o.v1, v1: top });
+    cursor = Math.max(cursor, o.u1);
+  }
+  if (cursor < hi - 1e-4) pieces.push({ u0: cursor, u1: hi, v0: bottom, v1: top });
+  return pieces;
 }
 
 export const IDENTITY = new THREE.Matrix4();

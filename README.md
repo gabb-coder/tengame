@@ -3,11 +3,12 @@
 A browser-based 3D multiplayer driving game (up to 4 players per room).
 See [PLAN.md](PLAN.md) for the roadmap.
 
-**Current status: milestone 4.** You drive a car with suspension, steering, tire grip,
+**Current status: milestone 5.** You drive a car with suspension, steering, tire grip,
 an automatic 6-speed gearbox, and synthesized engine and tire sounds around a small town:
 a 3×3 grid of blocks with named streets, 48 houses, sidewalks, street lamps, trees, and a
 stunt park with ramps in the middle. Get out of the car to walk around, open front doors
-and go inside (the rooms are still empty). Friends who join your room appear as their own
+and go inside: every house has a furnished living room, kitchen, bedroom(s) and bathroom,
+real windows, and two-story houses have stairs to an upper floor. Friends who join your room appear as their own
 cars or characters, and doors they open open for you too.
 
 ## Run locally
@@ -51,7 +52,7 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 ## Other commands
 
 ```sh
-npm test          # car handling, walking, town layout, and server tests
+npm test          # car handling, walking, town and floor-plan, and server tests
 npm run typecheck # client + server
 npm run build     # build client into client/dist
 npm start         # serve client/dist + WebSocket server on $PORT (default 8080)
@@ -62,7 +63,7 @@ npm start         # serve client/dist + WebSocket server on $PORT (default 8080)
 ```
 client/   Three.js + Rapier game (Vite)
 server/   Node WebSocket room server; also serves the built client
-shared/   Message types and the town layout, shared by client and server
+shared/   Message types, the town layout and house floor plans, shared by client and server
 ```
 
 ## Deploy to Fly.io

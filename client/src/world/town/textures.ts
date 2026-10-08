@@ -61,6 +61,8 @@ export interface TownTextures {
   shingles: THREE.Texture;
   bark: THREE.Texture;
   wood: THREE.Texture;
+  tile: THREE.Texture;
+  carpet: THREE.Texture;
 }
 
 /** Meters covered by one repeat of each texture. */
@@ -75,6 +77,8 @@ export const TEXTURE_TILE = {
   shingles: 2,
   bark: 1,
   wood: 2,
+  tile: 0.6,
+  carpet: 1,
 } as const;
 
 export function createTownTextures(): TownTextures {
@@ -177,6 +181,23 @@ export function createTownTextures(): TownTextures {
           ctx.stroke();
         }
       }
+    }),
+    tile: canvasTexture(256, 11, (ctx, rng) => {
+      // Two by two tiles per repeat with grout lines.
+      ctx.fillStyle = '#bdbab3';
+      ctx.fillRect(0, 0, 256, 256);
+      for (let ty = 0; ty < 2; ty++) {
+        for (let tx = 0; tx < 2; tx++) {
+          const l = 228 + rng() * 20;
+          ctx.fillStyle = `rgb(${l},${l},${l - 4})`;
+          ctx.fillRect(tx * 128 + 3, ty * 128 + 3, 122, 122);
+          blotches(ctx, rng, 2, 'rgba(200,198,190,A)', 0.25);
+        }
+      }
+    }),
+    carpet: canvasTexture(256, 12, (ctx, rng) => {
+      speckle(ctx, rng, 215, 40, 30000, 1);
+      blotches(ctx, rng, 10, 'rgba(180,180,180,A)', 0.15);
     }),
     bark: canvasTexture(128, 9, (ctx, rng) => {
       speckle(ctx, rng, 150, 60, 1500, 1.5);

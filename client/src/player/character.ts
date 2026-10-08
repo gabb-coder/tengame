@@ -29,6 +29,7 @@ export class CharacterPhysics {
   private controller: RAPIER.KinematicCharacterController;
   private velocity = new THREE.Vector3();
   grounded = false;
+  private measuredSpeed = 0;
   /** Facing, radians around +Y; 0 faces +Z. */
   yaw = 0;
 
@@ -54,8 +55,9 @@ export class CharacterPhysics {
   }
 
   /** Horizontal speed in m/s. */
+  /** Horizontal speed actually moved (after collisions), in m/s. Drives the walk animation. */
   get speed(): number {
-    return Math.hypot(this.velocity.x, this.velocity.z);
+    return this.measuredSpeed;
   }
 
   /** Disabled characters don't collide or get hit by rays (e.g. while driving). */
@@ -67,6 +69,7 @@ export class CharacterPhysics {
     this.body.setTranslation({ x: feet.x, y: feet.y + CAPSULE_CENTER, z: feet.z }, true);
     this.body.setNextKinematicTranslation({ x: feet.x, y: feet.y + CAPSULE_CENTER, z: feet.z });
     this.velocity.set(0, 0, 0);
+    this.measuredSpeed = 0;
     this.yaw = yaw;
   }
 
@@ -94,10 +97,9 @@ export class CharacterPhysics {
     if (this.grounded && this.velocity.y < 0) this.velocity.y = 0;
     // Bumped our head or a wall: don't keep pushing into it.
     if (this.velocity.y > 0 && moved.y < desired.y * 0.5) this.velocity.y = 0;
-    if (dt > 0) {
-      this.velocity.x = moved.x / dt;
-      this.velocity.z = moved.z / dt;
-    }
+    // Keep the intended horizontal velocity (it's capped at the target speed), so slopes and
+    // stairs don't bleed it away; just record how fast we really went.
+    if (dt > 0) this.measuredSpeed += (Math.hypot(moved.x, moved.z) / dt - this.measuredSpeed) * 0.3;
 
     const t = this.body.translation();
     this.body.setNextKinematicTranslation({ x: t.x + moved.x, y: t.y + moved.y, z: t.z + moved.z });

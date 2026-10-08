@@ -1,6 +1,7 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { CURB_HEIGHT, TOWN_HALF_EXTENT, type TownLayout, generateTown, mulberry32, type Tree } from '../../../../shared/town.ts';
+import { generateInterior, type Interior } from '../../../../shared/interior.ts';
+import { CURB_HEIGHT, type Rect, TOWN_HALF_EXTENT, type TownLayout, generateTown, mulberry32, type Tree } from '../../../../shared/town.ts';
 import { boxCollider } from './colliders.ts';
 import { buildHouse } from './houses.ts';
 import type { TownMaterials } from './materials.ts';
@@ -13,14 +14,22 @@ import { TEXTURE_TILE } from './textures.ts';
 const BOUNDARY_MARGIN = 25;
 const BACKDROP_TREES = 220;
 
+/** Interiors further than this from the camera are hidden; they're only seen up close. */
+const INTERIOR_VIEW_DISTANCE = 45;
+
 export interface Town {
   layout: TownLayout;
+  /** Floor plan and furniture of each house, by house id. */
+  interiors: Map<string, Interior>;
   group: THREE.Group;
+  /** Shows only the interiors of blocks near `camera`. */
+  updateInteriors(camera: THREE.Vector3): void;
 }
 
 /** Builds the whole town into the scene and physics world. */
 export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMaterials): Town {
   const layout = generateTown();
+  const interiors = new Map(layout.houses.map((h) => [h.id, generateInterior(h)]));
   const group = new THREE.Group();
   group.name = 'town';
 
@@ -30,14 +39,21 @@ export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMate
   group.add(roads.build('roads'));
 
   // One merged chunk per block, so off-screen blocks are frustum-culled as a unit.
+  const insides: { group: THREE.Group; block: Rect }[] = [];
   layout.blocks.forEach((block, i) => {
     const builder = new MeshBuilder();
+    const inside = new MeshBuilder();
     buildBlock(block, builder, m, physics);
     for (const h of layout.houses) {
-      if (h.x > block.minX && h.x < block.maxX && h.z > block.minZ && h.z < block.maxZ) buildHouse(h, builder, m, physics);
+      if (h.x > block.minX && h.x < block.maxX && h.z > block.minZ && h.z < block.maxZ) buildHouse(h, interiors.get(h.id)!, builder, inside, m, physics);
     }
     if (block === layout.park) buildParkRamps(block, builder, m, physics);
     group.add(builder.build(`block-${i}`));
+    if (block !== layout.park) {
+      const g = inside.build(`block-${i}-interiors`);
+      group.add(g);
+      insides.push({ group: g, block });
+    }
   });
 
   group.add(buildTrees(layout.trees, m, physics, 11));
@@ -46,7 +62,18 @@ export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMate
   addBoundary(physics);
 
   scene.add(group);
-  return { layout, group };
+  return {
+    layout,
+    interiors,
+    group,
+    updateInteriors(camera) {
+      for (const { group: g, block } of insides) {
+        const dx = Math.max(block.minX - camera.x, 0, camera.x - block.maxX);
+        const dz = Math.max(block.minZ - camera.z, 0, camera.z - block.maxZ);
+        g.visible = Math.hypot(dx, dz) < INTERIOR_VIEW_DISTANCE;
+      }
+    },
+  };
 }
 
 function buildParkRamps(park: { minX: number; minZ: number; maxX: number; maxZ: number }, builder: MeshBuilder, m: TownMaterials, physics: RAPIER.World): void {

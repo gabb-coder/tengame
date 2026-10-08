@@ -11,6 +11,7 @@ import { renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnec
 import { runLobby } from './ui/lobby.ts';
 import { CAR } from './vehicles/carPhysics.ts';
 import { Doors } from './world/doors.ts';
+import { InteriorLights } from './world/interiorLights.ts';
 import { World } from './world/world.ts';
 
 const SEND_INTERVAL_MS = 1000 / TICK_RATE;
@@ -57,6 +58,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   const doors = new Doors(world.scene, world.town.layout.houses, world.materials, world.physics);
   doors.onSwing = (position, opening) => sounds.door(position, opening);
   for (const id of welcome.openDoors) doors.setOpen(id, true, true);
+  const interiorLights = new InteriorLights(world.scene, world.town.layout.houses, world.town.interiors);
 
   const me = welcome.players.find((p) => p.id === welcome.id)!;
   // Separate spawn points so players don't start inside each other.
@@ -129,6 +131,9 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
 
     remotes.update(now, dt);
     world.followSun(player.focus);
+    interiorLights.update(player.focus);
+    world.setIndoor(interiorLights.inside, dt);
+    world.town.updateInteriors(world.camera.position);
 
     renderMode(player.mode, input.pointerLocked);
     renderPrompt(player.interaction);

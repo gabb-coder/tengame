@@ -8,6 +8,8 @@ import { setMaxAnisotropy, TEXTURE_TILE } from './town/textures.ts';
 import { buildTown, type Town } from './town/town.ts';
 
 const GROUND_SIZE = 1400;
+const OUTDOOR = { environment: 0.6, hemisphere: 0.4 };
+const INDOOR = { environment: 0.18, hemisphere: 0.1 };
 
 /** Renderer, sky and lighting, physics world, and the town. */
 export class World {
@@ -16,6 +18,9 @@ export class World {
   readonly camera = new THREE.PerspectiveCamera(60, 1, 0.3, 2000);
   readonly physics: RAPIER.World;
   readonly sun: THREE.DirectionalLight;
+  private hemisphere!: THREE.HemisphereLight;
+  /** 0 outdoors, 1 indoors; eases between the two. */
+  private indoor = 0;
   readonly town: Town;
   readonly materials: TownMaterials;
 
@@ -43,6 +48,17 @@ export class World {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Sky light doesn't know about walls, so indoors it would flood every room. Dim it while
+   * the player is inside (like eyes adjusting) and let the room lights do the work.
+   */
+  setIndoor(inside: boolean, dt: number): void {
+    this.indoor += ((inside ? 1 : 0) - this.indoor) * (1 - Math.exp(-dt * 3));
+    const k = this.indoor;
+    this.scene.environmentIntensity = THREE.MathUtils.lerp(OUTDOOR.environment, INDOOR.environment, k);
+    this.hemisphere.intensity = THREE.MathUtils.lerp(OUTDOOR.hemisphere, INDOOR.hemisphere, k);
+  }
+
   /** Keeps the shadow-casting area centered on the player. */
   followSun(target: THREE.Vector3): void {
     this.sun.position.copy(target).add(new THREE.Vector3(40, 80, 30));
@@ -67,7 +83,7 @@ export class World {
     const envScene = new THREE.Scene();
     envScene.add(sky.clone());
     this.scene.environment = pmrem.fromScene(envScene).texture;
-    this.scene.environmentIntensity = 0.6;
+    this.scene.environmentIntensity = OUTDOOR.environment;
     pmrem.dispose();
 
     this.scene.fog = new THREE.Fog('#b9c7d6', 160, 750);
@@ -83,7 +99,8 @@ export class World {
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
     this.scene.add(sun, sun.target);
-    this.scene.add(new THREE.HemisphereLight('#cfe3ff', '#4a4034', 0.4));
+    this.hemisphere = new THREE.HemisphereLight('#cfe3ff', '#4a4034', OUTDOOR.hemisphere);
+    this.scene.add(this.hemisphere);
     return sun;
   }
 
