@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tengame</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="lobby" class="overlay">
+      <form class="panel" id="lobby-form">
+        <h1>Tengame</h1>
+        <label>
+          Your name
+          <input id="name" maxlength="16" autocomplete="off" placeholder="Driver" />
+        </label>
+        <button type="submit" id="create" name="action" value="create">Create room</button>
+        <div class="divider"><span>or join a friend</span></div>
+        <div class="row">
+          <input id="room-code" maxlength="5" autocomplete="off" placeholder="ROOM CODE" />
+          <button type="submit" id="join" name="action" value="join">Join</button>
+        </div>
+        <p id="lobby-error" class="error" role="alert"></p>
+      </form>
+    </div>
+
+    <div id="hud" hidden>
+      <div class="panel hud-room">
+        <div>Room <strong id="hud-code"></strong></div>
+        <button id="copy-link" type="button">Copy invite link</button>
+        <ul id="hud-players"></ul>
+      </div>
+      <div class="panel hud-help">WASD / arrows to move · Space to jump</div>
+    </div>
+
+    <div id="disconnected" class="overlay" hidden>
+      <div class="panel">
+        <h2>Disconnected</h2>
+        <p>Lost connection to the server.</p>
+        <button type="button" onclick="location.reload()">Reconnect</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

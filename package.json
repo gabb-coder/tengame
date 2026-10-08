@@ -1,0 +1,19 @@
+{
+  "name": "tengame",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server",
+    "test": "npm test -w server",
+    "typecheck": "npm run typecheck -w client && npm run typecheck -w server"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
