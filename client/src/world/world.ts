@@ -1,16 +1,22 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { TOWN_HALF_EXTENT } from '../../../shared/town.ts';
+import { createTownMaterials, type TownMaterials } from './town/materials.ts';
+import { flatRect } from './town/meshBuilder.ts';
+import { setMaxAnisotropy, TEXTURE_TILE } from './town/textures.ts';
+import { buildTown, type Town } from './town/town.ts';
 
-const GROUND_SIZE = 400;
+const GROUND_SIZE = 1400;
 
-/** Renderer, lighting and a test area with static obstacles and ramps. */
+/** Renderer, sky and lighting, physics world, and the town. */
 export class World {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
+  readonly camera = new THREE.PerspectiveCamera(60, 1, 0.3, 2000);
   readonly physics: RAPIER.World;
   readonly sun: THREE.DirectionalLight;
+  readonly town: Town;
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -20,12 +26,14 @@ export class World {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     container.appendChild(this.renderer.domElement);
+    setMaxAnisotropy(Math.min(8, this.renderer.capabilities.getMaxAnisotropy()));
 
     this.physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 
     this.sun = this.addSkyAndLights();
-    this.addGround();
-    this.addObstacles();
+    const materials = createTownMaterials();
+    this.addGround(materials);
+    this.town = buildTown(this.scene, this.physics, materials);
   }
 
   resize(width: number, height: number): void {
@@ -61,84 +69,37 @@ export class World {
     this.scene.environmentIntensity = 0.6;
     pmrem.dispose();
 
-    this.scene.fog = new THREE.Fog('#b9c7d6', 120, 600);
+    this.scene.fog = new THREE.Fog('#b9c7d6', 160, 750);
 
     const sun = new THREE.DirectionalLight('#fff4e0', 2.5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     const s = sun.shadow.camera;
-    s.left = s.bottom = -60;
-    s.right = s.top = 60;
+    s.left = s.bottom = -70;
+    s.right = s.top = 70;
     s.near = 1;
     s.far = 250;
     sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.02;
     this.scene.add(sun, sun.target);
     this.scene.add(new THREE.HemisphereLight('#cfe3ff', '#4a4034', 0.4));
     return sun;
   }
 
-  private addGround(): void {
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE),
-      new THREE.MeshStandardMaterial({ color: '#5d6b4f', roughness: 0.95 }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
-
-    const grid = new THREE.GridHelper(GROUND_SIZE, GROUND_SIZE / 5, '#3d4834', '#4f5c43');
-    grid.position.y = 0.01;
-    this.scene.add(grid);
-
-    this.physics.createCollider(RAPIER.ColliderDesc.cuboid(GROUND_SIZE / 2, 0.5, GROUND_SIZE / 2).setTranslation(0, -0.5, 0));
-  }
-
-  private addObstacles(): void {
-    const concrete = new THREE.MeshStandardMaterial({ color: '#a8a39a', roughness: 0.85 });
-    const rng = mulberry32(42); // same layout for every player
-
-    for (let i = 0; i < 24; i++) {
-      const size = new THREE.Vector3(2 + rng() * 6, 1 + rng() * 5, 2 + rng() * 6);
-      const angle = rng() * Math.PI * 2;
-      const dist = 25 + rng() * 120;
-      const pos = new THREE.Vector3(Math.cos(angle) * dist, size.y / 2, Math.sin(angle) * dist);
-      this.addBox(size, pos, new THREE.Quaternion(), concrete);
-    }
-
-    // A few ramps to jump off.
-    const rampMat = new THREE.MeshStandardMaterial({ color: '#c46a3a', roughness: 0.7 });
-    for (const [x, z, yaw] of [
-      [0, -40, 0],
-      [40, 10, Math.PI / 2],
-      [-35, 25, -Math.PI / 3],
+  /** Grass around the town. The town covers its own area, so nothing overlaps here. */
+  private addGround(materials: TownMaterials): void {
+    const half = GROUND_SIZE / 2;
+    const e = TOWN_HALF_EXTENT;
+    for (const [x0, z0, x1, z1] of [
+      [-half, -half, half, -e],
+      [-half, e, half, half],
+      [-half, -e, -e, e],
+      [e, -e, half, e],
     ]) {
-      const size = new THREE.Vector3(6, 0.4, 12);
-      const rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(THREE.MathUtils.degToRad(15), yaw, 0, 'YXZ'));
-      this.addBox(size, new THREE.Vector3(x, 1.4, z), rot, rampMat);
+      const ground = new THREE.Mesh(flatRect(x0, z0, x1, z1, 0, TEXTURE_TILE.grass), materials.grass);
+      ground.receiveShadow = true;
+      this.scene.add(ground);
     }
+    this.physics.createCollider(RAPIER.ColliderDesc.cuboid(half, 0.5, half).setTranslation(0, -0.5, 0));
   }
-
-  private addBox(size: THREE.Vector3, pos: THREE.Vector3, rot: THREE.Quaternion, material: THREE.Material): void {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
-    mesh.position.copy(pos);
-    mesh.quaternion.copy(rot);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    this.scene.add(mesh);
-    this.physics.createCollider(
-      RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
-        .setTranslation(pos.x, pos.y, pos.z)
-        .setRotation(rot),
-    );
-  }
-}
-
-/** Small seeded PRNG so every client generates the same layout. */
-function mulberry32(seed: number): () => number {
-  return () => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }

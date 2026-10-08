@@ -58,8 +58,9 @@ export class RemotePlayers {
     const remote = this.remotes.get(id);
     if (!remote) return;
     remote.model.root.traverse((o) => o instanceof CSS2DObject && o.element.remove());
-    remote.engine.dispose();
+    // Detach the positional audio before stopping its source; the reverse order throws.
     remote.audio.disconnect();
+    remote.engine.dispose();
     this.scene.remove(remote.model.root);
     this.remotes.delete(id);
   }

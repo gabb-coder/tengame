@@ -47,7 +47,7 @@ Realistic art style, up to 4 players per room, two modes (free-roam and missions
 
 1. ✅ **Scaffold** – Vite + Three.js + Rapier, Node WS server, two tabs see each other as boxes.
 2. ✅ **Driving** – car physics, chase camera, engine audio, remote cars synced.
-3. **Town** – roads, house shells with collision, streaming/LOD.
+3. ✅ **Town** – roads, house shells with collision, streaming/LOD.
 4. **Enter/exit** – car ⇄ on-foot, walking controller, door interaction, synced door state.
 5. **Interiors** – modular room system, 2 furnished house layouts (living room, kitchen, bedroom, bathroom).
 6. **Missions** – mission manager, 3 starter mission types, lobby with mode selector, text chat.

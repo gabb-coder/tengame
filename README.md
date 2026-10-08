@@ -3,8 +3,10 @@
 A browser-based 3D multiplayer driving game (up to 4 players per room).
 See [PLAN.md](PLAN.md) for the roadmap.
 
-**Current status: milestone 2.** You drive a car with suspension, steering, tire grip,
-an automatic 6-speed gearbox, and synthesized engine and tire sounds around a test area.
+**Current status: milestone 3.** You drive a car with suspension, steering, tire grip,
+an automatic 6-speed gearbox, and synthesized engine and tire sounds around a small town:
+a 3×3 grid of blocks with named streets, 48 houses (closed shells for now), sidewalks,
+street lamps, trees, and a stunt park with ramps in the middle.
 Friends who join your room appear as their own cars, with name tags and engine sound.
 
 ## Run locally
@@ -25,7 +27,8 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 | S / ↓ | Brake; hold when stopped to reverse |
 | A D / ← → | Steer |
 | Space | Handbrake |
-| R | Reset car onto its wheels |
+| R | Flip the car upright where it is |
+| T | Respawn at your starting spot |
 | M | Mute sound |
 
 `npm run dev` starts the game server on port 8080 and the Vite dev server on 5173
@@ -34,7 +37,7 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 ## Other commands
 
 ```sh
-npm test          # car handling tests + server tests (rooms, sync, limits, validation)
+npm test          # car handling, town layout, and server tests
 npm run typecheck # client + server
 npm run build     # build client into client/dist
 npm start         # serve client/dist + WebSocket server on $PORT (default 8080)
@@ -45,7 +48,7 @@ npm start         # serve client/dist + WebSocket server on $PORT (default 8080)
 ```
 client/   Three.js + Rapier game (Vite)
 server/   Node WebSocket room server; also serves the built client
-shared/   Message types shared by client and server
+shared/   Message types and the town layout, shared by client and server
 ```
 
 ## Deploy to Fly.io

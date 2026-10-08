@@ -21,10 +21,11 @@ export class Car {
   constructor(
     world: RAPIER.World,
     color: string,
-    private spawn: THREE.Vector3,
+    private spawn: { position: THREE.Vector3; yaw: number },
     audio: THREE.AudioListener,
   ) {
-    this.physics = new CarPhysics(world, spawn);
+    const rotation = new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, spawn.yaw);
+    this.physics = new CarPhysics(world, spawn.position, rotation);
     this.model = new CarModel(color);
     this.engine = new EngineSound(audio.context);
     this.engine.output.connect(audio.getInput());
@@ -40,14 +41,26 @@ export class Car {
   step(controls: CarControls, dt: number): void {
     this.controls = controls;
     this.physics.step(controls, dt);
-    if (this.physics.body.translation().y < RESPAWN_BELOW_Y) {
-      this.physics.body.setTranslation(this.spawn, true);
-      this.physics.reset();
-    }
+    if (this.physics.body.translation().y < RESPAWN_BELOW_Y) this.respawn();
   }
 
+  /** Puts the car back on its wheels where it is. */
   reset(): void {
     this.physics.reset();
+  }
+
+  /** Teleports the car back to its spawn point. */
+  respawn(): void {
+    const body = this.physics.body;
+    const { position, yaw } = this.spawn;
+    body.setTranslation(position, true);
+    body.setRotation(new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw), true);
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  }
+
+  get bodyHandle(): RAPIER.RigidBody {
+    return this.physics.body;
   }
 
   /** Per-frame visual and audio update, after physics has stepped. */

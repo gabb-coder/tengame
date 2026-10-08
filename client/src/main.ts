@@ -53,10 +53,10 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   let muted = false;
 
   const me = welcome.players.find((p) => p.id === welcome.id)!;
-  // Spread spawn points so players don't start inside each other.
-  const slot = welcome.players.length - 1;
-  const spawn = new THREE.Vector3(slot * 4 - 6, 1.2, 0);
-  const car = new Car(world.physics, me.color, spawn, listener);
+  // Separate spawn points so players don't start inside each other.
+  const spawns = world.town.layout.spawns;
+  const spawn = spawns[(welcome.players.length - 1) % spawns.length];
+  const car = new Car(world.physics, me.color, { position: new THREE.Vector3(spawn.x, 1.2, spawn.z), yaw: spawn.rotation }, listener);
   world.scene.add(car.object);
 
   const remotes = new RemotePlayers(world.scene, welcome.id, listener);
@@ -87,7 +87,14 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   conn.onClose = showDisconnected;
 
   const input = new Input();
-  const chase = new ChaseCamera(world.camera);
+  // Keep the camera from going through walls: cast from the car toward the camera.
+  const chase = new ChaseCamera(world.camera, (from, to) => {
+    const dir = to.clone().sub(from);
+    const max = dir.length();
+    const ray = new RAPIER.Ray(from, dir.divideScalar(max));
+    const hit = world.physics.castRay(ray, max, true, undefined, undefined, undefined, car.bodyHandle);
+    return hit ? hit.timeOfImpact : null;
+  });
   let accumulator = 0;
   let lastSend = 0;
   let last = performance.now();
@@ -99,6 +106,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     last = now;
 
     if (input.wasPressed('KeyR')) car.reset();
+    if (input.wasPressed('KeyT')) car.respawn();
     if (input.wasPressed('KeyM')) {
       muted = !muted;
       listener.setMasterVolume(muted ? 0 : 1);

@@ -15,7 +15,14 @@ export class ChaseCamera {
   private position = new THREE.Vector3();
   private initialized = false;
 
-  constructor(private camera: THREE.PerspectiveCamera) {}
+  /**
+   * `obstruct(from, to)` returns the distance from `from` to the first obstacle
+   * toward `to`, or null if the line is clear.
+   */
+  constructor(
+    private camera: THREE.PerspectiveCamera,
+    private obstruct?: (from: THREE.Vector3, to: THREE.Vector3) => number | null,
+  ) {}
 
   update(target: THREE.Object3D, speed: number, dt: number): void {
     const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(target.quaternion);
@@ -38,8 +45,15 @@ export class ChaseCamera {
     this.position.lerp(desired, 1 - Math.exp(-dt * 10));
     this.position.y = Math.max(this.position.y, 0.5);
 
+    const look = target.position.clone().setY(target.position.y + LOOK_HEIGHT);
     this.camera.position.copy(this.position);
-    this.camera.lookAt(target.position.x, target.position.y + LOOK_HEIGHT, target.position.z);
+    // Pull in (without smoothing) when a wall is between the car and the camera.
+    const hit = this.obstruct?.(look, this.position);
+    if (hit != null) {
+      const dir = this.position.clone().sub(look).normalize();
+      this.camera.position.copy(look).addScaledVector(dir, Math.max(hit - 0.3, 0.5));
+    }
+    this.camera.lookAt(look);
 
     const fov = BASE_FOV + Math.min(Math.abs(speed) / 50, 1) * MAX_FOV_BOOST;
     if (Math.abs(fov - this.camera.fov) > 0.05) {
