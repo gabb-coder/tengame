@@ -6,6 +6,7 @@ import {
   type Rect,
   ROAD_WIDTH,
   TOWN_HALF_EXTENT,
+  doorPosition,
   generateTown,
 } from '../../shared/town.ts';
 
@@ -86,5 +87,16 @@ test('spawn points are on the asphalt and spread apart', () => {
   }
   for (let i = 1; i < town.spawns.length; i++) {
     assert.ok(Math.hypot(town.spawns[i].x - town.spawns[i - 1].x, town.spawns[i].z - town.spawns[i - 1].z) >= 8);
+  }
+});
+
+test('door positions lie on the middle of each house front, facing the street', () => {
+  for (const h of town.houses) {
+    const d = doorPosition(h);
+    const frontZ = h.z + (h.facing === 'north' ? -1 : 1) * (h.depth / 2);
+    assert.ok(Math.abs(d.z - frontZ) < 1e-9, `${h.address} door z`);
+    const expectedX = h.x + (h.facing === 'north' ? -1 : 1) * h.doorOffset;
+    assert.ok(Math.abs(d.x - expectedX) < 1e-9, `${h.address} door x`);
+    assert.ok(Math.abs(h.doorOffset) < h.width / 2 - 1, `${h.address} door too close to a corner`);
   }
 });

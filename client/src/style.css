@@ -191,6 +191,33 @@ button:disabled {
   white-space: nowrap;
 }
 
+.hud-prompt {
+  position: absolute;
+  bottom: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.hud-prompt kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 6px;
+  margin-right: 8px;
+  border-radius: 5px;
+  background: var(--panel-text);
+  color: #10141a;
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+}
+
+.hud-prompt small {
+  color: var(--muted);
+  margin-left: 8px;
+}
+
 .name-tag {
   padding: 2px 8px;
   border-radius: 6px;

@@ -14,6 +14,8 @@ export class Car {
   private engine: EngineSound;
   private tires: TireSound;
   private controls: CarControls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
+  /** Off while parked with nobody inside: silent and reported as 0 rpm. */
+  engineOn = true;
   private lastVelocity = new THREE.Vector3();
   private velocity = new THREE.Vector3();
   private inverse = new THREE.Quaternion();
@@ -87,7 +89,7 @@ export class Car {
     this.lastVelocity.copy(this.velocity);
     this.model.setBraking(this.braking);
 
-    this.engine.update(this.physics.rpm, this.physics.load);
+    this.engine.update(this.physics.rpm, this.physics.load, this.engineOn ? 1 : 0);
     const grounded = [0, 1, 2, 3].some((i) => this.physics.wheel(i).inContact);
     const handbrakeSkid = this.controls.handbrake && Math.abs(this.physics.speed) > 3;
     this.tires.update(grounded ? this.physics.slipAngle : 0, grounded && handbrakeSkid);
@@ -101,8 +103,8 @@ export class Car {
   get state(): CarState {
     return {
       steer: round(this.physics.steerAngle),
-      rpm: Math.round(this.physics.rpm),
-      load: round(this.physics.load),
+      rpm: this.engineOn ? Math.round(this.physics.rpm) : 0,
+      load: this.engineOn ? round(this.physics.load) : 0,
       speed: round(this.physics.speed),
       braking: this.braking,
     };

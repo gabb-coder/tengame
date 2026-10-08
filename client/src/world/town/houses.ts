@@ -12,11 +12,20 @@ export const WALL_THICKNESS = 0.2;
 export const DOOR_WIDTH = 1.1;
 export const DOOR_HEIGHT = 2.2;
 const ROOF_OVERHANG = 0.45;
+const PORCH_STEP_DEPTH = 0.45;
 const ROOF_THICKNESS = 0.16;
 const WINDOW_W = 1.2;
 const WINDOW_H = 1.3;
 const WINDOW_SILL = 0.9;
 const FRAME = 0.08;
+
+/**
+ * Where a house's front door hinges, in the house's local frame: on the left edge of the
+ * opening (seen from outside), centered in the wall's thickness, at floor level.
+ */
+export function doorHingeLocal(h: House): THREE.Vector3 {
+  return new THREE.Vector3(h.doorOffset - DOOR_WIDTH / 2, FOUNDATION_HEIGHT, h.depth / 2 - WALL_THICKNESS / 2);
+}
 
 /** World matrix of a house: origin at its footprint center on the block surface, local +Z = front. */
 export function houseMatrix(h: House): THREE.Matrix4 {
@@ -59,14 +68,24 @@ export function buildHouse(h: House, builder: MeshBuilder, m: TownMaterials, phy
   wall((doorR + w / 2) / 2, base + H / 2, frontZ, w / 2 - doorR, H, T);
   wall(h.doorOffset, base + DOOR_HEIGHT + (H - DOOR_HEIGHT) / 2, frontZ, DOOR_WIDTH, H - DOOR_HEIGHT, T);
 
-  // Door: closed for now; opening it comes with on-foot play.
-  builder.add(box(DOOR_WIDTH, DOOR_HEIGHT, 0.06), m.door, at(h.doorOffset, base + DOOR_HEIGHT / 2, frontZ), h.doorColor);
-  boxCollider(physics, M, { x: h.doorOffset, y: base + DOOR_HEIGHT / 2, z: frontZ }, { x: DOOR_WIDTH, y: DOOR_HEIGHT, z: 0.06 });
+  // The door panel itself is a separate moving object (see doors.ts); this is its frame.
   frame(builder, m, at(h.doorOffset, base, d / 2 + 0.01), DOOR_WIDTH, DOOR_HEIGHT, false);
+  // Floorboards inside, just above the foundation slab.
+  builder.add(
+    flatRect(-w / 2 + T, -d / 2 + T, w / 2 - T, d / 2 - T, base + 0.002, TEXTURE_TILE.wood),
+    m.floor,
+    M,
+    undefined,
+    { castShadow: false },
+  );
 
-  // Porch step and a small canopy over the door.
-  builder.add(box(DOOR_WIDTH + 1.6, base, 1.3, TEXTURE_TILE.concrete), m.concrete, at(h.doorOffset, base / 2, d / 2 + 0.65));
-  boxCollider(physics, M, { x: h.doorOffset, y: base / 2, z: d / 2 + 0.65 }, { x: DOOR_WIDTH + 1.6, y: base, z: 1.3 });
+  // Porch landing with a half-height step in front, and a small canopy over the door.
+  const porch = (width: number, height: number, depth: number, z: number) => {
+    builder.add(box(width, height, depth, TEXTURE_TILE.concrete), m.concrete, at(h.doorOffset, height / 2, z));
+    boxCollider(physics, M, { x: h.doorOffset, y: height / 2, z }, { x: width, y: height, z: depth });
+  };
+  porch(DOOR_WIDTH + 1.6, base, 1.3, d / 2 + 0.65);
+  porch(DOOR_WIDTH + 1.0, base / 2, PORCH_STEP_DEPTH, d / 2 + 1.3 + PORCH_STEP_DEPTH / 2);
   builder.add(box(DOOR_WIDTH + 1.2, 0.1, 1.1, TEXTURE_TILE.shingles), m.roof, at(h.doorOffset, base + DOOR_HEIGHT + 0.35, d / 2 + 0.55), h.roofColor);
 
   // Windows on every story and side, skipping the door.
@@ -134,7 +153,7 @@ export function buildHouse(h: House, builder: MeshBuilder, m: TownMaterials, phy
   builder.add(flatRect(driveX - 1.6, -d / 2, driveX + 1.6, lotFront, yardY, TEXTURE_TILE.concrete), m.paving, M, undefined, {
     castShadow: false,
   });
-  builder.add(flatRect(h.doorOffset - 0.6, d / 2 + 1.3, h.doorOffset + 0.6, lotFront, yardY, TEXTURE_TILE.concrete), m.paving, M, undefined, {
+  builder.add(flatRect(h.doorOffset - 0.6, d / 2 + 1.3 + PORCH_STEP_DEPTH, h.doorOffset + 0.6, lotFront, yardY, TEXTURE_TILE.concrete), m.paving, M, undefined, {
     castShadow: false,
   });
   const mailX = h.doorOffset - h.drivewaySide * 1.2;

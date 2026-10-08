@@ -2,8 +2,20 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { TICK_RATE, type CarState, type ClientMessage, type ServerMessage } from '../../shared/protocol.ts';
+import {
+  type AvatarState,
+  type CarState,
+  type ClientMessage,
+  DOOR_REACH,
+  type ServerMessage,
+  TICK_RATE,
+} from '../../shared/protocol.ts';
+import { doorPosition, generateTown } from '../../shared/town.ts';
 import { RoomManager, type Player, type Room } from './rooms.ts';
+
+const HOUSES = new Map(generateTown().houses.map((h) => [h.id, h]));
+/** Extra reach allowed on the server, since positions arrive a little late. */
+const DOOR_REACH_SLACK = 1.5;
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -93,13 +105,33 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           room = rooms.create();
         }
         player = room.add(socket, String(msg.name ?? ''));
-        send(socket, { type: 'welcome', id: player.id, room: room.code, players: room.info() });
+        send(socket, {
+          type: 'welcome',
+          id: player.id,
+          room: room.code,
+          players: room.info(),
+          openDoors: [...room.openDoors],
+        });
       } else if (msg.type === 'state') {
         if (!player || !isVec(msg.p, 3) || !isVec(msg.q, 4) || !isCarState(msg.car)) return;
+        const avatar = msg.avatar ?? null;
+        if (avatar !== null && !isAvatarState(avatar)) return;
         player.p = msg.p;
         player.q = msg.q;
         const { steer, rpm, load, speed, braking } = msg.car;
         player.car = { steer, rpm, load, speed, braking };
+        player.avatar = avatar && { p: avatar.p, yaw: avatar.yaw, speed: avatar.speed };
+      } else if (msg.type === 'door') {
+        // Only players on foot, standing at that house's door, can use it.
+        const house = HOUSES.get(String(msg.id));
+        if (!room || !player?.avatar || !house || typeof msg.open !== 'boolean') return;
+        const door = doorPosition(house);
+        const [x, , z] = player.avatar.p;
+        if (Math.hypot(x - door.x, z - door.z) > DOOR_REACH + DOOR_REACH_SLACK) return;
+        if (room.openDoors.has(house.id) === msg.open) return;
+        if (msg.open) room.openDoors.add(house.id);
+        else room.openDoors.delete(house.id);
+        room.broadcast({ type: 'door', id: house.id, open: msg.open });
       }
     });
 
@@ -140,6 +172,12 @@ function isVec(v: unknown, length: number): v is number[] {
     v.length === length &&
     v.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) < 1e5)
   );
+}
+
+function isAvatarState(a: unknown): a is AvatarState {
+  if (typeof a !== 'object' || a === null) return false;
+  const { p, yaw, speed } = a as Record<string, unknown>;
+  return isVec(p, 3) && isVec([yaw, speed], 2);
 }
 
 function isCarState(c: unknown): c is CarState {

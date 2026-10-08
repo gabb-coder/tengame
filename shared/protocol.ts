@@ -5,6 +5,8 @@ export const MAX_PLAYERS = 4;
 export const TICK_RATE = 20; // server snapshots per second
 export const MAX_NAME_LENGTH = 16;
 export const ROOM_CODE_LENGTH = 5;
+/** How close (meters, horizontal) a player on foot must be to a door to use it. Server allows some slack for lag. */
+export const DOOR_REACH = 2.2;
 
 export type Vec3 = [number, number, number];
 export type Quat = [number, number, number, number];
@@ -27,11 +29,23 @@ export interface CarState {
   braking: boolean;
 }
 
+/** A player walking around. Present only while out of the car. */
+export interface AvatarState {
+  /** Feet position. */
+  p: Vec3;
+  /** Facing, radians around +Y; 0 faces +Z. */
+  yaw: number;
+  /** Horizontal speed in m/s, drives the walk animation. */
+  speed: number;
+}
+
 export interface PlayerTransform {
   id: string;
+  /** Car position and rotation; the car stays where it was parked while on foot. */
   p: Vec3;
   q: Quat;
   car: CarState;
+  avatar: AvatarState | null;
 }
 
 // ---- client -> server ----
@@ -48,9 +62,17 @@ export interface StateMessage {
   p: Vec3;
   q: Quat;
   car: CarState;
+  avatar: AvatarState | null;
 }
 
-export type ClientMessage = JoinMessage | StateMessage;
+/** Ask to open or close a house's front door. Must be on foot and near it. */
+export interface DoorRequestMessage {
+  type: 'door';
+  id: string;
+  open: boolean;
+}
+
+export type ClientMessage = JoinMessage | StateMessage | DoorRequestMessage;
 
 // ---- server -> client ----
 
@@ -59,6 +81,15 @@ export interface WelcomeMessage {
   id: string;
   room: string;
   players: PlayerInfo[];
+  /** House ids whose front doors are open. */
+  openDoors: string[];
+}
+
+/** A door was opened or closed by someone in the room. */
+export interface DoorMessage {
+  type: 'door';
+  id: string;
+  open: boolean;
 }
 
 export interface PlayerJoinedMessage {
@@ -89,4 +120,5 @@ export type ServerMessage =
   | PlayerJoinedMessage
   | PlayerLeftMessage
   | SnapshotMessage
+  | DoorMessage
   | ErrorMessage;

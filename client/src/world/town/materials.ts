@@ -28,6 +28,8 @@ export function createTownMaterials() {
     roof: std({ map: t.shingles, vertexColors: true, roughness: 0.9 }),
     trim: std({ color: '#f1efe9', roughness: 0.6 }),
     door: std({ vertexColors: true, roughness: 0.45, metalness: 0.05 }),
+    floor: std({ map: t.wood, color: '#b08a62', roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }),
+    brass: std({ color: '#c9a45c', roughness: 0.3, metalness: 1 }),
     glass: new THREE.MeshPhysicalMaterial({ color: '#2a3642', roughness: 0.04, metalness: 0.1, clearcoat: 1, envMapIntensity: 1.6 }),
     darkMetal: std({ color: '#2b2f33', roughness: 0.45, metalness: 0.7 }),
     lampGlow: std({ color: '#fff7e0', emissive: '#fff1c8', emissiveIntensity: 1.2 }),

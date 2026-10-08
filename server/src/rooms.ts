@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import {
+  type AvatarState,
   type CarState,
   MAX_NAME_LENGTH,
   MAX_PLAYERS,
@@ -21,10 +22,13 @@ export interface Player extends PlayerInfo {
   p: Vec3;
   q: Quat;
   car: CarState;
+  avatar: AvatarState | null;
 }
 
 export class Room {
   readonly players = new Map<string, Player>();
+  /** House ids whose front doors are open. */
+  readonly openDoors = new Set<string>();
 
   constructor(readonly code: string) {}
 
@@ -43,6 +47,7 @@ export class Room {
       p: [0, 1, 0],
       q: [0, 0, 0, 1],
       car: { steer: 0, rpm: 0, load: 0, speed: 0, braking: false },
+      avatar: null,
     };
     this.broadcast({ type: 'player_joined', player: toInfo(player) });
     this.players.set(player.id, player);
@@ -63,7 +68,7 @@ export class Room {
     if (this.players.size < 2) return;
     this.broadcast({
       type: 'snapshot',
-      players: [...this.players.values()].map(({ id, p, q, car }) => ({ id, p, q, car })),
+      players: [...this.players.values()].map(({ id, p, q, car, avatar }) => ({ id, p, q, car, avatar })),
     });
   }
 

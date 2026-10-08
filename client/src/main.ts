@@ -2,14 +2,15 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { TICK_RATE, type PlayerInfo, type WelcomeMessage } from '../../shared/protocol.ts';
-import { ChaseCamera } from './camera/chaseCamera.ts';
+import { Sounds } from './audio/sounds.ts';
+import { LocalPlayer } from './game/localPlayer.ts';
 import { Input } from './input.ts';
 import { Connection } from './net/connection.ts';
 import { RemotePlayers } from './net/remotePlayers.ts';
-import { renderGauges, renderPlayerList, showDisconnected, showHud } from './ui/hud.ts';
+import { renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnected, showHud } from './ui/hud.ts';
 import { runLobby } from './ui/lobby.ts';
-import { Car } from './vehicles/car.ts';
 import { CAR } from './vehicles/carPhysics.ts';
+import { Doors } from './world/doors.ts';
 import { World } from './world/world.ts';
 
 const SEND_INTERVAL_MS = 1000 / TICK_RATE;
@@ -52,12 +53,18 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   });
   let muted = false;
 
+  const sounds = new Sounds(listener);
+  const doors = new Doors(world.scene, world.town.layout.houses, world.materials, world.physics);
+  doors.onSwing = (position, opening) => sounds.door(position, opening);
+  for (const id of welcome.openDoors) doors.setOpen(id, true, true);
+
   const me = welcome.players.find((p) => p.id === welcome.id)!;
   // Separate spawn points so players don't start inside each other.
   const spawns = world.town.layout.spawns;
   const spawn = spawns[(welcome.players.length - 1) % spawns.length];
-  const car = new Car(world.physics, me.color, { position: new THREE.Vector3(spawn.x, 1.2, spawn.z), yaw: spawn.rotation }, listener);
-  world.scene.add(car.object);
+  const player = new LocalPlayer(world, doors, sounds, me.id, me.color, { position: new THREE.Vector3(spawn.x, 0.8, spawn.z), yaw: spawn.rotation }, listener);
+  player.requestDoor = (id, open) => conn.send({ type: 'door', id, open });
+  const car = player.car;
 
   const remotes = new RemotePlayers(world.scene, welcome.id, listener);
   welcome.players.forEach((p) => remotes.add(p));
@@ -82,19 +89,14 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
       case 'snapshot':
         remotes.applySnapshot(msg.players, performance.now());
         break;
+      case 'door':
+        doors.setOpen(msg.id, msg.open);
+        break;
     }
   });
   conn.onClose = showDisconnected;
 
-  const input = new Input();
-  // Keep the camera from going through walls: cast from the car toward the camera.
-  const chase = new ChaseCamera(world.camera, (from, to) => {
-    const dir = to.clone().sub(from);
-    const max = dir.length();
-    const ray = new RAPIER.Ray(from, dir.divideScalar(max));
-    const hit = world.physics.castRay(ray, max, true, undefined, undefined, undefined, car.bodyHandle);
-    return hit ? hit.timeOfImpact : null;
-  });
+  const input = new Input(world.renderer.domElement);
   let accumulator = 0;
   let lastSend = 0;
   let last = performance.now();
@@ -105,33 +107,32 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     accumulator += dt;
     last = now;
 
-    if (input.wasPressed('KeyR')) car.reset();
-    if (input.wasPressed('KeyT')) car.respawn();
     if (input.wasPressed('KeyM')) {
       muted = !muted;
       listener.setMasterVolume(muted ? 0 : 1);
     }
-    input.endFrame();
 
     // Fixed-step physics keeps handling identical across frame rates.
-    const controls = input.car;
     while (accumulator >= PHYSICS_STEP) {
-      car.step(controls, PHYSICS_STEP);
+      player.fixedStep(input, PHYSICS_STEP);
       world.physics.step();
       accumulator -= PHYSICS_STEP;
     }
-    car.update(dt);
+    doors.update(dt);
+    player.update(input, dt);
+    input.endFrame();
 
     if (now - lastSend >= SEND_INTERVAL_MS) {
-      conn.send({ type: 'state', ...car.transform, car: car.state });
+      conn.send({ type: 'state', ...car.transform, car: car.state, avatar: player.avatarState });
       lastSend = now;
     }
 
     remotes.update(now, dt);
+    world.followSun(player.focus);
 
+    renderMode(player.mode, input.pointerLocked);
+    renderPrompt(player.interaction);
     const speed = car.physics.speed;
-    chase.update(car.object, speed, dt);
-    world.followSun(car.object.position);
     renderGauges(Math.abs(speed) < 0.3 ? 0 : speed, car.physics.gear, car.physics.rpm / CAR.redlineRpm);
 
     world.renderer.render(world.scene, world.camera);

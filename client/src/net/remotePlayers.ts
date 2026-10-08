@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import type { CarState, PlayerInfo, PlayerTransform } from '../../../shared/protocol.ts';
+import type { AvatarState, CarState, PlayerInfo, PlayerTransform } from '../../../shared/protocol.ts';
+import { AvatarModel } from '../player/avatarModel.ts';
 import { CAR } from '../vehicles/carPhysics.ts';
 import { CarModel } from '../vehicles/carModel.ts';
 import { EngineSound } from '../vehicles/engineSound.ts';
@@ -16,6 +17,7 @@ interface Sample {
   p: THREE.Vector3;
   q: THREE.Quaternion;
   car: CarState;
+  avatar: AvatarState | null;
 }
 
 interface Remote {
@@ -23,6 +25,8 @@ interface Remote {
   model: CarModel;
   engine: EngineSound;
   audio: THREE.PositionalAudio;
+  avatar: AvatarModel;
+  nameTag: CSS2DObject;
   samples: Sample[];
   wheelSpin: number;
 }
@@ -41,7 +45,11 @@ export class RemotePlayers {
     if (info.id === this.localId || this.remotes.has(info.id)) return;
     const model = new CarModel(info.color);
     model.root.visible = false; // until the first snapshot places it
-    model.root.add(createNameTag(info.name));
+    const nameTag = createNameTag(info.name);
+    model.root.add(nameTag);
+    const avatar = new AvatarModel(info.color, info.id);
+    avatar.root.visible = false;
+    this.scene.add(avatar.root);
 
     const engine = new EngineSound(this.listener.context);
     const audio = new THREE.PositionalAudio(this.listener);
@@ -51,13 +59,14 @@ export class RemotePlayers {
     model.root.add(audio);
 
     this.scene.add(model.root);
-    this.remotes.set(info.id, { info, model, engine, audio, samples: [], wheelSpin: 0 });
+    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0 });
   }
 
   remove(id: string): void {
     const remote = this.remotes.get(id);
     if (!remote) return;
-    remote.model.root.traverse((o) => o instanceof CSS2DObject && o.element.remove());
+    remote.nameTag.element.remove();
+    this.scene.remove(remote.avatar.root);
     // Detach the positional audio before stopping its source; the reverse order throws.
     remote.audio.disconnect();
     remote.engine.dispose();
@@ -66,10 +75,10 @@ export class RemotePlayers {
   }
 
   applySnapshot(players: PlayerTransform[], now: number): void {
-    for (const { id, p, q, car } of players) {
+    for (const { id, p, q, car, avatar } of players) {
       const remote = this.remotes.get(id);
       if (!remote) continue;
-      remote.samples.push({ t: now, p: new THREE.Vector3(...p), q: new THREE.Quaternion(...q), car });
+      remote.samples.push({ t: now, p: new THREE.Vector3(...p), q: new THREE.Quaternion(...q), car, avatar });
       if (remote.samples.length > MAX_BUFFERED) remote.samples.shift();
     }
   }
@@ -95,8 +104,31 @@ export class RemotePlayers {
       remote.wheelSpin += (speed / CAR.wheelRadius) * dt;
       for (let i = 0; i < 4; i++) model.setWheel(i, i < 2 ? lerp('steer') : 0, remote.wheelSpin, SETTLED_SUSPENSION);
       model.setBraking(next.car.braking);
-      remote.engine.update(lerp('rpm'), lerp('load'));
+      const rpm = lerp('rpm');
+      remote.engine.update(rpm, lerp('load'), rpm > 0 ? 1 : 0);
+      this.updateAvatar(remote, a.avatar, next.avatar, k, dt);
     }
+  }
+
+  /** Shows the player's character while they're on foot, with the name tag above it. */
+  private updateAvatar(remote: Remote, a: AvatarState | null, b: AvatarState | null, k: number, dt: number): void {
+    const { avatar, nameTag, model } = remote;
+    const state = b ?? a;
+    const walking = state !== null;
+    avatar.root.visible = walking;
+    const tagParent = walking ? avatar.root : model.root;
+    if (nameTag.parent !== tagParent) {
+      tagParent.add(nameTag);
+      nameTag.position.y = walking ? 2.05 : 1.6;
+    }
+    if (!state) return;
+    // Blend between samples only when both have the avatar (not across getting in/out).
+    const from = a ?? state;
+    const to = b ?? state;
+    avatar.root.position.set(...from.p).lerp(new THREE.Vector3(...to.p), k);
+    const dy = Math.atan2(Math.sin(to.yaw - from.yaw), Math.cos(to.yaw - from.yaw));
+    avatar.root.rotation.y = from.yaw + dy * k;
+    avatar.animate(from.speed + (to.speed - from.speed) * k, dt);
   }
 }
 

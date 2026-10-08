@@ -215,6 +215,16 @@ export function generateTown(seed = TOWN_SEED): TownLayout {
   return { roads, blocks, park: p, houses, trees, spawns };
 }
 
+/** Front door center at the outer face of the front wall, at ground level. */
+export function doorPosition(h: House): { x: number; z: number } {
+  // Local (doorOffset, depth/2) rotated by the house's yaw.
+  const lx = h.doorOffset;
+  const lz = h.depth / 2;
+  const c = Math.cos(h.rotation);
+  const s = Math.sin(h.rotation);
+  return { x: h.x + lx * c + lz * s, z: h.z - lx * s + lz * c };
+}
+
 /** Even numbers on the south side of a street, odd on the north, increasing eastward. */
 function houseNumber(x: number, facing: 'north' | 'south'): number {
   const base = Math.round((x + TOWN_HALF_EXTENT) / 10) * 2 + 100;

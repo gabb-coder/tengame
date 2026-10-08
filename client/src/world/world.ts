@@ -17,6 +17,7 @@ export class World {
   readonly physics: RAPIER.World;
   readonly sun: THREE.DirectionalLight;
   readonly town: Town;
+  readonly materials: TownMaterials;
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -31,9 +32,9 @@ export class World {
     this.physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 
     this.sun = this.addSkyAndLights();
-    const materials = createTownMaterials();
-    this.addGround(materials);
-    this.town = buildTown(this.scene, this.physics, materials);
+    this.materials = createTownMaterials();
+    this.addGround(this.materials);
+    this.town = buildTown(this.scene, this.physics, this.materials);
   }
 
   resize(width: number, height: number): void {

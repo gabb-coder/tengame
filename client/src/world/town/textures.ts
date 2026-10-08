@@ -60,6 +60,7 @@ export interface TownTextures {
   siding: THREE.Texture;
   shingles: THREE.Texture;
   bark: THREE.Texture;
+  wood: THREE.Texture;
 }
 
 /** Meters covered by one repeat of each texture. */
@@ -73,6 +74,7 @@ export const TEXTURE_TILE = {
   siding: 2.4,
   shingles: 2,
   bark: 1,
+  wood: 2,
 } as const;
 
 export function createTownTextures(): TownTextures {
@@ -149,6 +151,30 @@ export function createTownTextures(): TownTextures {
           ctx.fillRect(c * 32 + offset + 1, r * 16, 30, 15);
           ctx.fillStyle = 'rgba(0,0,0,0.3)';
           ctx.fillRect(c * 32 + offset + 1, r * 16 + 13, 30, 2);
+        }
+      }
+    }),
+    wood: canvasTexture(256, 10, (ctx, rng) => {
+      // Floorboards: 8 planks per repeat, staggered ends, fine grain lines.
+      const plank = 32;
+      for (let r = 0; r < 8; r++) {
+        const offset = rng() * 256;
+        for (let start = -offset; start < 256; start += 128 + rng() * 64) {
+          const l = 175 + rng() * 60;
+          ctx.fillStyle = `rgb(${l},${l * 0.93},${l * 0.85})`;
+          ctx.fillRect(start, r * plank, 256, plank);
+          ctx.fillStyle = 'rgba(60,40,20,0.5)';
+          ctx.fillRect(start, r * plank, 2, plank);
+        }
+        ctx.fillStyle = 'rgba(60,40,20,0.45)';
+        ctx.fillRect(0, r * plank, 256, 1.5);
+        for (let g = 0; g < 10; g++) {
+          ctx.strokeStyle = `rgba(90,60,30,${0.08 + rng() * 0.1})`;
+          const y = r * plank + 3 + rng() * (plank - 6);
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.bezierCurveTo(80, y + (rng() - 0.5) * 4, 170, y + (rng() - 0.5) * 4, 256, y);
+          ctx.stroke();
         }
       }
     }),
