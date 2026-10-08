@@ -302,6 +302,10 @@ test('serves the built client, precompressed when the browser accepts it', async
     assert.equal(page.headers.get('cache-control'), 'no-cache');
     assert.match(await page.text(), /<title>t<\/title>/);
 
+    // A file the browser already has is not sent again.
+    const again = await fetch(`${base}/?room=ABCDE`, { headers: { 'if-none-match': page.headers.get('etag')! } });
+    assert.equal(again.status, 304);
+
     const escape = await fetch(`${base}/..%2f..%2fetc%2fpasswd`);
     assert.match(await escape.text(), /<title>t<\/title>/);
   } finally {

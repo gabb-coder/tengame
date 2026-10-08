@@ -1,6 +1,6 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { type Interior, NON_SOLID, PARTITION_THICKNESS, type Room } from '../../../../shared/interior.ts';
+import { type Furniture, type Interior, NON_SOLID, PARTITION_THICKNESS, type Room } from '../../../../shared/interior.ts';
 import type { House, Rect } from '../../../../shared/town.ts';
 import { boxCollider, hullCollider } from './colliders.ts';
 import { buildFurniture } from './furniture.ts';
@@ -16,7 +16,15 @@ const STAIR_COLOR = '#8f6a48';
  * Inside of a house: floors, ceilings, interior walls with doorways, the upper floor
  * and stairs, ceiling lights and furniture. `M` is the house's world matrix.
  */
-export function buildInterior(h: House, plan: Interior, builder: MeshBuilder, m: TownMaterials, physics: RAPIER.World, M: THREE.Matrix4): void {
+export function buildInterior(
+  h: House,
+  plan: Interior,
+  builder: MeshBuilder,
+  m: TownMaterials,
+  physics: RAPIER.World,
+  M: THREE.Matrix4,
+  furnitureBuilder: FurnitureBuilder = () => builder,
+): void {
   const at = (x: number, y: number, z: number, yaw = 0, pitch = 0, roll = 0) => M.clone().multiply(placement(x, y, z, yaw, pitch, roll));
   const noShadow = { castShadow: false };
   void h;
@@ -114,12 +122,15 @@ export function buildInterior(h: House, plan: Interior, builder: MeshBuilder, m:
 
   // Furniture, with box colliders for anything solid.
   for (const f of plan.furniture) {
-    buildFurniture(f, builder, m, M);
+    buildFurniture(f, furnitureBuilder(f), m, M);
     if (NON_SOLID.has(f.type)) continue;
     const local = placement(f.x, f.y, f.z, f.yaw);
     boxCollider(physics, M.clone().multiply(local), { x: 0, y: f.h / 2, z: 0 }, { x: f.w, y: f.h, z: f.d });
   }
 }
+
+/** Picks which builder a piece of furniture goes into (e.g. a stand-in for a real model). */
+export type FurnitureBuilder = (f: Furniture) => MeshBuilder;
 
 export function roomCenter(r: Room): [number, number] {
   return [(r.minX + r.maxX) / 2, (r.minZ + r.maxZ) / 2];

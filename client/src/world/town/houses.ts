@@ -12,7 +12,7 @@ import {
 } from '../../../../shared/interior.ts';
 import { CURB_HEIGHT, type House } from '../../../../shared/town.ts';
 import { boxCollider, hullCollider } from './colliders.ts';
-import { buildInterior, frame } from './interior.ts';
+import { buildInterior, frame, type FurnitureBuilder } from './interior.ts';
 import type { TownMaterials } from './materials.ts';
 import { box, flatRect, type MeshBuilder, placement, projectedBox, wallPieces } from './meshBuilder.ts';
 import { TEXTURE_TILE } from './textures.ts';
@@ -44,7 +44,15 @@ export function houseMatrix(h: House): THREE.Matrix4 {
  * furniture) to `inside`, plus colliders for all of it. Keeping the inside separate lets
  * far-away interiors be hidden.
  */
-export function buildHouse(h: House, plan: Interior, builder: MeshBuilder, inside: MeshBuilder, m: TownMaterials, physics: RAPIER.World): void {
+export function buildHouse(
+  h: House,
+  plan: Interior,
+  builder: MeshBuilder,
+  inside: MeshBuilder,
+  m: TownMaterials,
+  physics: RAPIER.World,
+  furnitureBuilder?: FurnitureBuilder,
+): void {
   const M = houseMatrix(h);
   const at = (x: number, y: number, z: number, yaw = 0, pitch = 0) => M.clone().multiply(placement(x, y, z, yaw, pitch));
   const { width: w, depth: d } = h;
@@ -94,7 +102,7 @@ export function buildHouse(h: House, plan: Interior, builder: MeshBuilder, insid
     for (const o of openings) glaze(builder, inside, m, M, h, side, o);
   }
 
-  buildInterior(h, plan, inside, m, physics, M);
+  buildInterior(h, plan, inside, m, physics, M, furnitureBuilder);
 
   // Porch landing with a half-height step in front, and a small canopy over the door.
   const porch = (width: number, height: number, depth: number, z: number) => {

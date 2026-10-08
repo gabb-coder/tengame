@@ -1,0 +1,211 @@
+{
+  "license": "CC0 1.0 (public domain)",
+  "textures": {
+    "asphalt": {
+      "size": 2.08,
+      "source": "https://polyhaven.com/a/asphalt_01"
+    },
+    "sidewalk": {
+      "size": 1.8,
+      "source": "https://polyhaven.com/a/concrete_pavement"
+    },
+    "concrete": {
+      "size": 2,
+      "source": "https://polyhaven.com/a/brushed_concrete_03"
+    },
+    "plaster": {
+      "size": 1.998,
+      "source": "https://polyhaven.com/a/white_stucco"
+    },
+    "brick": {
+      "size": 2,
+      "source": "https://polyhaven.com/a/large_red_bricks"
+    },
+    "siding": {
+      "size": 1.8,
+      "source": "https://polyhaven.com/a/white_planks_clean"
+    },
+    "shingles": {
+      "size": 3,
+      "source": "https://polyhaven.com/a/roof_slates_03"
+    },
+    "wood": {
+      "size": 1.7,
+      "source": "https://polyhaven.com/a/wood_floor"
+    },
+    "tile": {
+      "size": 1.27,
+      "source": "https://polyhaven.com/a/long_white_tiles"
+    },
+    "bark": {
+      "size": 1,
+      "source": "https://polyhaven.com/a/bark_brown_02"
+    },
+    "grass": {
+      "size": 1.4,
+      "source": "https://ambientcg.com/view?id=Grass001"
+    },
+    "carpet": {
+      "size": 1.7,
+      "source": "https://ambientcg.com/view?id=Carpet016"
+    }
+  },
+  "models": {
+    "Sofa_01": {
+      "min": [
+        -0.777,
+        0.001,
+        -0.361
+      ],
+      "max": [
+        0.793,
+        0.796,
+        0.297
+      ],
+      "source": "https://polyhaven.com/a/Sofa_01"
+    },
+    "sofa_02": {
+      "min": [
+        -0.903,
+        0,
+        -0.478
+      ],
+      "max": [
+        0.904,
+        0.71,
+        0.34
+      ],
+      "source": "https://polyhaven.com/a/sofa_02"
+    },
+    "ArmChair_01": {
+      "min": [
+        -0.424,
+        0,
+        -0.417
+      ],
+      "max": [
+        0.424,
+        1.065,
+        0.348
+      ],
+      "source": "https://polyhaven.com/a/ArmChair_01"
+    },
+    "modern_arm_chair_01": {
+      "min": [
+        -0.407,
+        0,
+        -0.575
+      ],
+      "max": [
+        0.414,
+        1.023,
+        0.411
+      ],
+      "source": "https://polyhaven.com/a/modern_arm_chair_01"
+    },
+    "mid_century_lounge_chair": {
+      "min": [
+        -0.504,
+        0.001,
+        -0.661
+      ],
+      "max": [
+        0.504,
+        1.169,
+        0.528
+      ],
+      "source": "https://polyhaven.com/a/mid_century_lounge_chair"
+    },
+    "modern_coffee_table_01": {
+      "min": [
+        -0.3,
+        0,
+        -0.6
+      ],
+      "max": [
+        0.3,
+        0.39,
+        0.6
+      ],
+      "source": "https://polyhaven.com/a/modern_coffee_table_01"
+    },
+    "coffee_table_round_01": {
+      "min": [
+        -0.651,
+        -0.001,
+        -0.651
+      ],
+      "max": [
+        0.651,
+        0.489,
+        0.651
+      ],
+      "source": "https://polyhaven.com/a/coffee_table_round_01"
+    },
+    "dining_table": {
+      "min": [
+        -1.133,
+        -0.004,
+        -0.678
+      ],
+      "max": [
+        1.123,
+        0.873,
+        0.712
+      ],
+      "source": "https://polyhaven.com/a/dining_table"
+    },
+    "dining_chair_02": {
+      "min": [
+        -0.217,
+        0.002,
+        -0.331
+      ],
+      "max": [
+        0.215,
+        0.973,
+        0.245
+      ],
+      "source": "https://polyhaven.com/a/dining_chair_02"
+    },
+    "painted_wooden_chair_02": {
+      "min": [
+        -0.335,
+        0,
+        -0.363
+      ],
+      "max": [
+        0.305,
+        1.264,
+        0.297
+      ],
+      "source": "https://polyhaven.com/a/painted_wooden_chair_02"
+    },
+    "side_table_01": {
+      "min": [
+        -0.274,
+        -0.002,
+        -0.224
+      ],
+      "max": [
+        0.274,
+        0.548,
+        0.224
+      ],
+      "source": "https://polyhaven.com/a/side_table_01"
+    },
+    "painted_wooden_nightstand": {
+      "min": [
+        -0.253,
+        0,
+        -0.249
+      ],
+      "max": [
+        0.251,
+        0.616,
+        0.259
+      ],
+      "source": "https://polyhaven.com/a/painted_wooden_nightstand"
+    }
+  }
+}

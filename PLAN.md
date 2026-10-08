@@ -77,14 +77,24 @@ fly.toml
 
 ## Open items
 
-- Assets: confirm whether the build environment can download CC0 packs
-  (Poly Haven, Quaternius, Sketchfab CC0); otherwise use placeholders until the user supplies assets.
 - Fly.io: deploying needs the user's Fly account; Dockerfile and `fly.toml` are ready
   (see README, "Put it online with Fly.io").
 
+## Real assets
+
+Photo-scanned textures (Poly Haven, ambientCG) replace the generated ones on roads,
+sidewalks, lawns, walls, roofs, floors, carpets and furniture; real furniture models
+(Poly Haven) replace sofas, armchairs, coffee and dining tables, dining chairs and
+nightstands. All CC0, fetched and shrunk by `npm run assets` (WebP textures, simplified
+meshopt-compressed models, ~9 MB total), and loaded in the background: the generated
+versions show until they arrive, and stay if a download fails. Models are only drawn in
+houses near the camera. Still generated: the car, beds, wardrobes, bookshelves, kitchens,
+bathrooms, plants (Poly Haven's are too heavy) and the sky (photo skies have a fixed sun,
+which would fight the day/night cycle).
+
 ## Possible next steps
 
-- Real CC0/purchased 3D models and textures in place of the procedural ones.
+- A real car model, and more real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.
 - Doors inside houses (two-story houses currently have open doorways only).
 - More mission types, more car choices, a bigger town.
 - Server-side sanity checks on player positions (not needed among friends).

@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { TICK_RATE, type PlayerInfo, type WelcomeMessage } from '../../shared/protocol.ts';
+import { Media } from './assets/media.ts';
 import { Sounds } from './audio/sounds.ts';
 import { PostFX, type Quality } from './render/postfx.ts';
 import { LocalPlayer } from './game/localPlayer.ts';
@@ -18,6 +19,8 @@ import { CAR } from './vehicles/carPhysics.ts';
 import { Doors } from './world/doors.ts';
 import { InteriorLights } from './world/interiorLights.ts';
 import { StreetLights } from './world/streetLights.ts';
+import { FurnitureModels } from './world/town/furnitureModels.ts';
+import { applyRealTextures } from './world/town/realTextures.ts';
 import { lampPositions } from './world/town/roads.ts';
 import { CarModel } from './vehicles/carModel.ts';
 import { World } from './world/world.ts';
@@ -25,8 +28,11 @@ import { World } from './world/world.ts';
 const SEND_INTERVAL_MS = 1000 / TICK_RATE;
 const PHYSICS_STEP = 1 / 60;
 
-// Load the physics WASM while the player is in the lobby.
+// Load the physics WASM, real textures and models while the player is in the lobby.
 const physicsReady = RAPIER.init();
+const media = new Media();
+/** How long to wait for textures before starting with the generated ones. */
+const TEXTURE_WAIT_MS = 8000;
 
 runLobby(async ({ name, room, mode }) => {
   // Browsers only allow audio to start from a user gesture, like this click.
@@ -34,6 +40,8 @@ runLobby(async ({ name, room, mode }) => {
   void listener.context.resume();
   const [{ conn, welcome }] = await Promise.all([Connection.join(name, room, mode), physicsReady]);
   history.replaceState(null, '', `?room=${welcome.room}`);
+  setLobbyStatus('Loading textures…');
+  await Promise.race([media.textures, new Promise((done) => setTimeout(done, TEXTURE_WAIT_MS))]);
   // Building the town takes a moment; let the status text show first.
   setLobbyStatus('Building the town…');
   await new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
@@ -44,6 +52,9 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   const container = document.getElementById('app')!;
   const world = new World(container);
   world.physics.timestep = PHYSICS_STEP;
+  // Real textures and furniture replace the generated stand-ins as they arrive.
+  void media.textures.then((textures) => applyRealTextures(world.materials, textures));
+  const furniture = new FurnitureModels(world.town.furniture, media);
 
   const labels = new CSS2DRenderer();
   labels.domElement.style.position = 'fixed';
@@ -203,6 +214,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     remotes.setNight(night);
     renderClock(world.dayNight.hours(now));
     world.town.updateInteriors(world.camera.position);
+    furniture.update(world.camera.position);
 
     renderMode(player.mode, input.pointerLocked);
     renderPrompt(player.interaction);

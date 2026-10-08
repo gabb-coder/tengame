@@ -25,6 +25,7 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.glb': 'model/gltf-binary',
   '.hdr': 'application/octet-stream',
@@ -73,12 +74,20 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
     if (!file.startsWith(root + sep) || !existsSync(file) || statSync(file).isDirectory()) {
       file = join(root, 'index.html');
     }
+    const hashed = file.startsWith(join(root, 'assets') + sep);
+    const stat = statSync(file);
     const headers: Record<string, string | number> = {
       'content-type': MIME[extname(file)] ?? 'application/octet-stream',
-      // Built assets have content hashes in their names, so they never change; the page itself might.
-      'cache-control': file.startsWith(join(root, 'assets') + sep) ? 'public, max-age=31536000, immutable' : 'no-cache',
+      // Built code has content hashes in its file names, so it never changes. Everything else
+      // (the page, textures, models) is rechecked each visit, and only resent if it changed.
+      'cache-control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache',
+      etag: `W/"${stat.size.toString(36)}-${Math.round(stat.mtimeMs).toString(36)}"`,
       vary: 'accept-encoding',
     };
+    if (req.headers['if-none-match'] === headers.etag) {
+      res.writeHead(304, headers).end();
+      return;
+    }
     // Send a precompressed copy (made at build time) when the browser accepts one.
     const accepted = String(req.headers['accept-encoding'] ?? '');
     for (const [encoding, suffix] of ENCODINGS) {

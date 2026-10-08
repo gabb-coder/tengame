@@ -29,6 +29,13 @@ sunset and night (street lamps, lit windows, headlights, stars). In free roam, p
 to skip ahead 2 hours. The **Graphics** menu in the top-left panel trades looks for speed:
 Low (no post-processing), Medium (glow), High (glow plus ambient occlusion).
 
+Surfaces (asphalt, brick, siding, roof slates, grass, floors, carpet) use real photo-scanned
+textures, and living rooms, dining rooms and bedrooms have real furniture models. They come
+from [Poly Haven](https://polyhaven.com) and [ambientCG](https://ambientcg.com), are CC0
+(free to use for anything, no credit needed) and live in `client/public/media`. To change
+or re-download them, edit the lists at the top of `scripts/fetch-assets.mjs` and run
+`npm run assets`.
+
 ## Run locally
 
 Requires Node.js 22+.

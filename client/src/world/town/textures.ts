@@ -9,6 +9,10 @@ export function setMaxAnisotropy(value: number): void {
   maxAnisotropy = value;
 }
 
+export function getMaxAnisotropy(): number {
+  return maxAnisotropy;
+}
+
 function canvasTexture(size: number, seed: number, draw: (ctx: CanvasRenderingContext2D, rng: () => number) => void): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;

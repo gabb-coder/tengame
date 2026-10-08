@@ -1,9 +1,10 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { generateInterior, type Interior } from '../../../../shared/interior.ts';
+import { type FurnitureType, generateInterior, type Interior } from '../../../../shared/interior.ts';
 import { CURB_HEIGHT, type Rect, TOWN_HALF_EXTENT, type TownLayout, generateTown, mulberry32, type Tree } from '../../../../shared/town.ts';
 import { boxCollider } from './colliders.ts';
-import { buildHouse } from './houses.ts';
+import { type BlockFurniture, FURNITURE_MODELS, type FurnitureSlot } from './furnitureModels.ts';
+import { buildHouse, houseMatrix } from './houses.ts';
 import type { TownMaterials } from './materials.ts';
 import { box, flatRect, IDENTITY, MeshBuilder, placement } from './meshBuilder.ts';
 import { buildBlock, buildPerimeterSidewalk, buildRoads, lampPositions } from './roads.ts';
@@ -22,6 +23,8 @@ export interface Town {
   /** Floor plan and furniture of each house, by house id. */
   interiors: Map<string, Interior>;
   group: THREE.Group;
+  /** Furniture that real models can replace, per block (see FurnitureModels). */
+  furniture: BlockFurniture[];
   /** Shows only the interiors of blocks near `camera`. */
   updateInteriors(camera: THREE.Vector3): void;
 }
@@ -40,19 +43,33 @@ export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMate
 
   // One merged chunk per block, so off-screen blocks are frustum-culled as a unit.
   const insides: { group: THREE.Group; block: Rect }[] = [];
+  const furniture: BlockFurniture[] = [];
   layout.blocks.forEach((block, i) => {
     const builder = new MeshBuilder();
     const inside = new MeshBuilder();
+    // Furniture that has real models is drawn separately, so it can be swapped out later.
+    const standIns = new Map<FurnitureType, MeshBuilder>();
+    const slots: FurnitureSlot[] = [];
     buildBlock(block, builder, m, physics);
     for (const h of layout.houses) {
-      if (h.x > block.minX && h.x < block.maxX && h.z > block.minZ && h.z < block.maxZ) buildHouse(h, interiors.get(h.id)!, builder, inside, m, physics);
+      if (!(h.x > block.minX && h.x < block.maxX && h.z > block.minZ && h.z < block.maxZ)) continue;
+      const M = houseMatrix(h);
+      buildHouse(h, interiors.get(h.id)!, builder, inside, m, physics, (f) => {
+        if (!FURNITURE_MODELS[f.type]) return inside;
+        slots.push({ f, houseId: h.id, matrix: M.clone().multiply(placement(f.x, f.y, f.z, f.yaw)) });
+        if (!standIns.has(f.type)) standIns.set(f.type, new MeshBuilder());
+        return standIns.get(f.type)!;
+      });
     }
     if (block === layout.park) buildParkRamps(block, builder, m, physics);
     group.add(builder.build(`block-${i}`));
     if (block !== layout.park) {
       const g = inside.build(`block-${i}-interiors`);
+      const groups = new Map([...standIns].map(([type, b]) => [type, b.build(`block-${i}-${type}`)] as const));
+      for (const s of groups.values()) g.add(s);
       group.add(g);
       insides.push({ group: g, block });
+      furniture.push({ group: g, standIns: groups, slots });
     }
   });
 
@@ -66,6 +83,7 @@ export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMate
     layout,
     interiors,
     group,
+    furniture,
     updateInteriors(camera) {
       for (const { group: g, block } of insides) {
         const dx = Math.max(block.minX - camera.x, 0, camera.x - block.maxX);
