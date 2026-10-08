@@ -14,6 +14,7 @@ import { renderClock, renderGauges, renderMode, renderPlayerList, renderPrompt, 
 import { Chat } from './ui/chat.ts';
 import { runLobby, setLobbyStatus } from './ui/lobby.ts';
 import { Minimap } from './ui/minimap.ts';
+import { TitleScene } from './ui/titleScene.ts';
 import { showNotice } from './ui/notices.ts';
 import { CAR } from './vehicles/carPhysics.ts';
 import { Doors } from './world/doors.ts';
@@ -34,26 +35,34 @@ const media = new Media();
 /** How long to wait for textures before starting with the generated ones. */
 const TEXTURE_WAIT_MS = 8000;
 
+const container = document.getElementById('app')!;
+const nextPaint = () => new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
+
+// Build the town as soon as physics is ready, and show it behind the title screen.
+const titleReady = physicsReady.then(nextPaint).then(() => {
+  const world = new World(container);
+  world.physics.timestep = PHYSICS_STEP;
+  // Real textures replace the generated ones as they arrive.
+  void media.textures.then((textures) => applyRealTextures(world.materials, textures));
+  const title = new TitleScene(world);
+  title.start();
+  return { world, title };
+});
+
 runLobby(async ({ name, room, mode }) => {
   // Browsers only allow audio to start from a user gesture, like this click.
   const listener = new THREE.AudioListener();
   void listener.context.resume();
-  const [{ conn, welcome }] = await Promise.all([Connection.join(name, room, mode), physicsReady]);
+  const [{ conn, welcome }, { world, title }] = await Promise.all([Connection.join(name, room, mode), titleReady]);
   history.replaceState(null, '', `?room=${welcome.room}`);
   setLobbyStatus('Loading textures…');
   await Promise.race([media.textures, new Promise((done) => setTimeout(done, TEXTURE_WAIT_MS))]);
-  // Building the town takes a moment; let the status text show first.
-  setLobbyStatus('Building the town…');
-  await new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
-  startGame(conn, welcome, listener);
+  title.stop();
+  startGame(conn, welcome, listener, world);
 });
 
-function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.AudioListener): void {
-  const container = document.getElementById('app')!;
-  const world = new World(container);
-  world.physics.timestep = PHYSICS_STEP;
-  // Real textures and furniture replace the generated stand-ins as they arrive.
-  void media.textures.then((textures) => applyRealTextures(world.materials, textures));
+function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.AudioListener, world: World): void {
+  // Real furniture replaces the generated stand-ins as the models arrive.
   const furniture = new FurnitureModels(world.town.furniture, media);
 
   const labels = new CSS2DRenderer();

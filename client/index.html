@@ -4,32 +4,68 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tengame</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Russo+One&display=swap" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app"></div>
 
-    <div id="lobby" class="overlay">
-      <form class="panel" id="lobby-form">
-        <h1>Tengame</h1>
-        <label>
-          Your name
+    <div id="lobby" class="lobby">
+      <header class="lobby-brand">
+        <div class="logo" aria-label="Tengame">TEN<span>GAME</span></div>
+        <p class="tagline">Drive, explore every house and play missions in a little town with up to three friends.</p>
+      </header>
+
+      <form class="lobby-card" id="lobby-form">
+        <div class="invite" id="invite" hidden>
+          <span>You're invited to room</span>
+          <strong id="invite-code"></strong>
+        </div>
+
+        <label class="field">
+          <span>Your name</span>
           <input id="name" maxlength="16" autocomplete="off" placeholder="Driver" />
         </label>
-        <fieldset class="modes">
-          <legend>Mode for a new room</legend>
-          <label><input type="radio" name="mode" value="freeroam" checked /><span><strong>Free roam</strong>Drive and explore at your own pace</span></label>
-          <label><input type="radio" name="mode" value="missions" /><span><strong>Missions</strong>Deliveries, races and lost items, for points</span></label>
-        </fieldset>
-        <button type="submit" id="create" name="action" value="create">Create room</button>
-        <div class="divider"><span>or join a friend</span></div>
-        <div class="row">
-          <input id="room-code" maxlength="5" autocomplete="off" placeholder="ROOM CODE" />
-          <button type="submit" id="join" name="action" value="join">Join</button>
-        </div>
+
+        <section class="create-section">
+          <fieldset class="modes">
+            <legend>Choose a mode</legend>
+            <label class="mode">
+              <input type="radio" name="mode" value="freeroam" checked />
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11l1.6-4.2A2 2 0 0 1 8.5 5.5h7a2 2 0 0 1 1.9 1.3L19 11m-14 0h14a1.5 1.5 0 0 1 1.5 1.5V16a1 1 0 0 1-1 1H18m-13-6A1.5 1.5 0 0 0 3.5 12.5V16a1 1 0 0 0 1 1H6m0 0a2 2 0 1 0 4 0m-4 0a2 2 0 1 1 4 0m0 0h4m0 0a2 2 0 1 0 4 0m-4 0a2 2 0 1 1 4 0" /></svg>
+              <span><strong>Free roam</strong>Drive and explore at your own pace</span>
+            </label>
+            <label class="mode">
+              <input type="radio" name="mode" value="missions" />
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4m0 0h10l-2 4 2 4H6" /></svg>
+              <span><strong>Missions</strong>Deliveries, races and lost items, for points</span>
+            </label>
+          </fieldset>
+          <button type="submit" id="create" name="action" value="create" class="primary">Create room</button>
+        </section>
+
+        <button type="submit" id="invite-join" name="action" value="join" class="primary invite-only">Join room</button>
+        <button type="button" id="show-create" class="link invite-only">or create your own room</button>
+
+        <section class="join-section">
+          <div class="divider"><span>or join a friend</span></div>
+          <div class="row">
+            <input id="room-code" maxlength="5" autocomplete="off" placeholder="ROOM CODE" aria-label="Room code" />
+            <button type="submit" id="join" name="action" value="join">Join</button>
+          </div>
+        </section>
+
         <p id="lobby-error" class="error" role="alert"></p>
-        <p id="lobby-status" class="status" aria-live="polite"></p>
+        <p id="lobby-status" class="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span id="lobby-status-text"></span></p>
       </form>
+
+      <footer class="lobby-footer">
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive</span>
+        <span><kbd>E</kbd> get in &amp; out</span>
+        <span><kbd>Enter</kbd> chat</span>
+      </footer>
     </div>
 
     <div id="hud" hidden>
