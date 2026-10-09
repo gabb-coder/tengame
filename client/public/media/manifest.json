@@ -221,5 +221,52 @@
       "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept",
       "license": "CC BY 4.0, Eric Chadwick / Darmstadt Graphics Group GmbH (from a CC0 model by Unity Fan)"
     }
+  },
+  "humans": {
+    "source": "https://quaternius.com/packs/universalbasecharacters.html",
+    "bodies": {
+      "male": {
+        "min": [
+          -1,
+          -0.97888119144261,
+          -0.30155339213232824
+        ],
+        "max": [
+          1,
+          0.97888119144261,
+          0.30155339213232824
+        ]
+      },
+      "female": {
+        "min": [
+          -1,
+          -1,
+          -0.3197424237800226
+        ],
+        "max": [
+          1,
+          1,
+          0.3197424237800226
+        ]
+      }
+    },
+    "hair": [
+      "Hair_SimpleParted",
+      "Hair_Buzzed",
+      "Hair_Beard",
+      "Hair_Buns",
+      "Hair_BuzzedFemale"
+    ],
+    "clips": {
+      "Jog_Fwd_Loop": {
+        "speed": 5.357
+      },
+      "Sprint_Loop": {
+        "speed": 8.25
+      },
+      "Walk_Loop": {
+        "speed": 0.975
+      }
+    }
   }
 }

@@ -41,6 +41,12 @@ by Eric Chadwick (Darmstadt Graphics Group), licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), based on a CC0 model by Unity Fan.
 The Khronos logos were removed from it.
 
+The people are Quaternius's [Universal Base Characters](https://quaternius.com/packs/universalbasecharacters.html)
+with animations from his [Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html)
+(both CC0), dressed in a T-shirt in the player's color, jeans and shoes. itch.io doesn't allow
+scripted downloads, so to rebuild them with `npm run assets`, first download the two free
+"[Standard]" zips from itch.io into `.asset-cache/humans/` as `ubc.zip` and `ual.zip`.
+
 ## Run locally
 
 Requires Node.js 22+.

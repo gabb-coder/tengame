@@ -1,4 +1,10 @@
 import * as THREE from 'three';
+import type { Media } from '../assets/media.ts';
+import { Human, loadHumans } from './humanModel.ts';
+
+/** The realistic people, once loaded (see AvatarModel.load), and every avatar waiting for them. */
+let humans: Awaited<ReturnType<typeof loadHumans>> = null;
+const avatars = new Set<AvatarModel>();
 
 const SKIN_TONES = ['#f1c7a5', '#e0ac85', '#c68863', '#9a6646', '#6e4a33', '#f5d6bf'];
 const HAIR_COLORS = ['#2a1d14', '#4a3020', '#7a5230', '#1b1b1b', '#a87a4a', '#5b4636'];
@@ -38,8 +44,24 @@ export class AvatarModel {
   private arms: THREE.Object3D[] = [];
   private phase = 0;
   private swing = 0;
+  private human: Human | null = null;
 
-  constructor(shirtColor: string, seed: string) {
+  /**
+   * Loads the realistic people in the background; every avatar, existing or new, switches
+   * to one once they arrive. Until then (or if they never do), avatars are built from shapes.
+   */
+  static load(media: Media): void {
+    void loadHumans(media).then((assets) => {
+      if (!assets) return;
+      humans = assets;
+      for (const avatar of avatars) avatar.useHuman();
+    });
+  }
+
+  constructor(
+    private shirtColor: string,
+    private seed: string,
+  ) {
     const skin = new THREE.MeshStandardMaterial({ color: pick(SKIN_TONES, seed, 1), roughness: 0.7 });
     const shirt = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.85 });
     const pants = new THREE.MeshStandardMaterial({ color: pick(PANTS_COLORS, seed, 2), roughness: 0.9 });
@@ -75,10 +97,28 @@ export class AvatarModel {
       if (o instanceof THREE.Mesh) o.castShadow = true;
     });
     this.root.add(this.body);
+    avatars.add(this);
+    if (humans) this.useHuman();
+  }
+
+  /** Stops following model loading, for an avatar that's being removed. */
+  dispose(): void {
+    avatars.delete(this);
+  }
+
+  private useHuman(): void {
+    if (!humans || this.human) return;
+    this.human = new Human(humans, this.shirtColor, this.seed);
+    this.root.remove(this.body);
+    this.root.add(this.human.root);
   }
 
   /** Advances the walk cycle. `speed` in m/s; `airborne` tucks the legs. */
   animate(speed: number, dt: number, airborne = false): void {
+    if (this.human) {
+      this.human.animate(speed, dt, airborne);
+      return;
+    }
     // Stride length grows with speed, so cadence doesn't get silly when running.
     const stride = 0.9 + Math.min(speed, 6) * 0.12;
     this.phase += (speed / stride) * Math.PI * dt;

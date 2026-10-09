@@ -1,11 +1,19 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { type GLTF, GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 /** Written by scripts/fetch-assets.mjs. */
 interface Manifest {
   textures: Record<string, { size: number }>;
   models: Record<string, { min: [number, number, number]; max: [number, number, number] }>;
+  humans?: HumansInfo;
+}
+
+/** The people pack, if it was installed (see scripts/fetch-assets.mjs). */
+export interface HumansInfo {
+  hair: string[];
+  /** Ground speed (m/s) each moving animation was made for. */
+  clips: Record<string, { speed: number }>;
 }
 
 /** A photo-scanned surface: color, normal and AO/roughness maps, covering `size` meters. */
@@ -33,7 +41,7 @@ const BASE = '/media/';
 export class Media {
   readonly textures: Promise<Map<string, TextureSet>>;
   private manifest: Promise<Manifest | null>;
-  private gltf = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  private gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   private models = new Map<string, Promise<Model | null>>();
 
   constructor() {
@@ -41,6 +49,33 @@ export class Media {
       .then((r) => (r.ok ? (r.json() as Promise<Manifest>) : null))
       .catch(() => null);
     this.textures = this.manifest.then((m) => (m ? loadTextures(m) : new Map()));
+  }
+
+  /** What the people pack holds, or null if it isn't installed. */
+  async humans(): Promise<HumansInfo | null> {
+    return (await this.manifest)?.humans ?? null;
+  }
+
+  /** Loads any glTF file from media/models, with its animations; null on failure. */
+  async gltf(file: string): Promise<GLTF | null> {
+    try {
+      return await this.gltfLoader.loadAsync(`${BASE}models/${file}`);
+    } catch (err) {
+      console.warn(`${file} failed to load`, err);
+      return null;
+    }
+  }
+
+  /** Loads a color texture from media/textures, laid out like glTF textures (no flip). */
+  async colorTexture(path: string): Promise<THREE.Texture | null> {
+    try {
+      const tex = await new THREE.TextureLoader().loadAsync(`${BASE}textures/${path}`);
+      tex.flipY = false;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    } catch {
+      return null;
+    }
   }
 
   /** Loads a furniture model once; null if it isn't available. */
@@ -51,7 +86,7 @@ export class Media {
         const info = m?.models[id];
         if (!info) return null;
         try {
-          const gltf = await this.gltf.loadAsync(`${BASE}models/${id}.glb`);
+          const gltf = await this.gltfLoader.loadAsync(`${BASE}models/${id}.glb`);
           return { scene: gltf.scene, min: new THREE.Vector3(...info.min), max: new THREE.Vector3(...info.max) };
         } catch (err) {
           console.warn(`model ${id} failed to load`, err);

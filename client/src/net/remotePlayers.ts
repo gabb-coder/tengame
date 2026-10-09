@@ -89,6 +89,7 @@ export class RemotePlayers {
     const remote = this.remotes.get(id);
     if (!remote) return;
     remote.nameTag.element.remove();
+    remote.avatar.dispose();
     this.scene.remove(remote.avatar.root);
     // Detach the positional audio before stopping its source; the reverse order throws.
     remote.audio.disconnect();

@@ -88,13 +88,17 @@ sidewalks, lawns, walls, roofs, floors, carpets and furniture; real furniture mo
 nightstands. All CC0, fetched and shrunk by `npm run assets` (WebP textures, simplified
 meshopt-compressed models, ~9 MB total), and loaded in the background: the generated
 versions show until they arrive, and stay if a download fails. Models are only drawn in
-houses near the camera. Still generated: the car, beds, wardrobes, bookshelves, kitchens,
-bathrooms, plants (Poly Haven's are too heavy) and the sky (photo skies have a fixed sun,
-which would fight the day/night cycle).
+houses near the camera. The car is a detailed sports car (Khronos glTF sample, CC BY 4.0)
+with steering, spinning wheels and working lights; people are rigged, animated characters
+(Quaternius, CC0) with idle/walk/jog/sprint/jump blended by speed and painted-on clothes in
+the player's color. Still generated: beds, wardrobes, bookshelves, kitchens, bathrooms,
+plants (Poly Haven's are too heavy) and the sky (photo skies have a fixed sun, which would
+fight the day/night cycle).
 
 ## Possible next steps
 
-- A real car model, and more real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.
+- More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.
+- Show the driver sitting in the car (the animation library has a driving pose).
 - Doors inside houses (two-story houses currently have open doorways only).
 - More mission types, more car choices, a bigger town.
 - Server-side sanity checks on player positions (not needed among friends).

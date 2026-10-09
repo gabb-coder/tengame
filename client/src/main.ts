@@ -24,6 +24,7 @@ import { FurnitureModels } from './world/town/furnitureModels.ts';
 import { applyRealTextures } from './world/town/realTextures.ts';
 import { lampPositions } from './world/town/roads.ts';
 import { CarModel } from './vehicles/carModel.ts';
+import { AvatarModel } from './player/avatarModel.ts';
 import { World } from './world/world.ts';
 
 const SEND_INTERVAL_MS = 1000 / TICK_RATE;
@@ -33,6 +34,7 @@ const PHYSICS_STEP = 1 / 60;
 const physicsReady = RAPIER.init();
 const media = new Media();
 CarModel.load(media);
+AvatarModel.load(media);
 /** How long to wait for textures before starting with the generated ones. */
 const TEXTURE_WAIT_MS = 8000;
 

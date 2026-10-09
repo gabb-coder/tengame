@@ -6,12 +6,12 @@
 // Sources: Poly Haven (polyhaven.com) and ambientCG (ambientcg.com), both CC0 (public
 // domain). Raw downloads are cached in .asset-cache/ so re-running is quick.
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getBounds, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, meshopt, prune, simplify, textureCompress, weld } from '@gltf-transform/functions';
+import { dedup, meshopt, prune, resample, simplify, textureCompress, weld } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
 
@@ -70,6 +70,25 @@ const CAR = {
   source: 'https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept',
   license: 'CC BY 4.0, Eric Chadwick / Darmstadt Graphics Group GmbH (from a CC0 model by Unity Fan)',
   triangles: 60000,
+};
+
+/**
+ * People: Quaternius "Universal Base Characters" and "Universal Animation Library" (CC0).
+ * itch.io doesn't allow scripted downloads, so get the two free [Standard] zips from
+ * https://quaternius.itch.io/universal-base-characters and
+ * https://quaternius.itch.io/universal-animation-library and put them in .asset-cache/humans
+ * as ubc.zip and ual.zip. Without them, people keep their generated look.
+ */
+const HUMANS = {
+  dir: 'humans',
+  bodies: { male: 'Superhero_Male_FullBody', female: 'Superhero_Female_FullBody' },
+  /** Alternative (lighter) skin color maps for each body. */
+  lightSkin: { male: 'T_Superhero_Male_Ligh.png', female: 'T_Superhero_Female_Light_BaseColor.png' },
+  // (Hair_Long is only side strands, made to go with scalp hair this version lacks.)
+  hair: ['Hair_SimpleParted', 'Hair_Buzzed', 'Hair_Beard', 'Hair_Buns', 'Hair_BuzzedFemale'],
+  /** Clips kept from the 43 in the library; walk/jog/sprint speeds are measured from its root-motion version. */
+  clips: ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Loop'],
+  moving: ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'],
 };
 
 const TEXTURE_SIZE = 1024;
@@ -211,6 +230,103 @@ async function processCar(io) {
   return { min: round(min), max: round(max), source: CAR.source, license: CAR.license };
 }
 
+/** Finds `name` anywhere under `dir`, preferring paths that contain `prefer`. */
+function findFile(dir, name, prefer = '') {
+  const hits = [];
+  const walk = (d) => {
+    for (const f of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, f.name);
+      if (f.isDirectory()) walk(p);
+      else if (f.name === name) hits.push(p);
+    }
+  };
+  walk(dir);
+  return hits.find((p) => p.includes(prefer)) ?? hits[0];
+}
+
+/** Some of the pack's .gltf files point at "X_png.png" where the file is "X.png". */
+function fixImageNames(gltfPath) {
+  const dir = dirname(gltfPath);
+  const json = JSON.parse(readFileSync(gltfPath, 'utf8'));
+  for (const img of json.images ?? []) {
+    const want = join(dir, img.uri);
+    const alt = join(dir, img.uri.replace('_png.png', '.png'));
+    if (!existsSync(want) && existsSync(alt)) copyFileSync(alt, want);
+  }
+}
+
+async function processHumans(io) {
+  const cache = join(CACHE, HUMANS.dir);
+  const zips = ['ubc.zip', 'ual.zip'].map((z) => join(cache, z));
+  if (!zips.every(existsSync)) {
+    console.log('people: skipped (put ubc.zip and ual.zip in .asset-cache/humans, see HUMANS in this script)');
+    return null;
+  }
+  for (const [zip, sub] of [[zips[0], 'ubc'], [zips[1], 'ual']]) {
+    if (!existsSync(join(cache, sub))) execFileSync('unzip', ['-o', '-q', zip, '-d', join(cache, sub)]);
+  }
+  const out = join(OUT, 'models');
+  const texOut = join(OUT, 'textures', 'humans');
+  mkdirSync(out, { recursive: true });
+  mkdirSync(texOut, { recursive: true });
+  const shrink = textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], quality: 85 });
+  const result = { source: 'https://quaternius.com/packs/universalbasecharacters.html', bodies: {}, hair: [], clips: {} };
+
+  for (const [key, name] of Object.entries(HUMANS.bodies)) {
+    const file = findFile(join(cache, 'ubc'), `${name}.gltf`);
+    fixImageNames(file);
+    const doc = await io.read(file);
+    await doc.transform(prune(), dedup(), shrink, meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+    await io.write(join(out, `human_${key}.glb`), doc);
+    const { min, max } = getBounds(doc.getRoot().getDefaultScene() ?? doc.getRoot().listScenes()[0]);
+    result.bodies[key] = { min, max };
+    await sharp(findFile(join(cache, 'ubc'), HUMANS.lightSkin[key], 'Textures'))
+      .resize(1024, 1024)
+      .webp({ quality: 85 })
+      .toFile(join(texOut, `skin_${key}_light.webp`));
+  }
+  for (const name of HUMANS.hair) {
+    const file = findFile(join(cache, 'ubc'), `${name}.gltf`, 'Origin at 0');
+    fixImageNames(file);
+    const doc = await io.read(file);
+    await doc.transform(prune(), dedup(), shrink, meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+    await io.write(join(out, `hair_${name}.glb`), doc);
+    result.hair.push(name);
+  }
+
+  // Animations: just the clips we use, without the library's mannequin mesh.
+  const library = findFile(join(cache, 'ual'), 'UAL1_Standard.glb');
+  const anims = await io.read(library);
+  const all = anims.getRoot().listAnimations();
+  const kept = new Set(all.filter((a) => HUMANS.clips.includes(a.getName())).flatMap((a) => a.listSamplers().flatMap((s) => [s.getInput(), s.getOutput()])));
+  for (const a of all) {
+    if (HUMANS.clips.includes(a.getName())) continue;
+    // Disposing an animation leaves its keyframe data behind; drop what no kept clip shares.
+    for (const s of a.listSamplers()) for (const data of [s.getInput(), s.getOutput()]) if (data && !kept.has(data)) data.dispose();
+    a.dispose();
+  }
+  for (const m of anims.getRoot().listMeshes()) m.dispose();
+  for (const n of anims.getRoot().listNodes()) n.setMesh(null).setSkin(null);
+  await anims.transform(prune({ keepLeaves: true }), resample({ tolerance: 2e-4 }), dedup(), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+  await io.write(join(out, 'human_anims.glb'), anims);
+
+  // Natural speed of each moving clip, from the root-motion version: distance the root
+  // bone travels per second. Matching it to the player's speed keeps feet from sliding.
+  const rm = await io.read(findFile(join(cache, 'ual'), 'UAL1_Standard_RM.glb'));
+  for (const a of rm.getRoot().listAnimations()) {
+    if (!HUMANS.moving.includes(a.getName())) continue;
+    const ch = a.listChannels().find((c) => c.getTargetNode()?.getName() === 'root' && c.getTargetPath() === 'translation');
+    const s = ch?.getSampler();
+    if (!s) continue;
+    const t = s.getInput().getArray();
+    const v = s.getOutput().getArray();
+    const n = t.length - 1;
+    const dist = Math.hypot(v[n * 3] - v[0], v[n * 3 + 2] - v[2], v[n * 3 + 1] - v[1]);
+    result.clips[a.getName()] = { speed: Math.round((dist / (t[n] - t[0])) * 1000) / 1000 };
+  }
+  return result;
+}
+
 function sourceUrl(from, id) {
   return from === 'polyhaven' ? `https://polyhaven.com/a/${id}` : `https://ambientcg.com/view?id=${id}`;
 }
@@ -231,6 +347,11 @@ for (const m of MODELS) {
 }
 manifest.models.car = await processCar(io);
 console.log('model car');
+const humans = await processHumans(io);
+if (humans) {
+  manifest.humans = humans;
+  console.log('people:', Object.keys(humans.bodies).join(', '), `${humans.hair.length} hairstyles`, JSON.stringify(humans.clips));
+}
 writeFileSync(join(OUT, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 const total = execFileSync('du', ['-sh', OUT]).toString().split('\t')[0];
 console.log(`wrote ${OUT} (${total})`);
