@@ -458,7 +458,7 @@ export function runner(kind: 'husky' | 'horse', color: string, mane = '#2a2220')
     { parent: 0, offset: [0, 0.1 * s, -0.9 * s], geometry: tube(0.07 * s, 0.03 * s, horse ? -0.8 : -0.5 * s * 2.2), color: horse ? mane : color }, // 3 tail
   ];
   // Ears (husky) or a mane (horse).
-  if (horse) parts.push({ parent: 1, offset: [0, 0.12, 0.2], geometry: blob(0.04, 0.12, 0.45, 0, 0, 0.1), color: mane });
+  if (horse) parts.push({ parent: 1, offset: [0, 0.1, 0.25], geometry: blob(0.035, 0.08, 0.36, 0, 0, 0.1), color: mane });
   else for (const x of [-0.05, 0.05]) parts.push({ parent: 2, offset: [x, 0.08, 0.02], geometry: spike(0.03, 0.09).rotateX(-Math.PI / 2), color });
   const legs = parts.length;
   for (const [x, z] of [[0.18, 0.62], [-0.18, 0.62], [0.18, -0.62], [-0.18, -0.62]]) parts.push({ parent: 0, offset: [x * s, -0.2 * s, z * s], geometry: leg(0.08 * s, 0.05 * s, 1.08 * s), color });

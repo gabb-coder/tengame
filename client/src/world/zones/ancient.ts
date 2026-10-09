@@ -61,6 +61,7 @@ export function buildAncient(ctx: ZoneContext): ZoneContent {
   const rocks = place.scatter(60, { minX: -195, maxX: 195, minZ: 210, maxZ: 598 }, 2, 84);
   group.add(instanced(rockGeometry(85, 1, 0.5), zm.sandstone, rocks.map((r) => ({ matrix: compose(r.x, terrain.heightAt(r.x, r.z), r.z, r.rng() * 6, 0.8 + r.rng() * 2), color: '#d8c090' }))));
 
+  buildBazaar(ctx, b);
   group.add(b.build('ancient'));
 
   // A camel caravan plods between the pyramids and the oasis.
@@ -93,6 +94,58 @@ export function buildAncient(ctx: ZoneContext): ZoneContent {
       chariots.update(view.clock, view.camera.position);
     },
   };
+}
+
+/** An amphora: a tall two-handled jar. */
+function amphora(): THREE.BufferGeometry {
+  return new THREE.LatheGeometry([[0, 0], [0.08, 0.02], [0.22, 0.25], [0.26, 0.5], [0.2, 0.75], [0.08, 0.88], [0.07, 1.0], [0.1, 1.05]].map(([r, y]) => new THREE.Vector2(r, y)), 14);
+}
+
+/**
+ * Life along the Via Imperialis: bronze braziers burning between the obelisks, jars and
+ * pots by the villas, and a little bazaar of striped awnings beside the oasis.
+ */
+function buildBazaar(ctx: ZoneContext, b: ChunkedBuilder): void {
+  const { physics, zm, m, terrain, lights } = ctx;
+  const ground = (x: number, z: number) => terrain.heightAt(x, z);
+  const bronze = m.brass;
+  for (let i = 0; i < ANCIENT.obeliskZ.length - 1; i++) {
+    const z = (ANCIENT.obeliskZ[i] + ANCIENT.obeliskZ[i + 1]) / 2;
+    if (Math.abs(z - ANCIENT.kingsZ) < 12) continue;
+    for (const x of [-8, 8]) {
+      const y = ground(x, z);
+      b.add(new THREE.CylinderGeometry(0.06, 0.08, 1.4, 6).translate(0, 0.7, 0), bronze, placement(x, y, z));
+      b.add(new THREE.CylinderGeometry(0.45, 0.25, 0.35, 12, 1, true).translate(0, 1.55, 0), bronze, placement(x, y, z));
+      b.add(new THREE.ConeGeometry(0.32, 0.6, 8).translate(0, 1.95, 0), zm.glow, placement(x, y, z), '#ff8a2a');
+      cylinderCollider(physics, x, y, z, 0.3, 1.8);
+    }
+    lights.add({ position: new THREE.Vector3(0, ground(0, z) + 2.4, z), color: '#ff9a4a', intensity: 14, range: 16, flicker: true, active: () => true });
+  }
+  // Jars by the villas.
+  const jar = amphora();
+  const rng = mulberry32(88);
+  for (const vx of [-178, -146, -40]) {
+    for (let k = 0; k < 4; k++) {
+      const x = vx + 6 + rng() * 2;
+      const z = ANCIENT.kingsZ + 8 + k * 0.7;
+      b.add(jar, zm.paint, placement(x, ground(x, z), z, rng() * 6, k % 2 ? 0 : 0.15), ['#b8603a', '#a85a3a', '#c8784a'][k % 3]);
+    }
+  }
+  // The bazaar: three stalls under striped awnings, piled with goods.
+  const o = ANCIENT.oasis;
+  const stripes = ['#c8302a', '#2e5a8a', '#2f8a5a'];
+  for (let i = 0; i < 3; i++) {
+    const x = o.x - 16 + i * 6.5;
+    const z = o.z - o.r - 11;
+    const y = ground(x, z);
+    const M = placement(x, y, z, Math.PI);
+    for (const [px, pz] of [[-1.5, -1], [1.5, -1], [-1.5, 1], [1.5, 1]]) b.add(box(0.1, 2.4, 0.1), zm.planks, M.clone().multiply(placement(px, 1.2, pz)), '#7a5a3a');
+    for (let s = 0; s < 6; s++) b.add(box(0.55, 0.05, 2.6), zm.paint, M.clone().multiply(placement(-1.37 + s * 0.55, 2.45, 0, 0, 0.12)), s % 2 ? '#f4ecd8' : stripes[i]);
+    b.add(box(3, 0.8, 1, 1), zm.planks, M.clone().multiply(placement(0, 0.4, 0.6)), '#8a6a44');
+    for (let g = 0; g < 5; g++) b.add(new THREE.SphereGeometry(0.14, 8, 6), zm.paint, M.clone().multiply(placement(-1.1 + g * 0.55, 0.9, 0.6)), ['#e8a030', '#c8302a', '#6a9a3a', '#7a3a7a', '#f2d060'][(g + i) % 5]);
+    b.add(jar, zm.paint, M.clone().multiply(placement(1.8, 0, 0.9)), '#b8603a');
+    boxCollider(physics, M, { x: 0, y: 0.5, z: 0.6 }, { x: 3, y: 1, z: 1 });
+  }
 }
 
 /** Hop up onto one of the caravan's camels and ride along. */
@@ -204,7 +257,8 @@ function buildChariots(ctx: ZoneContext): { group: THREE.Group; update(t: number
     return true;
   });
   const coats = ['#f2efe8', '#2a2220', '#8a5a32', '#f2efe8'];
-  for (let i = 0; i < 4; i++) for (let p = 0; p < 4; p++) horses.tint(i, p, coats[i]);
+  // Coat on the body, head and legs; the tail and mane stay dark.
+  for (let i = 0; i < 4; i++) for (const p of [0, 1, 2, 5, 6, 7, 8]) horses.tint(i, p, coats[i]);
   group.add(horses.group);
   const matrix = (s: VehicleState) => new THREE.Matrix4().makeRotationY(s.yaw).setPosition(s.position.x, 0.03, s.position.z);
   game.activities.add(
@@ -215,6 +269,7 @@ function buildChariots(ctx: ZoneContext): { group: THREE.Group; update(t: number
     update(t, camera) {
       chariots.forEach(({ body, wheels }, v) => {
         line.state(t, v, 0, state);
+        body.visible = state.position.distanceTo(camera) < 300;
         body.position.set(state.position.x, 0.03, state.position.z);
         body.rotation.y = state.yaw;
         const spin = state.stopped ? 0 : t * 22;

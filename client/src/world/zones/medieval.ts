@@ -8,7 +8,7 @@ import { game, onTrigger } from '../../game/link.ts';
 import { AVATAR } from '../../player/character.ts';
 import { ballistic, benchSeats, buttonActivity, zoneSeats } from './buttons.ts';
 import { banner, Banners } from './cloth.ts';
-import { circleMover, flyer, Herd } from './creatures.ts';
+import { circleMover, flyer, Herd, loopMover, type Mover, runner } from './creatures.ts';
 import { ChunkedBuilder, cylinderCollider, Placement, type ZoneContent, type ZoneContext } from './kit.ts';
 
 const STONE = '#c9c2b6';
@@ -91,8 +91,9 @@ export function buildMedieval(ctx: ZoneContext): ZoneContent {
   const sails = buildVillage(ctx, b, banners);
   const bell = buildBellTower(ctx, b);
   const trebuchet = buildTrebuchet(ctx, b);
+  const horses = buildCountryside(ctx, b);
 
-  group.add(b.build('medieval'), sails, bell.group, trebuchet.group);
+  group.add(b.build('medieval'), sails, bell.group, trebuchet.group, horses.group);
   group.add(banners.mesh());
 
   // Trees in the countryside, clear of everything built.
@@ -100,6 +101,7 @@ export function buildMedieval(ctx: ZoneContext): ZoneContent {
   place.avoid({ type: 'rect', minX: x0 - 30, maxX: x1 + 30, minZ: z0 - 30, maxZ: z1 + 30 });
   place.avoid({ type: 'circle', x: MEDIEVAL.windmill.x, z: MEDIEVAL.windmill.z, r: 16 });
   place.avoid({ type: 'circle', x: MEDIEVAL.trebuchet.x, z: MEDIEVAL.trebuchet.z, r: 16 });
+  place.avoid({ type: 'rect', minX: PADDOCK.x - 16, maxX: PADDOCK.x + 16, minZ: PADDOCK.z - 12, maxZ: PADDOCK.z + 12 });
   // Keep the trebuchet's line of fire clear.
   place.avoid({ type: 'path', path: [{ x: MEDIEVAL.trebuchet.x, y: 0, z: MEDIEVAL.trebuchet.z }, { x: c.x - c.moatOuter, y: 0, z: MEDIEVAL.trebuchet.target.z }], width: 30 });
   const t = MEDIEVAL.tournament;
@@ -108,9 +110,11 @@ export function buildMedieval(ctx: ZoneContext): ZoneContent {
   group.add(buildTrees(spots.map((s) => ({ x: s.x, z: s.z, y: terrain.heightAt(s.x, s.z) - 0.1, height: 7 + s.rng() * 6 })), m, physics, 42));
 
   // A dragon circles the castle; crows wheel over the fields.
-  const dragon = new Herd(flyer({ size: 5, body: '#6e1d16', wing: '#4a120e', beat: 0.35, dragon: true }), 1, circleMover(c.x, c.z, 85, MEDIEVAL.dragonHeight, 16, null, { absolute: true }), [], 900);
+  const dragonFlight = circleMover(c.x, c.z, 85, MEDIEVAL.dragonHeight, 16, null, { absolute: true });
+  const dragon = new Herd(flyer({ size: 5, body: '#6e1d16', wing: '#4a120e', beat: 0.35, dragon: true }), 1, dragonFlight, [], 900);
+  const breath = new DragonFire(dragonFlight);
   const crows = new Herd(flyer({ size: 0.35, body: '#1e1e22', wing: '#18181c', beat: 3 }), 6, circleMover(30, -250, 40, 30, 9, terrain), [], 300);
-  group.add(dragon.group, crows.group);
+  group.add(dragon.group, crows.group, breath.group);
 
   return {
     id: 'medieval',
@@ -118,10 +122,12 @@ export function buildMedieval(ctx: ZoneContext): ZoneContent {
     update(view) {
       banners.update(view.time);
       dragon.update(view.clock, view.camera.position);
+      breath.update(view.clock, view.camera.position);
       crows.update(view.clock, view.camera.position);
       sails.rotation.z = view.clock * 0.6;
       bell.update(view.dt);
       trebuchet.update(view.dt);
+      horses.update(view.clock, view.camera.position);
     },
   };
 }
@@ -388,6 +394,143 @@ function buildVillage(ctx: ZoneContext, b: ChunkedBuilder, banners: Banners): TH
     cylinderCollider(physics, x, y, z, 0.75, 1.4);
   }
   return sails;
+}
+
+/** Every so often the dragon roars and breathes a long jet of fire (the same moment for everyone). */
+class DragonFire {
+  readonly group = new THREE.Group();
+  private flames: THREE.Mesh[] = [];
+  private pose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0 };
+  private roared = -Infinity;
+  private static EVERY = 50;
+  private static LENGTH = 3.5;
+
+  constructor(private flight: Mover) {
+    const material = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.8, 1.2, 0.3), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    for (let i = 0; i < 14; i++) {
+      const flame = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), material);
+      this.flames.push(flame);
+      this.group.add(flame);
+    }
+    this.group.visible = false;
+  }
+
+  update(clock: number, camera: THREE.Vector3): void {
+    const phase = clock % DragonFire.EVERY;
+    const on = phase < DragonFire.LENGTH;
+    this.group.visible = on;
+    if (!on) return;
+    this.flight(0, clock, this.pose);
+    const p = this.pose;
+    const fwd = new THREE.Vector3(Math.sin(p.yaw), -0.35, Math.cos(p.yaw)).normalize();
+    const mouth = new THREE.Vector3(p.x, p.y, p.z).addScaledVector(fwd, 7.5);
+    if (clock - this.roared > DragonFire.EVERY / 2) {
+      this.roared = clock;
+      if (camera.distanceTo(mouth) < 320) game.sounds?.roar(mouth);
+    }
+    // Puffs of fire streaming out ahead, growing as they go.
+    this.flames.forEach((f, i) => {
+      const k = ((phase * 3 + i / this.flames.length) % 1) * Math.min(1, phase * 2) * Math.min(1, (DragonFire.LENGTH - phase) * 2);
+      const d = k * 26;
+      f.position.copy(mouth).addScaledVector(fwd, d);
+      f.position.y -= k * k * 4;
+      f.scale.setScalar(0.6 + k * 3.2);
+    });
+  }
+}
+
+/** A paddock of horses between the tournament grounds and the castle. */
+const PADDOCK = { x: -112, z: -428, w: 26, d: 18 };
+
+/**
+ * Life in the countryside: horses in their paddock, hay carts, scarecrows in the fields,
+ * crates and barrels round the market, and torches by the castle gate and the keep.
+ */
+function buildCountryside(ctx: ZoneContext, b: ChunkedBuilder): Herd {
+  const { physics, zm, m, terrain, lights } = ctx;
+  const ground = (x: number, z: number) => terrain.heightAt(x, z);
+  const P = PADDOCK;
+  // The paddock fence: posts and two rails, with a gate gap on the south side.
+  const rail = (ax: number, az: number, bx: number, bz: number) => {
+    const len = Math.hypot(bx - ax, bz - az);
+    const yaw = Math.atan2(bx - ax, bz - az);
+    const mx = (ax + bx) / 2;
+    const mz = (az + bz) / 2;
+    const y = ground(mx, mz);
+    const M = placement(mx, y, mz, yaw);
+    for (const ry of [0.6, 1.1]) b.add(box(0.08, 0.1, len), zm.planks, M.clone().multiply(placement(0, ry, 0)), '#7a5a3a');
+    for (let s = -len / 2; s <= len / 2; s += 3) b.add(box(0.14, 1.3, 0.14), zm.planks, M.clone().multiply(placement(0, 0.65, s)), WOOD);
+    boxCollider(physics, M, { x: 0, y: 0.65, z: 0 }, { x: 0.2, y: 1.3, z: len });
+  };
+  const [x0, x1, z0, z1] = [P.x - P.w / 2, P.x + P.w / 2, P.z - P.d / 2, P.z + P.d / 2];
+  rail(x0, z0, x1, z0);
+  rail(x0, z0, x0, z1);
+  rail(x1, z0, x1, z1);
+  rail(x0, z1, P.x - 2, z1);
+  rail(P.x + 2, z1, x1, z1);
+  // A water trough and a hay rack.
+  b.add(box(2.4, 0.5, 0.7, 1), zm.planks, placement(x0 + 2, ground(x0 + 2, P.z) + 0.25, P.z), '#6a4a2a');
+  b.add(box(2.2, 0.05, 0.55), zm.water, placement(x0 + 2, ground(x0 + 2, P.z) + 0.48, P.z));
+  b.add(new THREE.CylinderGeometry(0.7, 0.7, 1.3, 14).rotateZ(Math.PI / 2), m.roofs.thatch, placement(x1 - 2.5, ground(x1 - 2.5, P.z - 4) + 0.7, P.z - 4), '#d8b86a');
+  const horses = new Herd(
+    runner('horse', '#8a5a32'),
+    4,
+    loopMover([[x0 + 5, z0 + 4], [x1 - 6, z0 + 5], [x1 - 5, z1 - 4], [x0 + 6, z1 - 5]], 1.3, terrain, { spacing: 9, spread: 1.5 }),
+    [1, 0.95, 1.05, 0.9],
+  );
+  ['#8a5a32', '#2a2220', '#e8e2d8', '#6a4a32'].forEach((c, i) => {
+    for (const p of [0, 1, 2, 5, 6, 7, 8]) horses.tint(i, p, c);
+  });
+
+  // Hay carts by the village.
+  for (const [x, z, yaw] of [[-36, -288, 0.4], [100, -312, -1.2]] as const) {
+    const y = ground(x, z);
+    const M = placement(x, y, z, yaw);
+    b.add(box(1.8, 0.12, 3, 1), zm.planks, M.clone().multiply(placement(0, 0.9, 0)), '#8a6440');
+    for (const side of [-1, 1]) b.add(box(0.08, 0.5, 3, 1), zm.planks, M.clone().multiply(placement(side * 0.9, 1.2, 0)), '#7a5432');
+    b.add(box(1.7, 0.8, 2.8, 1), m.roofs.thatch, M.clone().multiply(placement(0, 1.4, 0)), '#d8b86a');
+    for (const side of [-1, 1]) {
+      const wheel = new THREE.CylinderGeometry(0.55, 0.55, 0.12, 14).rotateZ(Math.PI / 2);
+      b.add(wheel, zm.planks, M.clone().multiply(placement(side * 1.0, 0.55, 0.6)), '#4a3220');
+    }
+    b.add(box(0.1, 0.1, 2.4), zm.planks, M.clone().multiply(placement(0, 0.7, 2.6, 0, -0.25)), WOOD);
+    boxCollider(physics, M, { x: 0, y: 1, z: 0 }, { x: 2.2, y: 2, z: 3 });
+  }
+  // Scarecrows watching the fields.
+  for (const [x, z] of [[-60, -232], [112, -240], [-128, -236]] as const) {
+    const y = ground(x, z);
+    b.add(box(0.1, 2.4, 0.1), zm.planks, placement(x, y + 1.2, z), WOOD);
+    b.add(box(1.6, 0.08, 0.08), zm.planks, placement(x, y + 1.8, z), WOOD);
+    b.add(box(0.5, 0.7, 0.3, 1), m.fabric, placement(x, y + 1.6, z), '#5a6a8a');
+    b.add(new THREE.SphereGeometry(0.2, 10, 8), m.roofs.thatch, placement(x, y + 2.25, z), '#d8b86a');
+    b.add(new THREE.ConeGeometry(0.35, 0.35, 12), m.roofs.thatch, placement(x, y + 2.5, z), '#8a6a3a');
+  }
+  // Crates, sacks and barrels round the market stalls.
+  const sq = MEDIEVAL.square;
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const x = sq.x + dx * 18.5;
+    const z = sq.z + dz * 18.5;
+    b.add(box(0.8, 0.8, 0.8, 1), zm.planks, placement(x, 0.4, z, dx), '#8a6a44');
+    b.add(box(0.7, 0.7, 0.7, 1), zm.planks, placement(x + dx * 0.9, 0.35, z, 0.3), '#7a5a3a');
+    b.add(barrel(), zm.planks, placement(x - dx * 0.2, 0, z + dz * 1.0), '#7a5432');
+    b.add(new THREE.SphereGeometry(0.35, 8, 6).scale(1, 0.8, 1), m.fabric, placement(x + dx * 0.4, 1.05, z), '#c8b48a');
+    cylinderCollider(physics, x, 0, z, 1, 1);
+  }
+  // Torches by the castle gate and the keep's door: flickering at night.
+  const c = MEDIEVAL.castle;
+  const k = MEDIEVAL.keep;
+  const torches = [
+    [c.x - 6.6, 3.8, c.z + c.half + 4.15],
+    [c.x + 6.6, 3.8, c.z + c.half + 4.15],
+    [k.x - 4, 3.6, k.z + k.d / 2 + 0.25],
+    [k.x + 4, 3.6, k.z + k.d / 2 + 0.25],
+  ] as const;
+  for (const [x, y, z] of torches) {
+    b.add(new THREE.CylinderGeometry(0.06, 0.04, 0.7, 6).rotateX(-0.4), m.darkMetal, placement(x, y, z));
+    b.add(new THREE.ConeGeometry(0.12, 0.3, 8).translate(0, 0.15, 0), zm.glow, placement(x, y + 0.35, z + 0.12), '#ff9a3a');
+    lights.add({ position: new THREE.Vector3(x, y + 0.7, z + 0.4), color: '#ff9a4a', intensity: 9, range: 9, flicker: true });
+  }
+  return horses;
 }
 
 /** The bell tower on the market square: pull the rope and the bell swings and rings out. */

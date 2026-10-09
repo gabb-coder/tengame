@@ -26,6 +26,37 @@ its name as you drive in:
 Some zones have houses you can go into, like the town's (log cabins, half-timbered cottages,
 seaside cottages, Roman villas), and campfires or braziers you can light with **E**.
 
+### Things to do
+
+Walk up to things and press **E**. What's there to do:
+
+| Where | Do this |
+|---|---|
+| Everywhere | **Talk** to anyone you meet (knights, astronauts, the mayor...): they stop, turn to you, and give tips. **Sit** on benches, thrones, feast tables, stands, swings and logs by the fire. **Dance** with **G**. |
+| Tengame Town | Light the **fireworks** in Town Park (everyone sees the show), play on the swings, wait at the bus stop, and find the penny in the fountain. |
+| Kingdom of Eldermoor | Ring the **bell** on the market square. Climb into the **trebuchet** and get thrown over the castle walls. Sit on the throne. Watch the dragon breathe fire. Fish in the moat. |
+| Frostfang Tundra | Ride a **dog sled** round the frozen lake. Fire the **signal flare** at the outpost (it lights up the night). Go ice fishing by the red hut. |
+| Outpost Nova | Borrow a **jetpack** from the rack by the habitat and fly (hold **Space**; it refuels when you land). |
+| Emerald Jungle | Strike the **gong** on top of the temple, then ride the **zipline** from there down to the lagoon. Fish in the lagoon. |
+| Neon Spire | Take a **lift** up to a monorail station and ride the **monorail** round the city. Step on the neon **bounce pad** to land on the Skypark roof. Light **fireworks** on top of the Helix. |
+| Primeval Valley | **Climb onto a Brachiosaurus** and ride it. Stand on a **geyser** when it blows. Don't get too close to the **T. rex**: it chases you! |
+| Valley of Empires | Ride in the **chariot race** in the Colosseum (board at the west end), or **ride a camel** with the caravan. Fish at the oasis. |
+| Coral Bay | Ride the **glass-bottom boat** from the end of the pier (jump overboard any time). Fire yourself from the **harbor cannon** over the reef. Sound the lighthouse **foghorn**. Watch for the whale leaping. |
+
+Rides run on a timetable shared by the whole room, so friends can ride the same train,
+boat or sled. Bells, gongs, cannons, fireworks and the flare are heard and seen by everyone.
+
+**Relics**: 43 treasures are hidden around the world (three in town, five in every zone):
+glowing things you pick up by walking or driving into them. **Fishing**: five fishing spots,
+each with its own fish, from common to legendary; strike when the float bobs. Press **J** to
+open your **journal**: the relics you've found, riddles for the rest, and the fish you've
+caught. Both are remembered in your browser.
+
+Each place also sounds like itself: wind on the tundra, rain and sirens in the city, waves
+and gulls at the bay, birds by day and crickets at night, insects in the jungle, the rumbling
+volcano, the roar of the waterfall. (The volume is in Settings, as "Background sounds".)
+Grass sways in the wind on the meadows and lawns (Medium and High graphics).
+
 The minimap in the top-right corner turns with your view and shows streets, houses, your
 friends (arrows in their colors) and your next mission target (yellow diamond). Below it is
 the name of the street or house you're at.
@@ -121,7 +152,7 @@ player names and frame rate. **Leave room** in the same menu goes back to the ti
 ## Other commands
 
 ```sh
-npm test          # car handling, walking, town/zone/floor-plan, missions and server tests
+npm test          # car handling, walking, town/zone/floor-plan, relics, missions and server tests
 npm run typecheck # client + server
 npm run build     # build client into client/dist (plus compressed copies)
 npm start         # serve client/dist + WebSocket server on $PORT (default 8080)

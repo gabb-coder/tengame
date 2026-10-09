@@ -81,6 +81,7 @@ export function buildJungle(ctx: ZoneContext): ZoneContent {
   group.add(instanced(rockGeometry(161, 1, 0.5), zm.mossy, riverRocks.map((s) => ({ matrix: compose(s.x, ground(s.x, s.z), s.z, s.rng() * 6, 0.8 + s.rng() * 1.8), color: '#9aa088' }))));
 
   buildTemple(ctx, b);
+  group.add(buildJungleDetails(ctx, b, place));
   const gong = buildGong(ctx, b);
   const zipline = buildZipline(ctx, b);
   group.add(gong.group, zipline.group);
@@ -202,6 +203,54 @@ function buildTemple(ctx: ZoneContext, b: ChunkedBuilder): void {
       cylinderCollider(physics, x, 0, z, 1, 6);
     } else b.add(new THREE.CylinderGeometry(0.9, 0.9, 5, 12).rotateZ(Math.PI / 2), zm.mossy, placement(x, 0.8, z, rng() * 3), MOSS);
   }
+}
+
+/** Glowing mushrooms on the forest floor, carved totems by the lagoon, and lanterns at the temple. */
+function buildJungleDetails(ctx: ZoneContext, b: ChunkedBuilder, place: Placement): THREE.Group {
+  const { physics, zm, terrain, lights } = ctx;
+  const ground = (x: number, z: number) => terrain.heightAt(x, z);
+  const area = { minX: -598, maxX: -205, minZ: -198, maxZ: 198 };
+  const stalk = new THREE.CylinderGeometry(0.04, 0.06, 0.3, 6).translate(0, 0.15, 0);
+  const cap = new THREE.SphereGeometry(0.16, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.6, 1).translate(0, 0.3, 0);
+  const spots = place.scatter(140, area, 0.8, 165, (x, z) => ground(x, z) > -0.5);
+  const items: { matrix: THREE.Matrix4; color: string }[] = [];
+  const stems: { matrix: THREE.Matrix4 }[] = [];
+  for (const s of spots) {
+    for (let k = 0; k < 3; k++) {
+      const x = s.x + (s.rng() - 0.5) * 0.8;
+      const z = s.z + (s.rng() - 0.5) * 0.8;
+      const matrix = compose(x, ground(x, z) - 0.02, z, 0, 0.7 + s.rng() * 1.2);
+      stems.push({ matrix });
+      items.push({ matrix, color: ['#3affd8', '#7a8aff', '#5aff7a'][Math.floor(s.rng() * 3)] });
+    }
+  }
+  const group = new THREE.Group();
+  group.add(instanced(stalk, zm.paint, stems.map((s) => ({ ...s, color: '#e8e0d0' })), { castShadow: false, detail: 120 }));
+  group.add(instanced(cap, zm.glow, items, { castShadow: false, detail: 140 }));
+  // Totem poles watching over the lagoon camp.
+  const L = JUNGLE.lagoon;
+  const faces = ['#c8402a', '#2a7ab8', '#e8b030', '#2f8a5a'];
+  for (const [x, z] of [[L.x + L.r + 6, L.z + 12], [L.x + L.r + 6, L.z - 18]] as const) {
+    const y = ground(x, z);
+    for (let k = 0; k < 4; k++) {
+      b.add(new THREE.CylinderGeometry(0.45, 0.5, 1.1, 10).translate(0, 0.55, 0), zm.planks, placement(x, y + k * 1.1, z), faces[k]);
+      b.add(box(0.5, 0.18, 0.2), zm.paint, placement(x, y + k * 1.1 + 0.75, z - 0.45, Math.PI / 2), '#f4f0e8');
+    }
+    b.add(box(2.4, 0.3, 0.4), zm.planks, placement(x, y + 4.2, z), faces[3]);
+    cylinderCollider(physics, x, y, z, 0.5, 4.4);
+  }
+  // Lanterns hung on posts round the temple courtyard.
+  const t = JUNGLE.temple;
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2 + 0.2;
+    const x = t.x + Math.cos(a) * 21;
+    const z = t.z + Math.sin(a) * 21;
+    const y = ground(x, z);
+    b.add(box(0.12, 2.4, 0.12), zm.planks, placement(x, y + 1.2, z), '#4a3220');
+    b.add(new THREE.SphereGeometry(0.22, 10, 8), zm.glow, placement(x, y + 2.5, z), '#ffb04a');
+    if (k % 2 === 0) lights.add({ position: new THREE.Vector3(x, y + 2.6, z), color: '#ffb060', intensity: 8, range: 10, flicker: true, active: () => true });
+  }
+  return group;
 }
 
 /** A bronze gong on the temple's top platform: strike it and the whole jungle hears. */

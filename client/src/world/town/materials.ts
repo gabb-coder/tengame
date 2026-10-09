@@ -113,6 +113,8 @@ export function createTownMaterials() {
     lampGlow: std({ color: '#fff7e0', emissive: '#fff1c8', emissiveIntensity: 1.2 }),
     bark: std({ map: t.bark, ...n.bark, color: '#6b5640', roughness: 1 }),
     foliage: std({ color: '#ffffff', roughness: 0.9, flatShading: true }),
+    /** Hedges and shrubs in yards, tinted per piece. */
+    hedge: std({ vertexColors: true, roughness: 0.95, flatShading: true }),
     ramp: std({ map: t.concrete, color: '#c27a4f', roughness: 0.8 }),
   };
 }

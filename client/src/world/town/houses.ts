@@ -175,6 +175,79 @@ export function buildHouse(
   const mailX = h.doorOffset - h.drivewaySide * 1.2;
   builder.add(box(0.08, 1.05, 0.08), m.darkMetal, at(mailX, 0.52, lotFront - 0.6));
   builder.add(new THREE.CapsuleGeometry(0.17, 0.32, 4, 10).rotateX(Math.PI / 2), m.door, at(mailX, 1.15, lotFront - 0.6), h.doorColor);
+  yard(builder, m, h, at, lotFront, driveX);
+}
+
+const FLOWERS = ['#e8304a', '#f2c230', '#f07ad8', '#ffffff', '#9a5af0', '#ff7a2a'];
+const HEDGE = ['#3f6a2e', '#4a7a34', '#355e28'];
+const lump = new THREE.IcosahedronGeometry(1, 1);
+const blossom = new THREE.SphereGeometry(1, 6, 4);
+
+/**
+ * A lived-in front yard: a picket fence or a hedge along the front (open at the driveway and
+ * the path), flower beds under the front windows, shrubs by the door, and bins by the drive.
+ */
+function yard(builder: MeshBuilder, m: TownMaterials, h: House, at: (x: number, y: number, z: number) => THREE.Matrix4, lotFront: number, driveX: number): void {
+  const { width: w, depth: d } = h;
+  let seed = 0;
+  for (const ch of h.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+  const front = lotFront - 0.25;
+  // The lot is 30 m wide, its middle 2 m from the house toward the driveway (in world x).
+  const lotMid = h.drivewaySide * 2 * Math.cos(h.rotation);
+  const lotHalf = 14.6;
+  // Gaps for the driveway and the path, along the front edge (local x).
+  const gaps = [
+    [driveX - 1.9, driveX + 1.9],
+    [h.doorOffset - 0.9, h.doorOffset + 0.9],
+  ].sort((a, b) => a[0] - b[0]);
+  const runs: [number, number][] = [];
+  let from = lotMid - lotHalf;
+  for (const [g0, g1] of gaps) {
+    if (g0 > from + 0.5) runs.push([from, g0]);
+    from = Math.max(from, g1);
+  }
+  if (lotMid + lotHalf > from + 0.5) runs.push([from, lotMid + lotHalf]);
+  const style = rnd();
+  for (const [x0, x1] of runs) {
+    const len = x1 - x0;
+    const mid = (x0 + x1) / 2;
+    if (style < 0.4) {
+      // White picket fence.
+      builder.add(box(len, 0.08, 0.04), m.lacquer, at(mid, 0.45, front), '#f4f2ec');
+      builder.add(box(len, 0.08, 0.04), m.lacquer, at(mid, 0.8, front), '#f4f2ec');
+      for (let x = x0 + 0.08; x < x1; x += 0.16 + 0.06) builder.add(box(0.08, 0.95, 0.03).translate(0, 0.475, 0), m.lacquer, at(x, 0, front + 0.035), '#f8f6f0');
+    } else if (style < 0.75) {
+      // A clipped hedge.
+      builder.add(box(len, 0.9, 0.7, 1), m.hedge, at(mid, 0.45, front - 0.2), HEDGE[Math.floor(rnd() * HEDGE.length)]);
+    }
+  }
+  // Flower beds under the front windows, either side of the door.
+  for (const side of [-1, 1]) {
+    const x0 = side < 0 ? -w / 2 + 0.3 : h.doorOffset + 1.1;
+    const x1 = side < 0 ? h.doorOffset - 1.1 : w / 2 - 0.3;
+    if (x1 - x0 < 1.2) continue;
+    const z = d / 2 + 0.55;
+    builder.add(box(x1 - x0, 0.14, 0.7), m.lacquer, at((x0 + x1) / 2, 0.07, z), '#5a3e2a');
+    const n = Math.floor((x1 - x0) / 0.32);
+    const tint = FLOWERS[Math.floor(rnd() * FLOWERS.length)];
+    for (let i = 0; i < n; i++) {
+      const x = x0 + 0.16 + i * ((x1 - x0 - 0.32) / Math.max(1, n - 1));
+      builder.add(lump, m.hedge, at(x, 0.24, z + (rnd() - 0.5) * 0.25).multiply(new THREE.Matrix4().makeScale(0.18, 0.16, 0.18)), '#3f6a2e');
+      if (rnd() < 0.8) builder.add(blossom, m.lacquer, at(x + (rnd() - 0.5) * 0.1, 0.38 + rnd() * 0.08, z + (rnd() - 0.5) * 0.2).multiply(new THREE.Matrix4().makeScale(0.06, 0.06, 0.06)), rnd() < 0.7 ? tint : FLOWERS[Math.floor(rnd() * FLOWERS.length)]);
+    }
+  }
+  // A round shrub each side of the porch.
+  for (const side of [-1, 1]) {
+    const s = 0.45 + rnd() * 0.2;
+    builder.add(lump, m.hedge, at(h.doorOffset + side * 1.5, s * 0.8, d / 2 + 1.6).multiply(new THREE.Matrix4().makeScale(s, s * 0.9, s)), HEDGE[Math.floor(rnd() * HEDGE.length)]);
+  }
+  // Bins at the end of the driveway.
+  const bx = driveX + h.drivewaySide * 1.9;
+  for (const [k, color] of [[0, '#2f5a3a'], [1, '#2a3e6a']] as const) {
+    builder.add(box(0.55, 0.95, 0.6, 1), m.lacquer, at(bx, 0.48, front - 1.2 - k * 0.7), color);
+    builder.add(box(0.6, 0.06, 0.66), m.lacquer, at(bx, 0.98, front - 1.2 - k * 0.7), '#1e2a22');
+  }
 }
 
 /**

@@ -25,6 +25,7 @@ export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
   const v = PREHISTORIC.volcano;
   place.avoid({ type: 'circle', x: PREHISTORIC.cave.x, z: PREHISTORIC.cave.z, r: PREHISTORIC.cave.r + 6 });
   for (const g of PREHISTORIC.geysers) place.avoid({ type: 'circle', x: g.x, z: g.z, r: 4 });
+  place.avoid({ type: 'circle', x: -466, z: 292, r: 9 });
   place.avoid({ type: 'circle', x: -404, z: 392, r: 4 });
   const area = { minX: -598, maxX: -205, minZ: 205, maxZ: 598 };
 
@@ -74,7 +75,6 @@ export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
   group.add(instanced(rockGeometry(128, 1, 0.5), zm.darkRock, boulders.map((s) => ({ matrix: compose(s.x, ground(s.x, s.z), s.z, s.rng() * 6, 1 + s.rng() * 3), color: '#7a6a60' }))));
   for (const s of boulders) cylinderCollider(physics, s.x, ground(s.x, s.z), s.z, 1.2, 2);
 
-  group.add(b.build('prehistoric'));
 
   // Smoke from the crater, steam from the springs, and lava bombs when it erupts.
   const smoke = new Puffs(60, '#5a5450', 0.42, { x: v.x, y: v.lava + 4, z: v.z, spread: 12, rise: 5, grow: 2, life: 34, size: 6, wind: [0.9, 0.35] }, 129);
@@ -97,6 +97,8 @@ export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
   const geysers = buildGeysers(ctx, b);
   group.add(geysers.group);
   buildNest(ctx, b);
+  const tar = buildTarPit(ctx, b);
+  group.add(tar.group, b.build('prehistoric'));
   const herds = [
     sauropods,
     new Herd(theropod(), 1, rex.mover, [1.15]),
@@ -114,8 +116,9 @@ export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
       const t = view.time;
       rex.update(view.dt, view.clock);
       for (const h of herds) h.update(view.clock, view.camera.position);
-      saddles.update(view.clock);
+      saddles.update(view.clock, view.camera.position);
       geysers.update(view.clock, view.dt);
+      tar.update(view.clock);
       const phase = view.clock % ERUPT_EVERY;
       const erupting = phase < ERUPTION;
       smoke.update(t, erupting ? 1.6 : 1);
@@ -201,7 +204,7 @@ class Rex {
 }
 
 /** Saddles on the long-necks' backs, and the "climb on" spot beside each. */
-function buildSaddles(ctx: ZoneContext, herd: Herd): { group: THREE.Group; update(clock: number): void } {
+function buildSaddles(ctx: ZoneContext, herd: Herd): { group: THREE.Group; update(clock: number, camera: THREE.Vector3): void } {
   const { zm, terrain } = ctx;
   const group = new THREE.Group();
   const saddles: THREE.Group[] = [];
@@ -256,9 +259,10 @@ function buildSaddles(ctx: ZoneContext, herd: Herd): { group: THREE.Group; updat
   }
   return {
     group,
-    update(clock) {
+    update(clock, camera) {
       saddles.forEach((saddle, i) => {
         const p = where(i, clock);
+        saddle.visible = Math.hypot(p.x - camera.x, p.z - camera.z) < 300;
         saddle.position.set(p.x + Math.sin(p.yaw) * 0.4 * p.scale, p.y + 7.25 * p.scale, p.z + Math.cos(p.yaw) * 0.4 * p.scale);
         saddle.rotation.y = p.yaw;
         saddle.scale.setScalar(Math.max(0.8, p.scale));
@@ -313,9 +317,59 @@ function buildGeysers(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group
   };
 }
 
+/** A bubbling tar pit, giant footprints leading away from it, and old bones round its edge. */
+function buildTarPit(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(t: number): void } {
+  const { zm, m, terrain } = ctx;
+  const x = -466;
+  const z = 292;
+  const y = terrain.heightAt(x, z);
+  const tar = new THREE.MeshStandardMaterial({ color: '#0a0806', roughness: 0.22, metalness: 0, envMapIntensity: 0.35 });
+  // Laid over the bumpy ground, a hand's breadth above it.
+  const drape = (g: THREE.BufferGeometry, lift: number) => {
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) pos.setY(i, terrain.heightAt(x + pos.getX(i), z + pos.getZ(i)) - y + lift);
+    g.computeVertexNormals();
+    return g;
+  };
+  b.add(drape(new THREE.CircleGeometry(6, 28, 0, Math.PI * 2).rotateX(-Math.PI / 2), 0.12), tar, placement(x, y, z), undefined, { castShadow: false });
+  b.add(drape(new THREE.RingGeometry(5.6, 7.4, 28, 2).rotateX(-Math.PI / 2), 0.1), zm.darkRock, placement(x, y, z), '#3a2e26', { castShadow: false });
+  const rng = mulberry32(132);
+  for (let i = 0; i < 6; i++) {
+    const a = rng() * Math.PI * 2;
+    b.add(new THREE.CylinderGeometry(0.08, 0.1, 1.6, 6).rotateZ(Math.PI / 2 - 0.5), zm.paint, placement(x + Math.cos(a) * 6.8, y + 0.2, z + Math.sin(a) * 6.8, a), '#d8ccb0');
+  }
+  // Three-toed prints in the mud.
+  const print = new THREE.CircleGeometry(0.5, 10).rotateX(-Math.PI / 2).scale(0.8, 1, 1.2);
+  for (let k = 0; k < 14; k++) {
+    const px = x + 9 + k * 2.4;
+    const pz = z + 4 + Math.sin(k * 0.4) * 2 + (k % 2 ? 0.8 : -0.8);
+    b.add(print, tar, placement(px, terrain.heightAt(px, pz) + 0.03, pz, -Math.PI / 2), undefined, { castShadow: false });
+  }
+  const group = new THREE.Group();
+  const bubbles = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), tar, 8);
+  group.add(bubbles);
+  const M = new THREE.Matrix4();
+  return {
+    group,
+    update(t) {
+      for (let i = 0; i < 8; i++) {
+        // Each bubble swells and pops on its own beat.
+        const phase = (t * 0.4 + i * 0.37) % 1;
+        const r = phase < 0.85 ? phase * 0.5 : 0;
+        const a = i * 2.4;
+        const bx = x + Math.cos(a) * (1 + (i % 3) * 1.4);
+        const bz = z + Math.sin(a) * (1 + (i % 3) * 1.4);
+        M.makeScale(r, r * 0.7, r).setPosition(bx, terrain.heightAt(bx, bz) + 0.12, bz);
+        bubbles.setMatrixAt(i, M);
+      }
+      bubbles.instanceMatrix.needsUpdate = true;
+    },
+  };
+}
+
 /** A nest of sticks with eggs in it, where the long-necks graze. */
 function buildNest(ctx: ZoneContext, b: ChunkedBuilder): void {
-  const { m, terrain } = ctx;
+  const { m, zm, terrain } = ctx;
   const x = -404;
   const z = 392;
   const y = terrain.heightAt(x, z);
@@ -324,7 +378,7 @@ function buildNest(ctx: ZoneContext, b: ChunkedBuilder): void {
     const a = (k / 26) * Math.PI * 2;
     b.add(new THREE.CylinderGeometry(0.05, 0.06, 1.4, 5).rotateZ(Math.PI / 2 - 0.3), m.bark, placement(x + Math.cos(a) * 1.3, y + 0.15 + (k % 3) * 0.08, z + Math.sin(a) * 1.3, -a + rng() * 0.6));
   }
-  for (const [ex, ez] of [[-0.4, 0.3], [0.35, 0.2], [0, -0.4]]) b.add(new THREE.SphereGeometry(0.22, 12, 10).scale(0.85, 1.15, 0.85), m.porcelain, placement(x + ex, y + 0.28, z + ez), '#e8dcc0');
+  for (const [ex, ez] of [[-0.4, 0.3], [0.35, 0.2], [0, -0.4]]) b.add(new THREE.SphereGeometry(0.22, 12, 10).scale(0.85, 1.15, 0.85), zm.paint, placement(x + ex, y + 0.28, z + ez), '#e8dcc0');
 }
 
 /** A soft round glow, bright in the middle and fading to nothing. */

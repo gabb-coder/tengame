@@ -88,7 +88,7 @@ export function buildSpace(ctx: ZoneContext): ZoneContent {
   }
 
   const rocket = buildLaunchPad(ctx, b);
-  group.add(b.build('space'), rocket.group, ...dishes);
+  group.add(rocket.group, ...dishes);
 
   // The sky: a ringed giant planet and two moons, and an asteroid belt overhead.
   const sky = buildSky();
@@ -101,6 +101,34 @@ export function buildSpace(ctx: ZoneContext): ZoneContent {
   for (let i = 0; i < 8; i++) for (let p = 0; p < 2; p++) floaters.tint(i, p, ['#7affff', '#ff8af0'][i % 2]);
   group.add(floaters.group);
 
+  // Cargo containers stacked by the dock, and beacons blinking round the pads.
+  const crateColors = ['#d8602a', '#2a6ad8', '#e8c040', '#8a8e96', '#2fa86a'];
+  for (let i = 0; i < 9; i++) {
+    const x = SPACE.dock.x - 34 + (i % 3) * 3.2;
+    const z = SPACE.dock.z - 14 + Math.floor(i / 3) * 7;
+    for (let k = 0; k < 1 + (i % 2); k++) {
+      b.add(box(3, 2.6, 6.2, 1), zm.metal, placement(x, ground(x, z) + 1.3 + k * 2.6, z), crateColors[(i + k) % crateColors.length]);
+    }
+    boxCollider(physics, IDENTITY, { x, y: ground(x, z) + 2.6, z }, { x: 3, y: 5.2, z: 6.2 });
+  }
+  const beaconMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 0.4, 0.3), toneMapped: false });
+  const beacons = new THREE.InstancedMesh(new THREE.SphereGeometry(0.28, 8, 6), beaconMat, 36);
+  let n = 0;
+  for (const pad of [SPACE.launchPad, SPACE.dock]) {
+    for (let k = 0; k < 18; k++) {
+      const a = (k / 18) * Math.PI * 2;
+      beacons.setMatrixAt(n++, new THREE.Matrix4().makeTranslation(pad.x + Math.cos(a) * (pad.r + 1), 0.35, pad.z + Math.sin(a) * (pad.r + 1)));
+    }
+  }
+  group.add(beacons);
+  for (const [x, z] of [[SPACE.habitat.x + 30, SPACE.habitat.z - 30], [SPACE.array.x - 30, SPACE.array.z + 20]] as const) {
+    const y = ground(x, z);
+    b.add(new THREE.CylinderGeometry(0.15, 0.25, 18, 6).translate(0, 9, 0), m.steel, placement(x, y, z));
+    for (let k = 0; k < 3; k++) b.add(box(2.4 - k * 0.5, 0.08, 0.08), m.steel, placement(x, y + 12 + k * 2, z, k));
+    b.add(new THREE.SphereGeometry(0.3, 8, 6), zm.glow, placement(x, y + 18.3, z), '#ff3a2a');
+    cylinderCollider(physics, x, y, z, 0.3, 18);
+  }
+
   // The jetpack rack by the habitat's door.
   const rack = SPACE.jetpacks;
   b.add(box(3.2, 0.12, 0.5), m.steel, placement(rack.x, 2.1, rack.z));
@@ -110,7 +138,12 @@ export function buildSpace(ctx: ZoneContext): ZoneContent {
     const pack = jetpack().object;
     pack.position.set(rack.x - 1.05 + k * 0.7, 1.65, rack.z + 0.25);
     pack.rotation.y = Math.PI;
-    group.add(pack);
+    pack.updateMatrixWorld(true);
+    // They hang there still, so they're merged in with the rest of the outpost.
+    pack.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh && mesh.name !== 'flame') b.add(mesh.geometry, mesh.material as THREE.Material, mesh.matrixWorld.clone());
+    });
   }
   boxCollider(physics, IDENTITY, { x: rack.x, y: 1.1, z: rack.z }, { x: 3.4, y: 2.2, z: 0.5 });
   game.activities.add({
@@ -128,11 +161,15 @@ export function buildSpace(ctx: ZoneContext): ZoneContent {
     },
   });
 
+  group.add(b.build('space'));
+
   return {
     id: 'space',
     group,
     update(view) {
       floaters.update(view.clock, view.camera.position);
+      // The beacons chase round each pad.
+      beaconMat.color.setRGB(2.6, 0.4, 0.3).multiplyScalar(0.4 + 0.6 * (Math.sin(view.clock * 6) > 0 ? 1 : 0.2));
       belt.rotation.y = view.time * 0.004;
       sky.update(view.camera.position, view.time);
       rocket.update(view.clock, view.dt);
@@ -187,7 +224,7 @@ function buildHabitat(ctx: ZoneContext, b: ChunkedBuilder): void {
   cylinderCollider(physics, main.x, 0, main.z, 2.2, 1.2);
   for (let r = -1; r <= 1; r += 2) {
     b.add(box(1.2, 0.6, 8, 1), zm.paint, placement(main.x + r * 7, 0.3, main.z - 2), '#e8ecf0');
-    for (let k = 0; k < 6; k++) b.add(new THREE.SphereGeometry(0.4, 8, 6), m.foliage, placement(main.x + r * 7, 0.85, main.z - 5 + k * 1.2), '#4a9a3a');
+    for (let k = 0; k < 6; k++) b.add(new THREE.SphereGeometry(0.4, 8, 6), m.hedge, placement(main.x + r * 7, 0.85, main.z - 5 + k * 1.2), '#4a9a3a');
   }
   b.add(new THREE.CylinderGeometry(main.r - 0.3, main.r - 0.3, 0.05, 40), zm.paint, placement(main.x, 0.03, main.z), '#c8ccd2', { castShadow: false });
   lights.add({ position: new THREE.Vector3(main.x, 9, main.z), color: '#d8eaff', intensity: 40, range: 24 });
@@ -373,9 +410,16 @@ function buildSky(): { group: THREE.Group; update(camera: THREE.Vector3, time: n
   group.add(giant);
   group.renderOrder = -2;
   const dir = new THREE.Vector3(0.55, 0.32, -0.77).normalize();
+  const materials = [planet, ring, ...moons].map((o) => o.material as THREE.MeshBasicMaterial);
+  for (const mat of materials) mat.transparent = true;
   return {
     group,
     update(camera, time) {
+      // Only in the alien world's sky: fading in as you cross the highways into it.
+      const inside = Math.min(camera.x - (SPACE.x - 200), SPACE.z + 200 - camera.z);
+      const show = THREE.MathUtils.smoothstep(inside, -30, 40);
+      group.visible = show > 0.01;
+      for (const mat of materials) mat.opacity = show;
       // Fixed in the sky: always the same direction, as far away as the stars.
       giant.position.copy(camera).addScaledVector(dir, 1500);
       giant.rotation.y = time * 0.01;

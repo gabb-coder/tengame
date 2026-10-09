@@ -4,7 +4,7 @@ import { OCEAN } from '../../../../shared/zones/ocean.ts';
 import { generateWorld } from '../../../../shared/world.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, IDENTITY, placement } from '../town/meshBuilder.ts';
-import { circleMover, flyer, Herd, jellyfish, type Mover, swimmer } from './creatures.ts';
+import { circleMover, flyer, Herd, jellyfish, type Mover, type Species, swimmer } from './creatures.ts';
 import { ChunkedBuilder, compose, cylinderCollider, hull, instanced, mergeAll, mulberry32, palms, Placement, Puffs, rockGeometry, type ZoneContent, type ZoneContext } from './kit.ts';
 import type { Mount } from '../../game/activities.ts';
 import { worldSeconds } from '../../game/clock.ts';
@@ -183,7 +183,6 @@ export function buildOcean(ctx: ZoneContext): ZoneContent {
   }
   group.add(instanced(kelpBlade(), kelp.material, kelpItems, { castShadow: false, detail: 200 }));
 
-  group.add(b.build('ocean'));
 
   // --- Sea life --------------------------------------------------------------------
   const schools = [
@@ -210,10 +209,12 @@ export function buildOcean(ctx: ZoneContext): ZoneContent {
   const gulls = new Herd(flyer({ size: 0.45, body: '#f2f2ee', wing: '#c8ccd0', beat: 2.2 }), 8, circleMover(330, 280, 45, 22, 8, terrain), [], 400);
   group.add(fish.group, sharks.group, mantas.group, turtles.group, whale.group, jellies.group, gulls.group);
 
+  const crabs = buildBeachLife(ctx, b);
+  group.add(crabs.group);
   const ferries = buildFerries(ctx);
   group.add(ferries.group);
   const cannon = buildCannon(ctx, b);
-  group.add(cannon.group);
+  group.add(cannon.group, b.build('ocean'));
   // The foghorn on the lighthouse.
   game.activities.add(buttonActivity('ocean/horn'));
   onTrigger('ocean/horn', () => game.sounds?.horn(new THREE.Vector3(lh.x, lh.y + towerH, lh.z)));
@@ -226,7 +227,8 @@ export function buildOcean(ctx: ZoneContext): ZoneContent {
       const t = view.clock;
       const cam = view.camera.position;
       for (const herd of [fish, sharks, mantas, turtles, whale, jellies, gulls]) herd.update(t, cam);
-      ferries.update(t);
+      ferries.update(t, cam);
+      crabs.update(t, cam);
       cannon.update(view.dt);
       // The whale breaks the surface now and then, with a great splash.
       const breach = t % BREACH_EVERY;
@@ -256,6 +258,73 @@ export function buildOcean(ctx: ZoneContext): ZoneContent {
   };
 }
 
+/** The beach: a lifeguard tower, sandcastles, surfboards, starfish and scuttling crabs. */
+function buildBeachLife(ctx: ZoneContext, b: ChunkedBuilder): Herd {
+  const { physics, zm, m, terrain } = ctx;
+  const ground = (x: number, z: number) => terrain.heightAt(x, z);
+  // The lifeguard's tower, looking out to sea.
+  const lx = 286;
+  const lz = 259.5;
+  const ly = ground(lx, lz);
+  for (const [x, z] of [[-0.9, -0.9], [0.9, -0.9], [-0.9, 0.9], [0.9, 0.9]]) b.add(box(0.12, 2.4, 0.12), zm.planks, placement(lx + x, ly + 1.2, lz + z), '#e8e2d0');
+  b.add(box(2.2, 0.12, 2.2), zm.planks, placement(lx, ly + 2.4, lz), '#e8e2d0');
+  b.add(box(2, 1.4, 2, 1), zm.paint, placement(lx, ly + 3.2, lz), '#c8302a');
+  b.add(box(2.4, 0.1, 2.4), zm.paint, placement(lx, ly + 3.95, lz), '#f4f0e8');
+  b.add(box(1.4, 0.6, 0.05), zm.glass, placement(lx, ly + 3.3, lz + 1.02));
+  b.add(box(0.8, 0.08, 1.6), zm.planks, placement(lx, ly + 1.2, lz - 1.8, 0, -0.9), '#e8e2d0');
+  cylinderCollider(physics, lx, ly, lz, 1.3, 4);
+  // Sandcastles with flags, and surfboards stuck in the sand.
+  for (const [x, z] of [[262, 261], [372, 262], [436, 261]] as const) {
+    const y = ground(x, z);
+    b.add(new THREE.CylinderGeometry(0.7, 0.85, 0.5, 12).translate(0, 0.25, 0), zm.sand, placement(x, y, z), '#e8d0a0');
+    for (const [dx, dz] of [[-0.55, -0.55], [0.55, -0.55], [-0.55, 0.55], [0.55, 0.55]]) b.add(new THREE.CylinderGeometry(0.2, 0.24, 0.8, 8).translate(0, 0.4, 0), zm.sand, placement(x + dx, y, z + dz), '#e8d0a0');
+    b.add(new THREE.ConeGeometry(0.35, 0.6, 8).translate(0, 0.8, 0), zm.sand, placement(x, y + 0.3, z), '#e8d0a0');
+    b.add(new THREE.CylinderGeometry(0.01, 0.01, 0.6, 4).translate(0, 1.3, 0), m.darkMetal, placement(x, y + 0.3, z));
+    b.add(box(0.25, 0.15, 0.01), zm.paint, placement(x + 0.13, y + 1.85, z), '#c8302a');
+  }
+  const boards = ['#2e8ad8', '#f2c230', '#e8402a', '#2fa86a', '#f07ad8'];
+  boards.forEach((color, i) => {
+    const x = 318 + i * 1.1;
+    const z = 258;
+    b.add(new THREE.CapsuleGeometry(0.28, 1.8, 4, 10).scale(1, 1, 0.12), zm.paint, placement(x, ground(x, z) + 1.0, z, 0.2, 0.15 - i * 0.05), color);
+  });
+  // Starfish on the wet sand.
+  const rng = mulberry32(97);
+  const star = new THREE.CylinderGeometry(0.18, 0.18, 0.04, 5);
+  for (let i = 0; i < 16; i++) {
+    const x = 230 + rng() * 220;
+    const z = 263 + rng() * 3;
+    const y = ground(x, z);
+    if (y < SEA_LEVEL - 0.2) continue;
+    b.add(star, zm.paint, placement(x, y + 0.02, z, rng() * 6), ['#f07a3a', '#e8402a', '#c86ad8'][i % 3], { castShadow: false });
+  }
+  // Crabs scuttling sideways along the water's edge.
+  const crab: Species = {
+    parts: [
+      { parent: -1, offset: [0, 0.12, 0], geometry: new THREE.SphereGeometry(0.16, 10, 6).scale(1.3, 0.55, 1), color: '#d84a2a' },
+      { parent: 0, offset: [0.18, 0, 0.14], geometry: new THREE.SphereGeometry(0.06, 8, 6).scale(1.4, 0.8, 1), color: '#d84a2a' },
+      { parent: 0, offset: [-0.18, 0, 0.14], geometry: new THREE.SphereGeometry(0.06, 8, 6).scale(1.4, 0.8, 1), color: '#d84a2a' },
+    ],
+    stride: 0.3,
+    pose(phase, t, i, out) {
+      out[0] = [0, 0, Math.sin(phase * Math.PI * 4) * 0.12];
+      out[1] = [0, Math.sin(t * 3 + i) * 0.3, 0];
+      out[2] = [0, -Math.sin(t * 3 + i) * 0.3, 0];
+    },
+  };
+  return new Herd(crab, 10, (i, t, out) => {
+    const base = 236 + i * 21;
+    out.x = base + Math.sin(t * 0.25 + i) * 6;
+    out.z = 265 + Math.sin(i * 1.7) * 1.2;
+    out.y = Math.max(ground(out.x, out.z), SEA_LEVEL);
+    // Crabs walk sideways: face across their path.
+    out.yaw = Math.cos(t * 0.25 + i) > 0 ? 0 : Math.PI;
+    out.pitch = 0;
+    out.roll = 0;
+    return true;
+  }, [], 120);
+}
+
 /** How often the whale leaps out of the sea (seconds on the shared clock). */
 const BREACH_EVERY = 75;
 
@@ -280,7 +349,7 @@ function breaching(swim: Mover): Mover & { last(out: THREE.Vector3): void } {
 }
 
 /** The glass-bottom boats: round the bay from the end of the pier, past the reef and the lighthouse. */
-function buildFerries(ctx: ZoneContext): { group: THREE.Group; update(t: number): void } {
+function buildFerries(ctx: ZoneContext): { group: THREE.Group; update(t: number, camera: THREE.Vector3): void } {
   const { zm, m } = ctx;
   const p = OCEAN.pier;
   const y = SEA_LEVEL + 0.2;
@@ -341,9 +410,10 @@ function buildFerries(ctx: ZoneContext): { group: THREE.Group; update(t: number)
   const state = { position: new THREE.Vector3(), yaw: 0, pitch: 0, stopped: null, next: line.stops[0], wait: 0, vehicle: 0 } as VehicleState;
   return {
     group,
-    update(t) {
+    update(t, camera) {
       boats.forEach((boat, v) => {
         line.state(t, v, 0, state);
+        boat.visible = state.position.distanceTo(camera) < 400;
         boat.matrixAutoUpdate = false;
         boat.matrix.copy(matrix(state, t, v));
         boat.matrixWorldNeedsUpdate = true;
@@ -577,7 +647,7 @@ function buildDome(ctx: ZoneContext, b: ChunkedBuilder): void {
     const x = d.x + Math.cos(a) * 14;
     const z = d.z + Math.sin(a) * 14;
     b.add(new THREE.CylinderGeometry(1.4, 1.2, 0.9, 16), zm.marble, placement(x, d.y + 0.45, z), '#dfe8ea');
-    b.add(new THREE.SphereGeometry(1.2, 10, 8).scale(1, 0.7, 1), m.foliage, placement(x, d.y + 1.3, z), '#3a8a4a');
+    b.add(new THREE.SphereGeometry(1.2, 10, 8).scale(1, 0.7, 1), m.hedge, placement(x, d.y + 1.3, z), '#3a8a4a');
     cylinderCollider(physics, x, d.y, z, 1.4, 1.6);
   }
   lights.add({ position: new THREE.Vector3(d.x, d.y + 10, d.z), color: '#d8f4ff', intensity: 60, range: 34 });

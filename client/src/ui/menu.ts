@@ -69,8 +69,9 @@ export class Menu {
   private show(section: Section): void {
     for (const s of ['main', 'settings', 'journal', 'confirm'] as const) $(`menu-${s}`).hidden = s !== section;
     this.section = section;
-    const focus = { main: 'menu-resume', settings: 'set-volume', journal: 'journal-back', confirm: 'leave-cancel' }[section];
+    const focus = { main: 'menu-resume', settings: 'set-volume', journal: 'journal-tab-relics', confirm: 'leave-cancel' }[section];
     $(focus).focus();
+    this.root.querySelector('.menu-card')!.scrollTop = 0;
   }
 
   /** Each control with id "set-<name>" edits that setting. */

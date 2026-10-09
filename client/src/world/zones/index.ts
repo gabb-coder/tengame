@@ -19,6 +19,7 @@ import { buildSpace } from './space.ts';
 import { Npcs } from './npcs.ts';
 import { buildPark } from './park.ts';
 import { fireworks } from './fireworks.ts';
+import { ShootingStars } from './shootingStars.ts';
 import { worldSeconds } from '../../game/clock.ts';
 import { Weather } from './weather.ts';
 
@@ -47,6 +48,7 @@ export class Zones {
   readonly lights: LightPool;
   private contents: ZoneContent[] = [];
   private weather = new Weather();
+  private stars = new ShootingStars();
   private npcs: Npcs;
   private blended = emptyAmbience();
   private time = 0;
@@ -75,7 +77,7 @@ export class Zones {
       this.group.add(content.group);
     }
     this.npcs = new Npcs(terrain);
-    this.group.add(this.weather.group, this.npcs.group, fireworks.points);
+    this.group.add(this.weather.group, this.npcs.group, fireworks.points, this.stars.mesh);
     scene.add(this.group);
     this.group.traverse((o) => {
       if ((o as THREE.Mesh).isMesh && o.userData.maxDistance) this.details.push(o as THREE.Mesh);
@@ -129,6 +131,7 @@ export class Zones {
       ambience.fogFar = 85 - Math.min(40, depth * 2);
     }
     this.weather.update(dt, cam, ambience.weather, night, sheltered);
+    this.stars.update(dt, cam, this.submerged ? 0 : Math.max(0, night - 0.4) * (1 - ambience.overcast) * 1.6);
     return ambience;
   }
 }

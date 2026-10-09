@@ -6,7 +6,8 @@ import { game, onTrigger } from '../../game/link.ts';
 import { AVATAR } from '../../player/character.ts';
 import { ballistic, benchSeats, buttonActivity, zoneSeats } from './buttons.ts';
 import { fireworks } from './fireworks.ts';
-import { ChunkedBuilder, cylinderCollider, mulberry32, type ZoneContent, type ZoneContext } from './kit.ts';
+import { circleMover, flyer, Herd, type Species, swimmer } from './creatures.ts';
+import { ChunkedBuilder, cylinderCollider, mulberry32, Puffs, type ZoneContent, type ZoneContext } from './kit.ts';
 import { buildMonorail } from './monorail.ts';
 
 const NEON = ['#ff2a8a', '#2af0ff', '#b44aff', '#ffe02a', '#2aff8a', '#ff6a2a'];
@@ -94,13 +95,14 @@ export function buildCyberpunk(ctx: ZoneContext): ZoneContent {
   const train = buildMonorail(ctx, b);
   const traffic = new FlyingTraffic();
   const pad = buildBouncePad(ctx, b);
+  const life = buildStreetLife(ctx, b);
 
   // Fireworks from the top of the Helix, over the whole city.
   game.activities.add(buttonActivity('cyberpunk/fireworks'));
   const top = h.rise * h.turns;
   onTrigger('cyberpunk/fireworks', () => fireworks.show(new THREE.Vector3(h.x, top + 1, h.z - (h.inner + h.outer) / 2 + 3), 18, 60));
 
-  group.add(b.build('cyberpunk'), signs.build('cyber-signs'), train.group, traffic.mesh, pad.mesh);
+  group.add(b.build('cyberpunk'), signs.build('cyber-signs'), train.group, traffic.mesh, pad.mesh, life.group);
   for (const [i, c] of NEON.entries()) {
     lights.add({ position: new THREE.Vector3(260 + i * 60, 8, -100 + (i % 3) * 100), color: c, intensity: 30, range: 26 });
   }
@@ -111,9 +113,10 @@ export function buildCyberpunk(ctx: ZoneContext): ZoneContent {
       facade.userData.time.value = view.time;
       signMat.userData.time.value = view.time;
       screen.update(view.dt);
-      train.update();
+      train.update(view.camera.position);
       traffic.update(view.clock);
       pad.update(view.dt);
+      life.update(view.clock, view.camera.position);
     },
   };
 }
@@ -286,7 +289,7 @@ function buildSkypark(ctx: ZoneContext, b: ChunkedBuilder, facade: THREE.Materia
     boxCollider(physics, IDENTITY, { x, y: top + 0.6, z }, { x: w, y: 1.2, z: d });
   }
   // The garden: lawns, glowing trees, a pond and benches.
-  b.add(box(sp.w - 4, 0.12, sp.d - 4, 2), m.foliage, placement(sp.x, top + 0.06, sp.z), '#3f7a3a', { castShadow: false });
+  b.add(box(sp.w - 4, 0.12, sp.d - 4, 2), m.hedge, placement(sp.x, top + 0.06, sp.z), '#3f7a3a', { castShadow: false });
   b.add(new THREE.CylinderGeometry(4, 4, 0.08, 28), zm.water, placement(sp.x - 6, top + 0.14, sp.z - 6));
   const rng = mulberry32(114);
   for (let i = 0; i < 9; i++) {
@@ -332,6 +335,77 @@ function buildBouncePad(ctx: ZoneContext, b: ChunkedBuilder): { mesh: THREE.Mesh
       flash = 1;
       game.launch(ballistic(me, target, 1.31, AVATAR.gravity));
       game.sounds?.whoosh(me, 1.4);
+    },
+  };
+}
+
+/** A glowing see-through version of a species (holograms). */
+function hologram(species: Species): Species {
+  return { ...species, parts: species.parts.map((p) => ({ ...p, glow: true })) };
+}
+
+/**
+ * The street life of the city: steam from the manholes, puddles shining in the rain, cables
+ * slung between towers, holographic koi drifting over the plazas and drones buzzing about.
+ */
+function buildStreetLife(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(t: number, camera: THREE.Vector3): void } {
+  const { m } = ctx;
+  const group = new THREE.Group();
+  const rng = mulberry32(115);
+  const streetSpots: { x: number; z: number }[] = [];
+  for (const x of CYBERPUNK.avenues) for (const z of [-150, -50, 50, 150]) streetSpots.push({ x: x + (rng() - 0.5) * 6, z: z + (rng() - 0.5) * 20 });
+  for (const z of CYBERPUNK.streets) for (const x of [250, 350, 450, 550]) streetSpots.push({ x: x + (rng() - 0.5) * 20, z: z + (rng() - 0.5) * 6 });
+  // Steam rising from manholes.
+  const vents: Puffs[] = [];
+  const ventAt = new Map<Puffs, { x: number; z: number }>();
+  streetSpots.forEach((s, i) => {
+    if (i % 3) return;
+    b.add(new THREE.CylinderGeometry(0.45, 0.45, 0.03, 16), m.darkMetal, placement(s.x, 0.02, s.z));
+    const steam = new Puffs(10, '#e8eaf0', 0.28, { x: s.x, y: 0.1, z: s.z, spread: 0.4, rise: 1.6, grow: 0.9, life: 4, size: 0.5, wind: [0.4, 0.2] }, 116 + i);
+    vents.push(steam);
+    ventAt.set(steam, s);
+    group.add(steam.mesh);
+  });
+  // Puddles: dark mirrors on the wet road.
+  const puddle = new THREE.MeshStandardMaterial({ color: '#0c0e14', roughness: 0.02, metalness: 0.9, envMapIntensity: 2.2, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
+  for (const s of streetSpots) {
+    const r = 0.8 + rng() * 1.6;
+    const g = new THREE.CircleGeometry(1, 18).rotateX(-Math.PI / 2).scale(r * (1 + rng()), 1, r);
+    b.add(g, puddle, placement(s.x + (rng() - 0.5) * 4, 0.03, s.z + (rng() - 0.5) * 4, rng() * 3), undefined, { castShadow: false });
+  }
+  // Power and data cables sagging across the streets between towers.
+  const cable = new THREE.MeshStandardMaterial({ color: '#15171c', roughness: 0.8 });
+  for (let i = 0; i < 26; i++) {
+    const alongX = i % 2 === 0;
+    const street = alongX ? CYBERPUNK.streets[i % 3] : CYBERPUNK.avenues[i % 3];
+    const pos = 210 + rng() * 370 - (alongX ? 0 : 400);
+    const y = 14 + rng() * 26;
+    const a = alongX ? new THREE.Vector3(pos, y, street - 16) : new THREE.Vector3(street - 16, y, pos);
+    const c = alongX ? new THREE.Vector3(pos + (rng() - 0.5) * 8, y + (rng() - 0.5) * 6, street + 16) : new THREE.Vector3(street + 16, y + (rng() - 0.5) * 6, pos + (rng() - 0.5) * 8);
+    const mid = a.clone().lerp(c, 0.5);
+    mid.y -= 2 + rng() * 2;
+    b.add(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, c), 16, 0.06, 4), cable, new THREE.Matrix4(), undefined, { castShadow: false });
+  }
+  // Holographic koi over the market and the Helix plaza; little drones zipping about.
+  const koi = new Herd(hologram(swimmer('fish', '#ffffff')), 10, circleMover(CYBERPUNK.market.x, CYBERPUNK.market.z, 16, 9, 2.2, null, { absolute: true, wobble: 3 }), Array(10).fill(5), 260);
+  const koi2 = new Herd(hologram(swimmer('fish', '#ffffff')), 6, circleMover(CYBERPUNK.helix.x, CYBERPUNK.helix.z, 36, 18, 3, null, { absolute: true, wobble: 4 }), Array(6).fill(6), 300);
+  const colors = ['#ff5ab8', '#5af0ff', '#ffb02a', '#b47aff'];
+  for (let i = 0; i < 10; i++) for (let p = 0; p < 3; p++) koi.tint(i, p, colors[i % 4]);
+  for (let i = 0; i < 6; i++) for (let p = 0; p < 3; p++) koi2.tint(i, p, colors[(i + 1) % 4]);
+  const drones = new Herd(hologram(flyer({ size: 0.25, body: '#ffffff', wing: '#ffffff', beat: 18 })), 14, circleMover(CYBERPUNK.x, CYBERPUNK.z, 140, 26, 14, null, { absolute: true, wobble: 30 }), [], 320);
+  for (let i = 0; i < 14; i++) drones.tint(i, 0, NEON[i % NEON.length]);
+  group.add(koi.group, koi2.group, drones.group);
+  return {
+    group,
+    update(t, camera) {
+      for (const v of vents) {
+        const at = ventAt.get(v)!;
+        v.mesh.visible = Math.hypot(at.x - camera.x, at.z - camera.z) < 220;
+        if (v.mesh.visible) v.update(t);
+      }
+      koi.update(t, camera);
+      koi2.update(t, camera);
+      drones.update(t, camera);
     },
   };
 }

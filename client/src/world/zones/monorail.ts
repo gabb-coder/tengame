@@ -4,7 +4,7 @@ import { worldSeconds } from '../../game/clock.ts';
 import { game } from '../../game/link.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, placement } from '../town/meshBuilder.ts';
-import { type ChunkedBuilder, cylinderCollider, type ZoneContext } from './kit.ts';
+import { type ChunkedBuilder, cylinderCollider, mergeAll, type ZoneContext } from './kit.ts';
 import { distanceAlong, lineActivities, loopCurve, Shaft, type Stop, TransitLine, type VehicleState } from './transit.ts';
 
 const NEON = ['#ff2a8a', '#2af0ff', '#b44aff'];
@@ -13,13 +13,15 @@ const CURB = 0.15;
 const PLATFORM_Y = CYBERPUNK.monorail.height + 1;
 const CARS = 4;
 const CAR_GAP = 12;
+/** Trains and lifts further than this from the camera aren't drawn. */
+const NEAR = 380;
 
 /**
  * The elevated monorail: a loop over the outer streets, with trains that stop at two
  * stations, each reached by a glass lift from the sidewalk. Trains and lifts run on the
  * shared clock, so everyone rides the same ones.
  */
-export function buildMonorail(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(): void } {
+export function buildMonorail(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(camera: THREE.Vector3): void } {
   const { physics, zm, m } = ctx;
   const r = CYBERPUNK.monorail;
   const y = r.height;
@@ -135,6 +137,7 @@ export function buildMonorail(ctx: ZoneContext, b: ChunkedBuilder): { group: THR
   const windows = new THREE.MeshPhysicalMaterial({ color: '#9ad8ff', emissive: '#2af0ff', emissiveIntensity: 0.25, roughness: 0.05, transparent: true, opacity: 0.35, depthWrite: false });
   const stripe = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.4, 1.4), toneMapped: false });
   const trains: THREE.Group[][] = [];
+  const seatRows = mergeAll([-3, -1, 1, 3].flatMap((sz) => [-0.75, 0.75].map((sx) => new THREE.BoxGeometry(0.6, 0.12, 0.55).translate(sx, -0.75, sz))));
   for (let v = 0; v < line.vehicles; v++) {
     const cars: THREE.Group[] = [];
     for (let k = 0; k < CARS; k++) {
@@ -150,13 +153,7 @@ export function buildMonorail(ctx: ZoneContext, b: ChunkedBuilder): { group: THR
       lower.castShadow = roof.castShadow = true;
       car.add(lower, upper, band, roof);
       // Rows of seats inside.
-      for (const sz of [-3, -1, 1, 3]) {
-        for (const sx of [-0.75, 0.75]) {
-          const seat = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.12, 0.55), stripe);
-          seat.position.set(sx, -0.75, sz);
-          car.add(seat);
-        }
-      }
+      car.add(new THREE.Mesh(seatRows, stripe));
       group.add(car);
       cars.push(car);
     }
@@ -172,18 +169,21 @@ export function buildMonorail(ctx: ZoneContext, b: ChunkedBuilder): { group: THR
   const state = { position: new THREE.Vector3(), yaw: 0, pitch: 0, stopped: null, next: stops[0], wait: 0, vehicle: 0 } as VehicleState;
   return {
     group,
-    update() {
+    update(camera) {
       const t = worldSeconds();
       trains.forEach((cars, v) =>
         cars.forEach((car, k) => {
           line.state(t, v, k * CAR_GAP, state);
           car.position.set(state.position.x, state.position.y + 2.3, state.position.z);
           car.rotation.y = state.yaw;
+          // Far-off trains are a speck in the haze: skip drawing them.
+          car.visible = car.position.distanceTo(camera) < NEAR;
         }),
       );
       for (const lift of lifts) {
         lift.line.state(t, 0, 0, state);
         lift.cabin.position.copy(state.position);
+        lift.cabin.visible = state.position.distanceTo(camera) < NEAR;
       }
     },
   };

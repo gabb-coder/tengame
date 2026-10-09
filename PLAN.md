@@ -110,10 +110,20 @@ fight the day/night cycle).
   and people, timed events (rocket launches, eruptions) in sync for everyone, zone houses and
   lightable fires (server-checked), a world minimap and zone names on arrival.
 
+- Things to do in every zone: rides on a shared timetable (monorail with stations and
+  lifts, glass-bottom boats, dog sleds, chariots, camels, a Brachiosaurus, a zipline),
+  launchers (trebuchet, cannon, geysers, a bounce pad), a jetpack; shared server-checked
+  buttons (bell, gong, foghorn, fireworks, flare); 43 relics, fishing and a journal; NPCs
+  with names and lines; a T. rex that chases you; dancing, swimming and other animations
+  synced to friends; seats everywhere; background sounds per zone; wind-blown grass; and
+  more detail in the town (yards, playground, bus stops) and every zone.
+
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.
-- Show the driver sitting in the car (the animation library has a driving pose).
+- Show the driver sitting in the car (the animation library has a driving pose; it's
+  now loaded).
+- Boats and horses you steer yourself, not just ride.
 - Doors inside houses (two-story houses currently have open doorways only).
 - More mission types (e.g. a cross-zone rally), more car choices.
 - Real CC0 models for some zone props (ships, rocks, statues) instead of shapes.

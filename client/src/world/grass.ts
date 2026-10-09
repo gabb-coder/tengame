@@ -13,8 +13,11 @@ import type { Terrain } from './terrain.ts';
 const RES = 2;
 const SIZE = (2 * WORLD_HALF) / RES;
 
-/** How thick the grass is in each place (0 = none). */
-const LUSH: Record<ZoneId, number> = { town: 0.95, medieval: 1, jungle: 0.8, prehistoric: 0.7, ancient: 0, arctic: 0, space: 0, cyberpunk: 0, ocean: 0 };
+/** How thick the grass is in each place (0 = none), and how tall it grows. */
+const LUSH: Record<ZoneId, number> = { town: 0.95, medieval: 1, jungle: 0.8, prehistoric: 0.5, ancient: 0, arctic: 0, space: 0, cyberpunk: 0, ocean: 0 };
+const TALL: Record<ZoneId, number> = { town: 0.75, medieval: 1, jungle: 1.25, prehistoric: 1.15, ancient: 0.8, arctic: 0.5, space: 1, cyberpunk: 0.5, ocean: 0.7 };
+/** Lawns in town are kept short. */
+const MOWED = 0.32;
 
 /** Grass color at the root and the tip, per zone (index in the shader: row-major zone grid). */
 const COLORS: Record<ZoneId, [string, string]> = {
@@ -100,7 +103,7 @@ export class Grass {
           float dist = distance( spot, center );
           // Thinner toward the edge of the patch, so it fades out instead of ending in a line.
           float fade = 1.0 - smoothstep( tile * 0.32, tile * 0.5, dist );
-          float h = ( 0.28 + 0.55 * blade.w ) * step( hash, g.g ) * fade * ( 0.6 + 0.4 * g.g );
+          float h = ( 0.28 + 0.55 * blade.w ) * g.b * step( hash, g.g ) * fade * ( 0.6 + 0.4 * g.g );
           float yaw = blade.z * 6.2831;
           vec3 local = vec3( position.x * cos( yaw ), position.y * h, position.x * sin( yaw ) );
           // Wind: gusts rolling across the field, bending the tips most.
@@ -154,14 +157,15 @@ export class Grass {
 }
 
 /**
- * The grass map: per texel, the ground's height (red) and how much grass grows there
- * (green): none on roads, water, paving, steep slopes or under buildings.
+ * The grass map: per texel, the ground's height (red), how much grass grows there (green:
+ * none on roads, water, paving, steep slopes or under buildings) and how tall (blue).
  */
 function grassMap(terrain: Terrain): THREE.DataTexture {
   const world = generateWorld();
   const town = generateTown();
   const density = new Float32Array(SIZE * SIZE);
   const height = new Float32Array(SIZE * SIZE);
+  const tall = new Float32Array(SIZE * SIZE);
   const at = (i: number) => -WORLD_HALF + (i + 0.5) * RES;
   const inRect = (r: Rect, x: number, z: number, m = 0) => x > r.minX - m && x < r.maxX + m && z > r.minZ - m && z < r.maxZ + m;
   // Places with paving or floors: no grass.
@@ -177,6 +181,9 @@ function grassMap(terrain: Terrain): THREE.DataTexture {
     ...PREHISTORIC.geysers.map((g) => ({ type: 'circle' as const, x: g.x, z: g.z, r: 3.5 })),
     ...world.fires.map((f) => ({ type: 'circle' as const, x: f.x, z: f.z, r: 3.5 })),
     { type: 'circle', x: PARK_FOUNTAIN.x, z: PARK_FOUNTAIN.z, r: PARK_FOUNTAIN.r + 0.3 },
+    { type: 'circle', x: -466, z: 292, r: 7.5 },
+    // The playground's rubber mat.
+    { type: 'rect', minX: -15, maxX: 15, minZ: 28, maxZ: 40 },
   ];
   const oasis = ANCIENT.oasis;
   for (let j = 0; j < SIZE; j++) {
@@ -187,12 +194,14 @@ function grassMap(terrain: Terrain): THREE.DataTexture {
       height[k] = terrain.heightAt(x, z);
       const zone = zoneAt(x, z);
       let d = LUSH[zone];
-      if (zone === 'ancient' && Math.hypot(x - oasis.x, z - oasis.z) < oasis.r + 14) d = 0.85;
+      tall[k] = TALL[zone];
+      if (zone === 'ancient' && Math.hypot(x - oasis.x, z - oasis.z) < oasis.r + 6) d = 0.9;
       if (Math.abs(x) < TOWN_HALF_EXTENT + 1 && Math.abs(z) < TOWN_HALF_EXTENT + 1) {
         // In town: only on the blocks' lawns.
         const block = town.blocks.find((b) => inRect(b, x, z));
         if (block) {
           height[k] = CURB_HEIGHT;
+          tall[k] = MOWED;
           d = 1;
           if (block === town.park && Math.max(Math.abs(x - (block.minX + BLOCK_SIZE / 2)), Math.abs(z - (block.minZ + BLOCK_SIZE / 2))) < 29) d = 0;
         } else d = 0;
@@ -203,7 +212,7 @@ function grassMap(terrain: Terrain): THREE.DataTexture {
         const sx = terrain.heightAt(x + 1, z) - terrain.heightAt(x - 1, z);
         const sz = terrain.heightAt(x, z + 1) - terrain.heightAt(x, z - 1);
         if (Math.hypot(sx, sz) / 2 > 0.55) d = 0;
-        if (zone === 'prehistoric' && height[k] > 14) d = 0;
+        if (zone === 'prehistoric' && height[k] > 9) d = 0;
       }
       if (d > 0 && bare.some((s) => shapeDistance(s, x, z) < 0)) d = 0;
       // Patchy, like a real meadow.
@@ -235,12 +244,14 @@ function grassMap(terrain: Terrain): THREE.DataTexture {
     const fz = Math.cos(h.rotation);
     for (let s = 0; s < h.setback + h.depth / 2 + 1; s += 1.5) clear(h.x + fx * s + Math.cos(h.rotation) * h.drivewaySide * 2 * (h.rustic ? 0 : 1), h.z + fz * s - Math.sin(h.rotation) * h.drivewaySide * 2 * (h.rustic ? 0 : 1), h.rustic ? 1 : 2.2);
   }
-  const data = new Uint16Array(SIZE * SIZE * 2);
+  const data = new Uint16Array(SIZE * SIZE * 4);
   for (let k = 0; k < SIZE * SIZE; k++) {
-    data[k * 2] = THREE.DataUtils.toHalfFloat(height[k]);
-    data[k * 2 + 1] = THREE.DataUtils.toHalfFloat(density[k]);
+    data[k * 4] = THREE.DataUtils.toHalfFloat(height[k]);
+    data[k * 4 + 1] = THREE.DataUtils.toHalfFloat(density[k]);
+    data[k * 4 + 2] = THREE.DataUtils.toHalfFloat(tall[k]);
+    data[k * 4 + 3] = THREE.DataUtils.toHalfFloat(1);
   }
-  const tex = new THREE.DataTexture(data, SIZE, SIZE, THREE.RGFormat, THREE.HalfFloatType);
+  const tex = new THREE.DataTexture(data, SIZE, SIZE, THREE.RGBAFormat, THREE.HalfFloatType);
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;

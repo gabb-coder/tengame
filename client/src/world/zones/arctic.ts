@@ -106,8 +106,9 @@ export function buildArctic(ctx: ZoneContext): ZoneContent {
     cylinderCollider(physics, x, 0, z, 0.5, 1.3);
   }
 
+  buildCampLife(ctx, b);
   const observatoryDome = buildObservatory(ctx, b);
-  group.add(b.build('arctic'), observatoryDome);
+  group.add(observatoryDome);
 
   // Campfire warmth is on the shared fires; here, just a lamp on the observatory door.
   lights.add({ position: new THREE.Vector3(ARCTIC.observatory.x, 3, ARCTIC.observatory.z + 12), color: '#ffd9a0', intensity: 12, range: 14, active: () => true });
@@ -152,7 +153,7 @@ export function buildArctic(ctx: ZoneContext): ZoneContent {
   const sleds = buildSleds(ctx);
   group.add(sleds.group);
   const flare = buildFlare(ctx, b);
-  group.add(flare.group);
+  group.add(flare.group, b.build('arctic'));
 
   return {
     id: 'arctic',
@@ -166,6 +167,45 @@ export function buildArctic(ctx: ZoneContext): ZoneContent {
       flare.update(view.dt);
     },
   };
+}
+
+/** The camp's odds and ends: snowmen, tents, a rack of drying fish, skis, and kennels. */
+function buildCampLife(ctx: ZoneContext, b: ChunkedBuilder): void {
+  const { physics, zm, m, terrain } = ctx;
+  const ground = (x: number, z: number) => terrain.heightAt(x, z);
+  const cp = ARCTIC.camp;
+  // Snowmen with coal eyes, a carrot nose and a scarf.
+  const coal = new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.9 });
+  for (const [x, z, s] of [[cp.x + 18, cp.z + 10, 1], [cp.x - 22, cp.z + 16, 0.8], [ARCTIC.lake.x + 40, ARCTIC.lake.z - 40, 1.2]] as const) {
+    const y = ground(x, z);
+    b.add(new THREE.SphereGeometry(0.75 * s, 16, 12), zm.snow, placement(x, y + 0.6 * s, z), '#ffffff');
+    b.add(new THREE.SphereGeometry(0.55 * s, 16, 12), zm.snow, placement(x, y + 1.5 * s, z), '#ffffff');
+    b.add(new THREE.SphereGeometry(0.38 * s, 14, 10), zm.snow, placement(x, y + 2.2 * s, z), '#ffffff');
+    for (const ex of [-0.13, 0.13]) b.add(new THREE.SphereGeometry(0.05 * s, 6, 4), coal, placement(x + ex * s, y + 2.3 * s, z + 0.33 * s));
+    for (const by of [1.4, 1.65]) b.add(new THREE.SphereGeometry(0.06 * s, 6, 4), coal, placement(x, y + by * s, z + 0.52 * s));
+    b.add(new THREE.ConeGeometry(0.06 * s, 0.35 * s, 8).rotateX(Math.PI / 2), zm.paint, placement(x, y + 2.22 * s, z + 0.5 * s), '#f07a1a');
+    b.add(new THREE.TorusGeometry(0.4 * s, 0.08 * s, 6, 16).rotateX(Math.PI / 2), m.fabric, placement(x, y + 1.88 * s, z), '#c8302a');
+    b.add(new THREE.CylinderGeometry(0.02, 0.02, 1.2 * s, 5).rotateZ(1.1), m.bark, placement(x + 0.7 * s, y + 1.6 * s, z));
+    b.add(new THREE.CylinderGeometry(0.02, 0.02, 1.2 * s, 5).rotateZ(-1.1), m.bark, placement(x - 0.7 * s, y + 1.6 * s, z));
+    cylinderCollider(physics, x, y, z, 0.7 * s, 2.5 * s);
+  }
+  // Canvas tents round the edge of the camp.
+  for (let i = 0; i < 3; i++) {
+    const a = 3.6 + i * 0.5;
+    const x = cp.x + Math.cos(a) * 30;
+    const z = cp.z + Math.sin(a) * 30;
+    const y = ground(x, z);
+    b.add(new THREE.ConeGeometry(1.8, 2.2, 4).rotateY(Math.PI / 4).scale(1, 1, 1.6).translate(0, 1.1, 0), zm.paint, placement(x, y, z, -a), ['#d8501a', '#2a6ad8', '#e8c040'][i]);
+    cylinderCollider(physics, x, y, z, 1.6, 2.2);
+  }
+  // A rack of fish drying in the cold, and skis stood in the snow.
+  const rx = cp.x + 12;
+  const rz = cp.z - 16;
+  const ry = ground(rx, rz);
+  for (const s of [-1.4, 1.4]) b.add(box(0.1, 1.9, 0.1), zm.planks, placement(rx + s, ry + 0.95, rz), '#6a4a2a');
+  b.add(box(3, 0.08, 0.08), zm.planks, placement(rx, ry + 1.85, rz), '#6a4a2a');
+  for (let k = 0; k < 7; k++) b.add(new THREE.ConeGeometry(0.08, 0.5, 6).rotateX(Math.PI), zm.paint, placement(rx - 1.2 + k * 0.4, ry + 1.5, rz), '#b8a080');
+  for (let k = 0; k < 4; k++) b.add(box(0.08, 1.8, 0.02), zm.paint, placement(cp.x - 12 + k * 0.25, ground(cp.x - 12, cp.z - 18) + 0.85, cp.z - 18, 0, 0.1), ['#c8302a', '#2a6ad8', '#e8e8e8', '#2a2a2a'][k]);
 }
 
 /** Dog sleds: two teams of six huskies pulling a sled round the lake, from the igloo camp. */
@@ -260,6 +300,7 @@ function buildSleds(ctx: ZoneContext): { group: THREE.Group; update(t: number, c
     update(t, camera) {
       sleds.forEach((sled, v) => {
         line.state(t, v, 0, state);
+        sled.visible = lines[v].visible = state.position.distanceTo(camera) < 300;
         sled.matrixAutoUpdate = false;
         sled.matrix.copy(matrix(state));
         sled.matrixWorldNeedsUpdate = true;
