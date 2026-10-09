@@ -32,6 +32,7 @@ const PHYSICS_STEP = 1 / 60;
 // Load the physics WASM, real textures and models while the player is in the lobby.
 const physicsReady = RAPIER.init();
 const media = new Media();
+CarModel.load(media);
 /** How long to wait for textures before starting with the generated ones. */
 const TEXTURE_WAIT_MS = 8000;
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import type { Media, Model } from '../assets/media.ts';
 import { CAR } from './carPhysics.ts';
 
 const WHEEL_POSITIONS: [number, number][] = [
@@ -18,8 +19,19 @@ const BODY_WIDTH = 1.7;
 const CABIN_WIDTH = 1.4;
 const BOTTOM = -0.42;
 const ARCH_RADIUS = 0.39;
+/** Spring length when the car rests on flat ground. */
+const SETTLED_SUSPENSION = CAR.suspensionRest * 0.65;
 /** Wheel center height when the car rests on flat ground. */
-const WHEEL_Y = CAR.wheelY - CAR.suspensionRest * 0.65;
+const WHEEL_Y = CAR.wheelY - SETTLED_SUSPENSION;
+/** Where the road is, in the chassis frame, when the car rests on flat ground. */
+const GROUND_Y = WHEEL_Y - CAR.wheelRadius;
+
+/** The real car model's wheel nodes, in our wheel order (left is +X). */
+const MODEL_WHEELS = ['WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR'];
+
+/** The loaded car model (see CarModel.load), and every car waiting to switch to it. */
+let template: Model | null = null;
+const cars = new Set<CarModel>();
 
 // Shared geometry and materials across all cars.
 const tireGeometry = makeTire();
@@ -47,12 +59,28 @@ export class CarModel {
   private body = new THREE.Group();
   private wheels: THREE.Group[] = [];
   private brakeLights: THREE.MeshStandardMaterial;
+  private color: string;
+  /** Each wheel's height at rest, in the chassis frame. */
+  private wheelRestY: number[] = [];
   private roll = 0;
   private pitch = 0;
   private night = 0;
   private braking = false;
 
+  /**
+   * Loads the real car model in the background; every car, existing or new, switches to
+   * it once it arrives. Until then (or if it never does), cars are built from shapes.
+   */
+  static load(media: Media): void {
+    void media.model('car').then((model) => {
+      if (!model) return;
+      template = model;
+      for (const car of cars) car.useModel(model);
+    });
+  }
+
   constructor(color: string) {
+    this.color = color;
     const paint = new THREE.MeshPhysicalMaterial({
       color,
       roughness: 0.42,
@@ -116,14 +144,78 @@ export class CarModel {
       wheel.add(spin);
       wheel.position.set(x, WHEEL_Y, z);
       this.wheels.push(wheel);
+      this.wheelRestY.push(WHEEL_Y);
       this.root.add(wheel);
+    }
+    cars.add(this);
+    if (template) this.useModel(template);
+  }
+
+  /** Stops following model loading, for a car that's being removed. */
+  dispose(): void {
+    cars.delete(this);
+  }
+
+  /** Replaces the shape-built body and wheels with the real car model. */
+  private useModel(model: Model): void {
+    const scene = model.scene.clone(true);
+    const paint = new THREE.MeshPhysicalMaterial({
+      color: this.color,
+      roughness: 0.32,
+      metalness: 0.45,
+      clearcoat: 1,
+      clearcoatRoughness: 0.05,
+    });
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = mesh.receiveShadow = true;
+      const swap = (m: THREE.Material) => {
+        if (m.name.startsWith('Paint 1')) return paint;
+        if (m.name === 'Brakelight') return this.brakeLights;
+        if (m.name === 'Headlight') return headlightMaterial;
+        return m;
+      };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material);
+    });
+
+    // Stand the model on the road, centered between the axles like the physics wheels.
+    const wheelNodes = MODEL_WHEELS.map((name) => scene.getObjectByName(name)!);
+    scene.updateMatrixWorld(true);
+    const centers = wheelNodes.map((n) => n.getWorldPosition(new THREE.Vector3()));
+    const modelMid = (centers[0].z + centers[2].z) / 2;
+    const physicsMid = (CAR.wheelZFront + CAR.wheelZRear) / 2;
+    const fit = new THREE.Group();
+    fit.position.set(0, GROUND_Y, physicsMid - modelMid);
+    fit.add(scene);
+
+    this.body.clear();
+    this.body.rotation.set(0, 0, 0);
+    this.body.add(fit);
+    for (const wheel of this.wheels) wheel.removeFromParent();
+    this.wheels = [];
+    this.wheelRestY = [];
+    this.root.updateMatrixWorld(true);
+
+    // Each wheel becomes a steer group (with the brake caliper) holding a spin group.
+    for (const node of wheelNodes) {
+      const steer = new THREE.Group();
+      steer.position.copy(this.root.worldToLocal(node.getWorldPosition(new THREE.Vector3())));
+      const spin = new THREE.Group();
+      steer.add(spin);
+      this.root.add(steer);
+      steer.updateMatrixWorld(true);
+      for (const part of [...node.children]) (part.name.includes('BrakePad') ? steer : spin).attach(part);
+      node.removeFromParent();
+      this.wheels.push(steer);
+      this.wheelRestY.push(steer.position.y);
     }
   }
 
   /** Poses one wheel. `suspension` is the current spring length. */
   setWheel(i: number, steer: number, rotation: number, suspension: number): void {
     const wheel = this.wheels[i];
-    wheel.position.y = CAR.wheelY - suspension;
+    wheel.position.y = this.wheelRestY[i] + SETTLED_SUSPENSION - suspension;
     wheel.rotation.y = steer;
     wheel.children[0].rotation.x = rotation;
   }

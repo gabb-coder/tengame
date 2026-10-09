@@ -819,6 +819,12 @@ button:disabled {
   color: rgba(241, 243, 245, 0.7);
 }
 
+.lobby-footer .credit {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(241, 243, 245, 0.45);
+}
+
 .lobby-footer kbd {
   display: inline-block;
   min-width: 1.7em;

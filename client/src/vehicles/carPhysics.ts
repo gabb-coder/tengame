@@ -14,11 +14,11 @@ export interface CarControls {
 /** Car spec, roughly a 1.2 t rear-wheel-drive sports sedan. Chassis faces +Z. */
 export const CAR = {
   mass: 1200,
-  halfExtents: { x: 0.9, y: 0.32, z: 2.2 },
+  halfExtents: { x: 1.02, y: 0.32, z: 2.2 },
   /** Center of mass below the chassis box center, for stability. */
   comOffsetY: -0.18,
   wheelRadius: 0.34,
-  wheelX: 0.8,
+  wheelX: 0.92,
   wheelZFront: 1.35,
   wheelZRear: -1.3,
   wheelY: -0.1,

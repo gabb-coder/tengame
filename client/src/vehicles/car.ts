@@ -44,8 +44,8 @@ export class Car {
 
     for (const side of [-1, 1]) {
       const beam = new THREE.SpotLight('#fff3dc', 0, 90, 0.45, 0.5, 1.1);
-      beam.position.set(side * 0.62, 0.15, 2.2);
-      beam.target.position.set(side * 0.5, -1.2, 22);
+      beam.position.set(side * 0.7, -0.03, 2.15);
+      beam.target.position.set(side * 0.55, -1.3, 22);
       this.model.root.add(beam, beam.target);
       this.beams.push(beam);
     }

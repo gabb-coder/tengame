@@ -93,6 +93,7 @@ export class RemotePlayers {
     // Detach the positional audio before stopping its source; the reverse order throws.
     remote.audio.disconnect();
     remote.engine.dispose();
+    remote.model.dispose();
     this.scene.remove(remote.model.root);
     this.physics.removeRigidBody(remote.carBody);
     this.physics.removeRigidBody(remote.avatarBody);

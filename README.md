@@ -36,6 +36,11 @@ from [Poly Haven](https://polyhaven.com) and [ambientCG](https://ambientcg.com),
 or re-download them, edit the lists at the top of `scripts/fetch-assets.mjs` and run
 `npm run assets`.
 
+The car is a concept car from the [Khronos glTF samples](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept)
+by Eric Chadwick (Darmstadt Graphics Group), licensed
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), based on a CC0 model by Unity Fan.
+The Khronos logos were removed from it.
+
 ## Run locally
 
 Requires Node.js 22+.

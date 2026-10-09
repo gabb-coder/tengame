@@ -1,4 +1,4 @@
-// Downloads the free (CC0) textures and furniture models the game uses, shrinks them for
+// Downloads the free textures, furniture and car models the game uses, shrinks them for
 // the web and writes them to client/public/media, along with media/manifest.json.
 //
 //   npm run assets
@@ -60,6 +60,17 @@ const MODELS = [
 
 // Poly Haven's API turns away requests without a descriptive user agent.
 const HEADERS = { 'user-agent': 'tengame-asset-fetch/1.0 (https://github.com/gabb-coder/tengame)' };
+
+/**
+ * The players' car: a concept car from the Khronos glTF samples, by Eric Chadwick
+ * (Darmstadt Graphics Group), CC BY 4.0, based on a CC0 model by "Unity Fan".
+ */
+const CAR = {
+  url: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb',
+  source: 'https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept',
+  license: 'CC BY 4.0, Eric Chadwick / Darmstadt Graphics Group GmbH (from a CC0 model by Unity Fan)',
+  triangles: 60000,
+};
 
 const TEXTURE_SIZE = 1024;
 const MODEL_TEXTURE_SIZE = 512;
@@ -157,6 +168,49 @@ async function processModel(io, m) {
   return { min: round(min), max: round(max), source: sourceUrl('polyhaven', m.id) };
 }
 
+/**
+ * The car: drops the Khronos logo (it was on the license plate and badges), swaps the
+ * costly see-through glass for tinted transparent glass, removes paint variants, and
+ * simplifies it to a budget fit for four cars on screen.
+ */
+async function processCar(io) {
+  const file = await download(CAR.url, join(CACHE, 'car', 'CarConcept.glb'));
+  const doc = await io.read(file);
+  const root = doc.getRoot();
+  for (const name of ['KHR_materials_variants', 'KHR_materials_transmission', 'KHR_materials_iridescence']) {
+    root.listExtensionsUsed().find((e) => e.extensionName === name)?.dispose();
+  }
+  const plate = root.listMaterials().find((m) => m.getName() === 'License');
+  const logo = plate?.getBaseColorTexture();
+  if (logo) {
+    const white = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#ffffff' } }).png().toBuffer();
+    logo.setImage(white).setMimeType('image/png');
+    for (const m of root.listMaterials()) {
+      if (m.getEmissiveTexture() === logo) m.setEmissiveTexture(null).setEmissiveFactor([0, 0, 0]);
+    }
+  }
+  const glass = root.listMaterials().find((m) => m.getName() === 'Glass');
+  glass?.setBaseColorFactor([0.06, 0.08, 0.1, 0.45]).setAlphaMode('BLEND').setRoughnessFactor(0.05).setMetallicFactor(0);
+  const triangles = root
+    .listMeshes()
+    .flatMap((mesh) => mesh.listPrimitives())
+    .reduce((n, p) => n + (p.getIndices()?.getCount() ?? 0) / 3, 0);
+  await doc.transform(
+    prune(),
+    dedup(),
+    weld(),
+    simplify({ simplifier: MeshoptSimplifier, ratio: Math.min(1, CAR.triangles / triangles), error: 0.004 }),
+    textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], quality: 85 }),
+    meshopt({ encoder: MeshoptEncoder, level: 'medium' }),
+  );
+  const out = join(OUT, 'models', 'car.glb');
+  mkdirSync(dirname(out), { recursive: true });
+  await io.write(out, doc);
+  const { min, max } = getBounds(root.getDefaultScene() ?? root.listScenes()[0]);
+  const round = (v) => v.map((n) => Math.round(n * 1000) / 1000);
+  return { min: round(min), max: round(max), source: CAR.source, license: CAR.license };
+}
+
 function sourceUrl(from, id) {
   return from === 'polyhaven' ? `https://polyhaven.com/a/${id}` : `https://ambientcg.com/view?id=${id}`;
 }
@@ -166,7 +220,7 @@ await MeshoptSimplifier.ready;
 const io = new NodeIO(fetch).registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
 
 rmSync(OUT, { recursive: true, force: true });
-const manifest = { license: 'CC0 1.0 (public domain)', textures: {}, models: {} };
+const manifest = { license: 'CC0 1.0 (public domain) unless an entry says otherwise', textures: {}, models: {} };
 for (const t of TEXTURES) {
   manifest.textures[t.name] = await processTexture(t);
   console.log('texture', t.name, '<-', t.id);
@@ -175,6 +229,8 @@ for (const m of MODELS) {
   manifest.models[m.id] = await processModel(io, m);
   console.log('model', m.id);
 }
+manifest.models.car = await processCar(io);
+console.log('model car');
 writeFileSync(join(OUT, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 const total = execFileSync('du', ['-sh', OUT]).toString().split('\t')[0];
 console.log(`wrote ${OUT} (${total})`);
