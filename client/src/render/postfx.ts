@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { settings } from '../settings.ts';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
@@ -7,7 +8,6 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 
 export type Quality = 'low' | 'medium' | 'high';
 
-const STORAGE_KEY = 'tengame.quality';
 
 /**
  * Rendering with optional post-processing, by quality setting:
@@ -28,18 +28,13 @@ export class PostFX {
     private scene: THREE.Scene,
     private camera: THREE.PerspectiveCamera,
   ) {
-    this.quality = loadQuality();
+    this.quality = settings.quality;
     this.build();
   }
 
   setQuality(q: Quality): void {
     if (q === this.quality) return;
     this.quality = q;
-    try {
-      localStorage.setItem(STORAGE_KEY, q);
-    } catch {
-      // Not remembered in private mode; fine.
-    }
     this.build();
   }
 
@@ -89,14 +84,4 @@ export class PostFX {
     composer.addPass(new OutputPass());
     this.composer = composer;
   }
-}
-
-function loadQuality(): Quality {
-  try {
-    const q = localStorage.getItem(STORAGE_KEY);
-    if (q === 'low' || q === 'medium' || q === 'high') return q;
-  } catch {
-    // Storage unavailable.
-  }
-  return 'medium';
 }

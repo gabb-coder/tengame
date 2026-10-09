@@ -45,6 +45,8 @@ export class AvatarModel {
   private phase = 0;
   private swing = 0;
   private human: Human | null = null;
+  /** Sitting on something (see placeSeated). */
+  seated = false;
 
   /**
    * Loads the realistic people in the background; every avatar, existing or new, switches
@@ -101,7 +103,25 @@ export class AvatarModel {
     if (humans) this.useHuman();
   }
 
-  /** Stops following model loading, for an avatar that's being removed. */
+  /**
+   * Places a sitting body so its hips rest on `seat` (a seat's top surface), facing `yaw`.
+   * Call after `animate`, which poses it.
+   */
+  placeSeated(seat: THREE.Vector3, yaw: number): void {
+    this.root.rotation.y = yaw;
+    const hips = this.human ? this.human.hipsLocal() : new THREE.Vector3(0, HIP_HEIGHT, 0);
+    hips.applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
+    // Hip joints sit a little above the surface you sit on.
+    this.root.position.set(seat.x - hips.x, seat.y + 0.1 - hips.y, seat.z - hips.z);
+  }
+
+  /** Where a sitting body's hips are, in the world: on the seat. */
+  seatPosition(): THREE.Vector3 {
+    const hips = this.human ? this.human.hipsLocal() : new THREE.Vector3(0, HIP_HEIGHT, 0);
+    return this.root.localToWorld(hips);
+  }
+
+    /** Stops following model loading, for an avatar that's being removed. */
   dispose(): void {
     avatars.delete(this);
   }
@@ -116,7 +136,16 @@ export class AvatarModel {
   /** Advances the walk cycle. `speed` in m/s; `airborne` tucks the legs. */
   animate(speed: number, dt: number, airborne = false): void {
     if (this.human) {
+      this.human.seated = this.seated;
       this.human.animate(speed, dt, airborne);
+      return;
+    }
+    if (this.seated) {
+      // Thighs forward, arms resting: as close to sitting as this simple body gets.
+      for (const leg of this.legs) leg.rotation.x = -1.45;
+      for (const arm of this.arms) arm.rotation.x = -0.5;
+      this.body.position.y = 0;
+      this.body.rotation.x = 0;
       return;
     }
     // Stride length grows with speed, so cadence doesn't get silly when running.

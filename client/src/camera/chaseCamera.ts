@@ -1,9 +1,9 @@
 import * as THREE from 'three';
+import { settings } from '../settings.ts';
 
 const DISTANCE = 6.5;
 const HEIGHT = 2.2;
 const LOOK_HEIGHT = 1;
-const BASE_FOV = 60;
 const MAX_FOV_BOOST = 14;
 
 /**
@@ -61,7 +61,8 @@ export class ChaseCamera {
     }
     this.camera.lookAt(look);
 
-    const fov = BASE_FOV + Math.min(Math.abs(speed) / 50, 1) * MAX_FOV_BOOST;
+    // A little narrower than on foot at rest, widening with speed.
+    const fov = settings.fov - 2 + Math.min(Math.abs(speed) / 50, 1) * MAX_FOV_BOOST;
     if (Math.abs(fov - this.camera.fov) > 0.05) {
       this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-dt * 3));
       this.camera.updateProjectionMatrix();

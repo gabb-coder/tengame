@@ -75,6 +75,7 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 | F | Fullscreen |
 | H | Hide/show the key help |
 | Enter | Chat |
+| Esc | Menu: resume, settings, leave the room |
 
 **On foot**
 
@@ -84,9 +85,16 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 | Shift | Run |
 | Space | Jump |
 | Mouse / arrows | Look around (click the game to capture the mouse; Esc releases it) |
-| E | Get in the car, or open/close a door |
+| E | Whatever you're looking at: get in the car, open/close a door, sit on a sofa, chair or bed, turn a TV, floor lamp or stove on/off |
+| E or move | Stand up |
+| R (sitting) | TV remote: turn the nearest TV on/off |
 
-M, N, F, H and Enter work on foot too.
+M, N, F, H, Enter and Esc work on foot too. Switched-on TVs, lamps and stoves, and who's
+sitting where, are shared with everyone in the room.
+
+**Settings** (Esc → Settings, remembered in your browser): volume, mouse sensitivity, invert
+mouse, graphics quality, field of view, km/h or mph, and showing the minimap, key help,
+player names and frame rate. **Leave room** in the same menu goes back to the title screen.
 
 `npm run dev` starts the game server on port 8080 and the Vite dev server on 5173
 (which proxies `/ws` to the game server).

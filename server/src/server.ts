@@ -10,10 +10,15 @@ import {
   type ServerMessage,
   TICK_RATE,
 } from '../../shared/protocol.ts';
+import { APPLIANCE_REACH, type Appliance, appliancesOf, TV_REMOTE_REACH } from '../../shared/appliances.ts';
+import { generateInterior } from '../../shared/interior.ts';
 import { doorPosition, generateTown } from '../../shared/town.ts';
 import { RoomManager, type Player, type Room } from './rooms.ts';
 
 const HOUSES = new Map(generateTown().houses.map((h) => [h.id, h]));
+const APPLIANCES = new Map<string, Appliance>(
+  [...HOUSES.values()].flatMap((h) => appliancesOf(h, generateInterior(h))).map((a) => [a.id, a]),
+);
 /** Extra reach allowed on the server, since positions arrive a little late. */
 const DOOR_REACH_SLACK = 1.5;
 
@@ -143,6 +148,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           room: room.code,
           players: room.info(),
           openDoors: [...room.openDoors],
+          switchedOn: [...room.switchedOn],
           mode: room.mode,
           scores: room.scoreTable(),
           mission: room.missions?.snapshot(Date.now()) ?? null,
@@ -160,7 +166,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         player.q = msg.q;
         const { steer, rpm, load, speed, braking } = msg.car;
         player.car = { steer, rpm, load, speed, braking };
-        player.avatar = avatar && { p: avatar.p, yaw: avatar.yaw, speed: avatar.speed };
+        player.avatar = avatar && { p: avatar.p, yaw: avatar.yaw, speed: avatar.speed, ...(avatar.seated ? { seated: true } : {}) };
       } else if (msg.type === 'door') {
         // Only players on foot, standing at that house's door, can use it.
         const house = HOUSES.get(String(msg.id));
@@ -172,6 +178,19 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         if (msg.open) room.openDoors.add(house.id);
         else room.openDoors.delete(house.id);
         room.broadcast({ type: 'door', id: house.id, open: msg.open });
+      } else if (msg.type === 'switch') {
+        // Likewise, only someone by an appliance (on its floor) can switch it.
+        const appliance = APPLIANCES.get(String(msg.id));
+        if (!room || !player?.avatar || !appliance || typeof msg.on !== 'boolean') return;
+        const [x, y, z] = player.avatar.p;
+        // From a seat, TVs work by remote.
+        const reach = player.avatar.seated && appliance.kind === 'tv' ? TV_REMOTE_REACH : APPLIANCE_REACH;
+        const near = Math.hypot(x - appliance.world.x, z - appliance.world.z) <= reach + DOOR_REACH_SLACK;
+        if (!near || Math.abs(y - appliance.floorY) > 1.5) return;
+        if (room.switchedOn.has(appliance.id) === msg.on) return;
+        if (msg.on) room.switchedOn.add(appliance.id);
+        else room.switchedOn.delete(appliance.id);
+        room.broadcast({ type: 'switch', id: appliance.id, on: msg.on });
       }
     });
 
@@ -216,8 +235,8 @@ function isVec(v: unknown, length: number): v is number[] {
 
 function isAvatarState(a: unknown): a is AvatarState {
   if (typeof a !== 'object' || a === null) return false;
-  const { p, yaw, speed } = a as Record<string, unknown>;
-  return isVec(p, 3) && isVec([yaw, speed], 2);
+  const { p, yaw, speed, seated } = a as Record<string, unknown>;
+  return isVec(p, 3) && isVec([yaw, speed], 2) && (seated === undefined || typeof seated === 'boolean');
 }
 
 function isCarState(c: unknown): c is CarState {

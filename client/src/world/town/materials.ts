@@ -94,6 +94,8 @@ export function createTownMaterials() {
     mirror: std({ color: '#ffffff', roughness: 0.02, metalness: 1, envMapIntensity: 1.5 }),
     screen: std({ color: '#0d0f12', roughness: 0.15, metalness: 0.4 }),
     lampShade: std({ color: '#fff3dc', emissive: '#ffe2b0', emissiveIntensity: 0.9, roughness: 0.8 }),
+    /** Floor lamps are off until switched on (see world/appliances.ts). */
+    floorLampShade: std({ color: '#efe5d2', roughness: 0.85 }),
     leaves: std({ color: '#3f6a34', roughness: 0.8, flatShading: true }),
     pot: std({ color: '#a8603e', roughness: 0.85 }),
     darkMetal: std({ color: '#2b2f33', roughness: 0.45, metalness: 0.7 }),

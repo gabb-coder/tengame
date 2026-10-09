@@ -1,5 +1,6 @@
 import type { GameMode, PlayerInfo } from '../../../shared/protocol.ts';
 import type { Interaction, Mode } from '../game/localPlayer.ts';
+import { type Settings, settings, updateSettings } from '../settings.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -49,31 +50,47 @@ export function showDisconnected(): void {
 
 /** `speed` in m/s, `gear` -1 for reverse, `rpm` as a 0..1 fraction of redline. */
 export function renderGauges(speed: number, gear: number, rpm: number): void {
-  $('hud-speed').textContent = String(Math.round(Math.abs(speed) * 3.6));
+  $('hud-speed').textContent = String(Math.round(Math.abs(speed) * (settings.units === 'mph' ? 2.23694 : 3.6)));
   $('hud-gear').textContent = gear < 0 ? 'R' : String(gear);
   const bar = $('hud-rpm');
   bar.style.width = `${Math.round(rpm * 100)}%`;
   bar.classList.toggle('redline', rpm > 0.88);
 }
 
-const HELP_KEY = 'tengame.hideHelp';
-let helpHidden = load(HELP_KEY) === '1';
-
-/** H shows or hides the key help line; remembered between visits. */
+/** H shows or hides the key help line (a setting, so it's remembered). */
 export function toggleHelp(): void {
-  helpHidden = !helpHidden;
-  save(HELP_KEY, helpHidden ? '1' : '0');
+  updateSettings({ showHelp: !settings.showHelp });
+}
+
+/** Shows or hides HUD parts per the settings. */
+export function applyHudSettings(s: Settings): void {
+  document.querySelector<HTMLElement>('.hud-map')!.hidden = !s.showMinimap;
+  document.body.classList.toggle('hide-names', !s.showNames);
+  $('hud-fps').hidden = !s.showFps;
+  $('hud-speed-unit').textContent = s.units === 'mph' ? 'mph' : 'km/h';
+}
+
+let fpsFrames = 0;
+let fpsSince = performance.now();
+
+/** Counts frames; shows frames per second about twice a second. */
+export function renderFps(now: number): void {
+  fpsFrames++;
+  if (now - fpsSince < 500) return;
+  $('hud-fps').textContent = `${Math.round((fpsFrames * 1000) / (now - fpsSince))} FPS`;
+  fpsFrames = 0;
+  fpsSince = now;
 }
 
 const CAR_HELP = ['W accelerate', 'S brake/reverse', 'A D steer', 'Space handbrake', 'E get out', 'R flip upright', 'T respawn'];
-const COMMON_HELP = ['M mute', 'F fullscreen', 'Enter chat', 'H hide help'];
+const COMMON_HELP = ['M mute', 'F fullscreen', 'Enter chat', 'Esc menu', 'H hide help'];
 
 /** Shows the speedometer and driving help in the car, walking help on foot. */
 export function renderMode(mode: Mode, pointerLocked: boolean): void {
   const car = $('help-car');
-  car.hidden = helpHidden || mode !== 'car';
+  car.hidden = !settings.showHelp || mode !== 'car';
   const foot = $('help-foot');
-  foot.hidden = helpHidden || mode !== 'foot';
+  foot.hidden = !settings.showHelp || mode !== 'foot';
   const look = pointerLocked ? 'Mouse or arrows look' : 'Click to look with the mouse';
   setHelp(car, [...CAR_HELP, ...COMMON_HELP]);
   setHelp(foot, ['WASD walk', 'Shift run', 'Space jump', look, 'E interact', ...COMMON_HELP]);
@@ -97,10 +114,13 @@ function setHelp(el: HTMLElement, items: string[]): void {
 let lastPrompt = '';
 
 /** The "press E to ..." hint for whatever is in reach. */
-export function renderPrompt(i: Interaction): void {
+export function renderPrompt(i: Interaction, remote: { on: boolean } | null = null): void {
   let html = '';
   if (i?.kind === 'enter-car') html = '<kbd>E</kbd>Get in';
   else if (i?.kind === 'door') html = `<kbd>E</kbd>${i.open ? 'Close' : 'Open'} door<small>${escapeHtml(i.address)}</small>`;
+  else if (i?.kind === 'sit') html = `<kbd>E</kbd>Sit down<small>${i.seat.label}</small>`;
+  else if (i?.kind === 'stand') html = `<kbd>E</kbd>Stand up${remote ? `<kbd class="second">R</kbd>TV ${remote.on ? 'off' : 'on'}` : '<small>or move</small>'}`;
+  else if (i?.kind === 'switch') html = `<kbd>E</kbd>Turn ${i.on ? 'off' : 'on'} the ${i.appliance === 'tv' ? 'TV' : i.appliance}`;
   if (html === lastPrompt) return;
   lastPrompt = html;
   const el = $('hud-prompt');
@@ -122,20 +142,4 @@ export function renderClock(hours: number): void {
   if (text === lastClock) return;
   lastClock = text;
   $('hud-clock').textContent = text;
-}
-
-function load(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function save(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Storage unavailable (private mode); the setting just won't be remembered.
-  }
 }

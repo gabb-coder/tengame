@@ -87,7 +87,7 @@ const HUMANS = {
   // (Hair_Long is only side strands, made to go with scalp hair this version lacks.)
   hair: ['Hair_SimpleParted', 'Hair_Buzzed', 'Hair_Beard', 'Hair_Buns', 'Hair_BuzzedFemale'],
   /** Clips kept from the 43 in the library; walk/jog/sprint speeds are measured from its root-motion version. */
-  clips: ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Loop'],
+  clips: ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Loop', 'Sitting_Idle_Loop'],
   moving: ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'],
 };
 

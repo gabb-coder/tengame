@@ -1,3 +1,4 @@
+import { settings } from './settings.ts';
 import type { CarControls } from './vehicles/carPhysics.ts';
 
 export interface FootControls {
@@ -19,10 +20,12 @@ export class Input {
   private held = new Set<string>();
   private pressed = new Set<string>();
   private mouse = { x: 0, y: 0 };
+  /** Off while a menu is open: game keys and mouse look are ignored. */
+  enabled = true;
 
   constructor(private pointerTarget: HTMLElement) {
     addEventListener('keydown', (e) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || !this.enabled) return;
       if (!e.repeat) this.pressed.add(e.code);
       this.held.add(e.code);
       // Keep Space/arrows from scrolling or clicking focused buttons.
@@ -33,7 +36,7 @@ export class Input {
 
     // Click the game to capture the mouse for looking around; Esc releases it.
     pointerTarget.addEventListener('click', () => {
-      if (!this.pointerLocked) void pointerTarget.requestPointerLock?.();
+      if (!this.pointerLocked && this.enabled) void pointerTarget.requestPointerLock?.();
     });
     addEventListener('mousemove', (e) => {
       if (!this.pointerLocked) return;
@@ -69,8 +72,9 @@ export class Input {
    * `yaw` positive turns left; `pitch` positive looks down.
    */
   takeLook(dt: number): { yaw: number; pitch: number } {
-    const yaw = -this.mouse.x * MOUSE_SENSITIVITY + ((this.any('ArrowLeft') ? 1 : 0) - (this.any('ArrowRight') ? 1 : 0)) * KEY_LOOK_SPEED * dt;
-    const pitch = this.mouse.y * MOUSE_SENSITIVITY + ((this.any('ArrowDown') ? 1 : 0) - (this.any('ArrowUp') ? 1 : 0)) * KEY_LOOK_SPEED * dt * 0.6;
+    const sensitivity = MOUSE_SENSITIVITY * settings.mouseSensitivity;
+    const yaw = -this.mouse.x * sensitivity + ((this.any('ArrowLeft') ? 1 : 0) - (this.any('ArrowRight') ? 1 : 0)) * KEY_LOOK_SPEED * dt;
+    const pitch = this.mouse.y * sensitivity * (settings.invertY ? -1 : 1) + ((this.any('ArrowDown') ? 1 : 0) - (this.any('ArrowUp') ? 1 : 0)) * KEY_LOOK_SPEED * dt * 0.6;
     this.mouse.x = this.mouse.y = 0;
     return { yaw, pitch };
   }

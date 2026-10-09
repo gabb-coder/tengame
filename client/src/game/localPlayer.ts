@@ -1,6 +1,8 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { APPLIANCE_REACH, type ApplianceKind, TV_REMOTE_REACH } from '../../../shared/appliances.ts';
 import { type AvatarState, DOOR_REACH } from '../../../shared/protocol.ts';
+import { doorPosition } from '../../../shared/town.ts';
 import type { Sounds } from '../audio/sounds.ts';
 import { ChaseCamera } from '../camera/chaseCamera.ts';
 import { OrbitCamera } from '../camera/orbitCamera.ts';
@@ -10,7 +12,9 @@ import { AvatarModel } from '../player/avatarModel.ts';
 import { CharacterPhysics } from '../player/character.ts';
 import { Car } from '../vehicles/car.ts';
 import { CAR, type CarControls } from '../vehicles/carPhysics.ts';
+import type { Appliances } from '../world/appliances.ts';
 import type { Doors } from '../world/doors.ts';
+import { nearestSeat, type Seat } from '../world/seats.ts';
 import type { World } from '../world/world.ts';
 
 /** How close (meters from the car's center) you must be to get in. */
@@ -28,6 +32,9 @@ export type Interaction =
   | { kind: 'exit-car' }
   | { kind: 'too-fast' }
   | { kind: 'door'; houseId: string; address: string; open: boolean }
+  | { kind: 'sit'; seat: Seat }
+  | { kind: 'stand' }
+  | { kind: 'switch'; id: string; appliance: ApplianceKind; on: boolean }
   | null;
 
 /** The player's own car and character, and switching between them. */
@@ -43,6 +50,15 @@ export class LocalPlayer {
   interaction: Interaction = null;
   /** Called when the player asks to open or close a door; the server decides. */
   requestDoor: (houseId: string, open: boolean) => void = () => {};
+  /** Called when the player asks to switch a TV, lamp or stove; the server decides. */
+  requestSwitch: (id: string, on: boolean) => void = () => {};
+  /** Things to sit on and switch; set once the world is built. */
+  seats: Seat[] = [];
+  appliances: Appliances | null = null;
+  /** Where other players are sitting, so we don't sit on them. */
+  takenSeats: () => THREE.Vector3[] = () => [];
+  /** The seat we're sitting on, if any. */
+  private seat: Seat | null = null;
 
   constructor(
     private world: World,
@@ -74,6 +90,10 @@ export class LocalPlayer {
       return;
     }
     this.car.step(PARKED, dt);
+    if (this.seat) {
+      this.character.step(new THREE.Vector3(), false, false, dt);
+      return;
+    }
     const c = input.foot;
     const { forward, right } = this.orbit.basis;
     const move = forward.multiplyScalar(c.forward).addScaledVector(right, c.strafe);
@@ -83,8 +103,12 @@ export class LocalPlayer {
 
   /** Per-frame update after physics: interactions, models and camera. */
   update(input: Input, dt: number): void {
+    // Any move key gets you up from a seat.
+    const c = input.foot;
+    if (this.seat && (c.forward || c.strafe || c.jump)) this.stand();
     this.interaction = this.findInteraction();
     if (input.wasPressed('KeyE')) this.interact();
+    if (this.seat && input.wasPressed('KeyR')) this.useRemote();
     if (this.mode === 'car' && !this.frozen) {
       if (input.wasPressed('KeyR')) this.car.reset();
       if (input.wasPressed('KeyT')) this.car.respawn();
@@ -97,6 +121,14 @@ export class LocalPlayer {
     } else {
       const look = input.takeLook(dt);
       this.orbit.turn(look.yaw, look.pitch);
+      if (this.seat) {
+        this.avatar.seated = true;
+        this.avatar.animate(0, dt);
+        this.avatar.placeSeated(this.seat.position, this.seat.yaw);
+        this.orbit.update(this.avatar.root.position);
+        return;
+      }
+      this.avatar.seated = false;
       const feet = this.character.feet;
       this.avatar.root.position.copy(feet);
       this.avatar.root.rotation.y = this.character.yaw;
@@ -117,12 +149,17 @@ export class LocalPlayer {
 
   get avatarState(): AvatarState | null {
     if (this.mode === 'car') return null;
+    if (this.seat) {
+      const p = this.avatar.root.position;
+      return { p: [round(p.x), round(p.y), round(p.z)], yaw: round(this.seat.yaw), speed: 0, seated: true };
+    }
     const f = this.character.feet;
     return { p: [round(f.x), round(f.y), round(f.z)], yaw: round(this.character.yaw), speed: round(this.character.speed) };
   }
 
   /** Puts the player in their car at a race grid slot. */
   lineUp(position: THREE.Vector3, yaw: number): void {
+    this.stand();
     if (this.mode === 'foot') this.enterCar();
     this.car.teleport(position, yaw);
     this.chase.snap();
@@ -133,13 +170,51 @@ export class LocalPlayer {
     if (this.mode === 'car') {
       return Math.abs(this.car.physics.speed) <= MAX_EXIT_SPEED ? { kind: 'exit-car' } : { kind: 'too-fast' };
     }
+    if (this.seat) return { kind: 'stand' };
+    // What we look at (with the camera) wins, then what's closest: a door, the car, a seat
+    // or an appliance. So beside a sofa with a lamp, look at the lamp to switch it.
     const feet = this.character.feet;
+    const { forward } = this.orbit.basis;
+    const look = Math.atan2(forward.x, forward.z);
+    const options: { score: number; interaction: Interaction }[] = [];
+    const add = (distance: number, at: { x: number; z: number }, interaction: Interaction) => {
+      const dir = Math.atan2(at.x - feet.x, at.z - feet.z);
+      const off = Math.abs(Math.atan2(Math.sin(dir - look), Math.cos(dir - look)));
+      // Things right underfoot count as in view whichever way we look.
+      options.push({ score: (distance < 0.5 ? 0 : off) * 1.2 + distance * 0.5, interaction });
+    };
     const door = this.doors.nearest(feet, DOOR_REACH);
+    if (door) add(door.distance, doorPosition(door.house), { kind: 'door', houseId: door.house.id, address: door.house.address, open: door.open });
     const carDistance = feet.distanceTo(this.car.object.position);
-    if (door && (carDistance > CAR_REACH || door.distance < carDistance)) {
-      return { kind: 'door', houseId: door.house.id, address: door.house.address, open: door.open };
+    if (carDistance <= CAR_REACH) add(carDistance, this.car.object.position, { kind: 'enter-car' });
+    const seat = nearestSeat(this.seats, feet, this.takenSeats());
+    if (seat) add(seat.distance, seat.seat.position, { kind: 'sit', seat: seat.seat });
+    const appliance = this.appliances?.nearest(feet, APPLIANCE_REACH);
+    if (appliance) {
+      const { id, kind, world } = appliance.appliance;
+      add(appliance.distance, world, { kind: 'switch', id, appliance: kind, on: this.appliances!.isOn(id) });
     }
-    return carDistance <= CAR_REACH ? { kind: 'enter-car' } : null;
+    options.sort((a, b) => a.score - b.score);
+    return options[0]?.interaction ?? null;
+  }
+
+  /** The TV a seated player can reach with the remote, if any. */
+  get remoteTv(): { id: string; on: boolean } | null {
+    if (!this.seat || !this.appliances) return null;
+    const tv = this.appliances.nearest(this.seat.position, TV_REMOTE_REACH, 'tv');
+    return tv && { id: tv.appliance.id, on: this.appliances.isOn(tv.appliance.id) };
+  }
+
+  private sit(seat: Seat): void {
+    this.seat = seat;
+    this.sounds.sit(seat.position);
+  }
+
+  /** Gets up from a seat, back where we stood before sitting. */
+  private stand(): void {
+    if (!this.seat) return;
+    this.seat = null;
+    this.avatar.seated = false;
   }
 
   private interact(): void {
@@ -147,6 +222,15 @@ export class LocalPlayer {
     if (i?.kind === 'exit-car') this.exitCar();
     else if (i?.kind === 'enter-car') this.enterCar();
     else if (i?.kind === 'door') this.requestDoor(i.houseId, !i.open);
+    else if (i?.kind === 'sit') this.sit(i.seat);
+    else if (i?.kind === 'stand') this.stand();
+    else if (i?.kind === 'switch') this.requestSwitch(i.id, !i.on);
+  }
+
+  /** R while seated: the TV remote. */
+  private useRemote(): void {
+    const tv = this.remoteTv;
+    if (tv) this.requestSwitch(tv.id, !tv.on);
   }
 
   private exitCar(): void {

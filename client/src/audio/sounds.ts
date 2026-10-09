@@ -40,6 +40,19 @@ export class Sounds {
     this.burst(out, t + 0.03, 'bandpass', 2600, 0.12, 0.3 * strength);
   }
 
+  /** A switch clicking (TV, lamp, stove). */
+  click(position: THREE.Vector3Like): void {
+    const out = this.at(position);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'bandpass', 4200, 0.02, 0.35);
+    this.burst(out, t + 0.05, 'bandpass', 2600, 0.02, 0.2);
+  }
+
+  /** Sitting down: a soft cushion thump. */
+  sit(position: THREE.Vector3Like): void {
+    this.burst(this.at(position), this.ctx.currentTime, 'lowpass', 300, 0.25, 0.35);
+  }
+
   /** Filtered noise with a fast attack and exponential decay. */
   private burst(out: AudioNode, start: number, type: BiquadFilterType, freq: number, length: number, level: number): void {
     const src = this.ctx.createBufferSource();
@@ -57,7 +70,7 @@ export class Sounds {
   }
 
   /** A panner at `position` that disconnects itself shortly after use. */
-  private at(position: THREE.Vector3): AudioNode {
+  private at(position: THREE.Vector3Like): AudioNode {
     const panner = this.ctx.createPanner();
     panner.panningModel = 'HRTF';
     panner.distanceModel = 'inverse';

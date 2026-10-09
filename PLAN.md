@@ -95,6 +95,14 @@ the player's color. Still generated: beds, wardrobes, bookshelves, kitchens, bat
 plants (Poly Haven's are too heavy) and the sky (photo skies have a fixed sun, which would
 fight the day/night cycle).
 
+## After the plan
+
+- Furniture you can use: sit on sofas, armchairs, chairs and beds (with a sitting animation),
+  turn TVs (animated channels), floor lamps (light the room) and stoves on and off; a TV
+  remote from the sofa. Switches are server-checked and shared; sitting is synced.
+- Esc menu with settings (volume, mouse, invert, graphics, FOV, units, HUD toggles, FPS)
+  and "Leave room" back to the title screen.
+
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { settings } from '../settings.ts';
 
 const DISTANCE = 3.4;
 const TARGET_HEIGHT = 1.55;
@@ -6,7 +7,6 @@ const TARGET_HEIGHT = 1.55;
 const SHOULDER_OFFSET = 0.45;
 const MIN_PITCH = -0.6; // looking up
 const MAX_PITCH = 1.2; // looking down
-const FOV = 62;
 
 /**
  * Third-person camera for walking: orbits the character with mouse/arrow input,
@@ -50,8 +50,8 @@ export class OrbitCamera {
 
     this.camera.position.copy(target).addScaledVector(back, distance);
     this.camera.lookAt(target);
-    if (this.camera.fov !== FOV) {
-      this.camera.fov = FOV;
+    if (this.camera.fov !== settings.fov) {
+      this.camera.fov = settings.fov;
       this.camera.updateProjectionMatrix();
     }
   }

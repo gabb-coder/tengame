@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { brotliCompressSync } from 'node:zlib';
 import { WebSocket } from 'ws';
+import { appliancesOf } from '../../shared/appliances.ts';
+import { generateInterior } from '../../shared/interior.ts';
 import { MAX_PLAYERS, type ServerMessage } from '../../shared/protocol.ts';
 import { doorPosition, generateTown } from '../../shared/town.ts';
 import { createGameServer, type GameServer } from './server.ts';
@@ -312,4 +314,46 @@ test('serves the built client, precompressed when the browser accepts it', async
     await web.close();
     rmSync(dir, { recursive: true });
   }
+});
+
+test('players standing by a TV can switch it on, and everyone sees it', async () => {
+  const house = generateTown().houses[3];
+  const tv = appliancesOf(house, generateInterior(house)).find((x) => x.kind === 'tv')!;
+  assert.ok(tv, 'house has a TV');
+  const car = { steer: 0, rpm: 0, load: 0, speed: 0, braking: false };
+  const standAt = (x: number, y: number, z: number, seated = false) => ({
+    type: 'state',
+    p: [0, 1, 0],
+    q: [0, 0, 0, 1],
+    car,
+    avatar: { p: [x, y, z], yaw: 0, speed: 0, ...(seated ? { seated } : {}) },
+  });
+
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const { room } = await a.next('welcome');
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room });
+  assert.deepEqual((await b.next('welcome')).switchedOn, []);
+
+  // Too far, and on the wrong floor: ignored.
+  a.send(standAt(tv.world.x + 10, tv.floorY, tv.world.z));
+  await a.next('snapshot');
+  a.send({ type: 'switch', id: tv.id, on: true });
+  a.send(standAt(tv.world.x, tv.floorY + 2.8, tv.world.z));
+  await a.next('snapshot');
+  a.send({ type: 'switch', id: tv.id, on: true });
+
+  // Sitting on the sofa nearby counts, and is passed on to others.
+  a.send(standAt(tv.world.x + 1, tv.floorY, tv.world.z, true));
+  let seated: boolean | undefined;
+  for (let i = 0; i < 10 && !seated; i++) seated = (await b.next('snapshot')).players.find((p) => p.avatar)?.avatar?.seated;
+  assert.equal(seated, true);
+  a.send({ type: 'switch', id: tv.id, on: true });
+  assert.deepEqual(await b.next('switch'), { type: 'switch', id: tv.id, on: true });
+
+  const c = await TestClient.connect();
+  c.send({ type: 'join', name: 'Cat', room });
+  assert.deepEqual((await c.next('welcome')).switchedOn, [tv.id]);
+  for (const client of [a, b, c]) client.close();
 });

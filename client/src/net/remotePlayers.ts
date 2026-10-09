@@ -101,6 +101,11 @@ export class RemotePlayers {
     this.remotes.delete(id);
   }
 
+  /** Where players who are sitting down are (the seat area), so nobody sits on them. */
+  seatedPositions(): THREE.Vector3[] {
+    return [...this.remotes.values()].filter((r) => r.avatar.root.visible && r.avatar.seated).map((r) => r.avatar.seatPosition());
+  }
+
   /** Each other player's position, heading (yaw, 0 = +Z) and color, for the minimap. */
   markers(): { x: number; z: number; yaw: number; color: string }[] {
     const out = [];
@@ -189,9 +194,11 @@ export class RemotePlayers {
     avatar.root.position.set(...from.p).lerp(new THREE.Vector3(...to.p), k);
     const dy = Math.atan2(Math.sin(to.yaw - from.yaw), Math.cos(to.yaw - from.yaw));
     avatar.root.rotation.y = from.yaw + dy * k;
+    avatar.seated = !!to.seated;
     avatar.animate(from.speed + (to.speed - from.speed) * k, dt);
     const feet = avatar.root.position;
-    moveBody(remote.avatarBody, { x: feet.x, y: feet.y + CAPSULE_CENTER, z: feet.z });
+    // Someone sitting is part of the sofa; their standing body would only get in the way.
+    moveBody(remote.avatarBody, to.seated ? PARKED_FAR : { x: feet.x, y: feet.y + CAPSULE_CENTER, z: feet.z });
   }
 }
 

@@ -24,6 +24,7 @@ const HAIRSTYLES: Record<Body, string[][]> = {
 /** Clip names in the animation file, and the ground speed (m/s) each moving one was made for. */
 const IDLE = 'Idle_Loop';
 const JUMP = 'Jump_Loop';
+const SIT = 'Sitting_Idle_Loop';
 const GAITS = ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'];
 
 type Body = 'male' | 'female';
@@ -140,6 +141,9 @@ export class Human {
   private weights = new Map<string, number>();
   /** Shared step cycle of the walk/jog/sprint clips, 0..1. */
   private phase = 0;
+  /** Sitting down (plays the sitting pose instead of standing or walking). */
+  seated = false;
+  private pelvis: THREE.Object3D | undefined;
 
   constructor(
     private assets: HumanAssets,
@@ -193,7 +197,8 @@ export class Human {
     this.root.add(scene);
 
     this.mixer = new THREE.AnimationMixer(scene);
-    for (const name of [IDLE, JUMP, ...GAITS]) {
+    this.pelvis = scene.getObjectByName('pelvis');
+    for (const name of [IDLE, JUMP, SIT, ...GAITS]) {
       const clip = assets.clips.get(name);
       if (!clip) continue;
       const action = this.mixer.clipAction(clip);
@@ -212,7 +217,9 @@ export class Human {
     const gaits = GAITS.filter((g) => this.actions.has(g) && this.assets.speeds.has(g)).map((g) => ({ name: g, speed: this.assets.speeds.get(g)! }));
     const target = new Map<string, number>([...this.actions.keys()].map((k) => [k, 0]));
     let stride = 1;
-    if (airborne && this.actions.has(JUMP)) {
+    if (this.seated && this.actions.has(SIT)) {
+      target.set(SIT, 1);
+    } else if (airborne && this.actions.has(JUMP)) {
       target.set(JUMP, 1);
     } else {
       const stops = [{ name: IDLE, speed: 0 }, ...gaits];
@@ -237,5 +244,12 @@ export class Human {
       action.time = GAITS.includes(name) ? this.phase * duration : (action.time + dt) % duration;
     }
     this.mixer.update(0);
+  }
+
+  /** Where the hips are, relative to the feet origin (in `root`'s own frame, unrotated). */
+  hipsLocal(): THREE.Vector3 {
+    if (!this.pelvis) return new THREE.Vector3(0, 0.95, 0);
+    this.root.updateMatrixWorld(true);
+    return this.root.worldToLocal(this.pelvis.getWorldPosition(new THREE.Vector3()));
   }
 }

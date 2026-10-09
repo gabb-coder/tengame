@@ -73,18 +73,14 @@
       <div class="panel hud-room">
         <div>Room <strong id="hud-code"></strong> <span id="hud-mode" class="mode-badge"></span></div>
         <div class="clock-row"><span id="hud-clock">--:--</span><small id="hud-clock-hint">N: skip 2 h</small></div>
-        <button id="copy-link" type="button">Copy invite link</button>
-        <label class="quality">Graphics
-          <select id="quality">
-            <option value="low">Low (fastest)</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </label>
+        <div class="hud-buttons">
+          <button id="copy-link" type="button">Copy invite link</button>
+          <button id="menu-button" type="button" class="secondary" aria-label="Menu" title="Menu (Esc)">☰ Menu</button>
+        </div>
         <ul id="hud-players"></ul>
       </div>
       <div class="panel hud-speed" aria-live="off">
-        <div class="speed-row"><span id="hud-speed">0</span><small>km/h</small></div>
+        <div class="speed-row"><span id="hud-speed">0</span><small id="hud-speed-unit">km/h</small></div>
         <div class="gear-row"><span id="hud-gear">N</span><div class="rpm"><div id="hud-rpm"></div></div></div>
       </div>
       <div id="mission" class="panel hud-mission" hidden>
@@ -113,9 +109,67 @@
       <div class="panel">
         <h2>Disconnected</h2>
         <p>Lost connection to the server.</p>
-        <button type="button" onclick="location.reload()">Reconnect</button>
+        <div class="menu-row">
+          <button type="button" onclick="location.reload()">Reconnect</button>
+          <button type="button" class="secondary" onclick="location.href = location.pathname">Main menu</button>
+        </div>
       </div>
     </div>
+
+    <div id="menu" class="overlay menu" hidden>
+      <div class="panel menu-card" role="dialog" aria-modal="true" aria-labelledby="menu-heading">
+        <section id="menu-main">
+          <h2 id="menu-heading">Menu</h2>
+          <p class="menu-note">The game keeps going for everyone else while this is open.</p>
+          <button type="button" id="menu-resume" class="primary">Resume</button>
+          <button type="button" id="menu-open-settings" class="secondary">Settings</button>
+          <button type="button" id="menu-leave" class="danger">Leave room</button>
+        </section>
+
+        <section id="menu-settings" hidden>
+          <h2>Settings</h2>
+          <h3>Sound</h3>
+          <label class="setting">Volume <input type="range" id="set-volume" min="0" max="1" step="0.05" /><output></output></label>
+          <h3>Controls</h3>
+          <label class="setting">Mouse sensitivity <input type="range" id="set-mouseSensitivity" min="0.25" max="3" step="0.05" /><output></output></label>
+          <label class="setting toggle">Invert mouse up/down <input type="checkbox" id="set-invertY" /></label>
+          <h3>Display</h3>
+          <label class="setting">Graphics
+            <select id="set-quality">
+              <option value="low">Low (fastest)</option>
+              <option value="medium">Medium</option>
+              <option value="high">High (best looking)</option>
+            </select>
+          </label>
+          <label class="setting">Field of view <input type="range" id="set-fov" min="50" max="90" step="1" /><output></output></label>
+          <label class="setting">Speed in
+            <select id="set-units">
+              <option value="kmh">km/h</option>
+              <option value="mph">mph</option>
+            </select>
+          </label>
+          <label class="setting toggle">Show minimap <input type="checkbox" id="set-showMinimap" /></label>
+          <label class="setting toggle">Show key help <input type="checkbox" id="set-showHelp" /></label>
+          <label class="setting toggle">Show player names <input type="checkbox" id="set-showNames" /></label>
+          <label class="setting toggle">Show frame rate (FPS) <input type="checkbox" id="set-showFps" /></label>
+          <div class="menu-row">
+            <button type="button" id="settings-reset" class="secondary">Reset to defaults</button>
+            <button type="button" id="settings-back" class="primary">Done</button>
+          </div>
+        </section>
+
+        <section id="menu-confirm" hidden>
+          <h2>Leave this room?</h2>
+          <p class="menu-note">You'll go back to the main menu. Your friends can keep playing, and you can rejoin with the room code <strong id="menu-room"></strong>.</p>
+          <div class="menu-row">
+            <button type="button" id="leave-cancel" class="secondary">Stay</button>
+            <button type="button" id="leave-confirm" class="danger">Leave room</button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="hud-fps" class="hud-fps" hidden></div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -39,6 +39,8 @@ export class Room {
   readonly players = new Map<string, Player>();
   /** House ids whose front doors are open. */
   readonly openDoors = new Set<string>();
+  /** Appliances (TVs, lamps, stoves) that are switched on. */
+  readonly switchedOn = new Set<string>();
   /** Mission points by player id. */
   readonly scores = new Map<string, number>();
   readonly missions: MissionManager | null;

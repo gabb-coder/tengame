@@ -51,6 +51,8 @@ export interface AvatarState {
   yaw: number;
   /** Horizontal speed in m/s, drives the walk animation. */
   speed: number;
+  /** Sitting down (on a sofa, chair or bed); `p` and `yaw` place the sitting body. */
+  seated?: boolean;
 }
 
 export interface PlayerTransform {
@@ -99,7 +101,14 @@ export interface DoorRequestMessage {
   open: boolean;
 }
 
-export type ClientMessage = JoinMessage | StateMessage | DoorRequestMessage | ChatRequestMessage | TimeRequestMessage;
+/** Ask to switch a TV, lamp or stove on or off (see shared/appliances.ts). Must be on foot and near it. */
+export interface SwitchRequestMessage {
+  type: 'switch';
+  id: string;
+  on: boolean;
+}
+
+export type ClientMessage = JoinMessage | StateMessage | DoorRequestMessage | SwitchRequestMessage | ChatRequestMessage | TimeRequestMessage;
 
 // ---- server -> client ----
 
@@ -110,6 +119,8 @@ export interface WelcomeMessage {
   players: PlayerInfo[];
   /** House ids whose front doors are open. */
   openDoors: string[];
+  /** Appliances that are switched on. */
+  switchedOn: string[];
   mode: GameMode;
   /** Mission points by player id (missions mode). */
   scores: Record<string, number>;
@@ -195,6 +206,13 @@ export interface DoorMessage {
   open: boolean;
 }
 
+/** An appliance was switched on or off by someone in the room. */
+export interface SwitchMessage {
+  type: 'switch';
+  id: string;
+  on: boolean;
+}
+
 export interface PlayerJoinedMessage {
   type: 'player_joined';
   player: PlayerInfo;
@@ -224,6 +242,7 @@ export type ServerMessage =
   | PlayerLeftMessage
   | SnapshotMessage
   | DoorMessage
+  | SwitchMessage
   | ChatMessage
   | NoticeMessage
   | MissionMessage

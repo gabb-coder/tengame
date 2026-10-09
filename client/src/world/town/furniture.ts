@@ -84,7 +84,7 @@ export function buildFurniture(f: Furniture, builder: MeshBuilder, m: TownMateri
     case 'floorLamp':
       put(cylinder(0.16, 0.03), m.darkMetal, 0, 0.015, 0);
       put(cylinder(0.015, h - 0.3, 8), m.darkMetal, 0, (h - 0.3) / 2, 0);
-      put(new THREE.CylinderGeometry(0.14, 0.2, 0.3, 20), m.lampShade, 0, h - 0.15, 0, undefined, 0, false);
+      put(new THREE.CylinderGeometry(0.14, 0.2, 0.3, 20), m.floorLampShade, 0, h - 0.15, 0, undefined, 0, false);
       return;
     case 'plant': {
       put(new THREE.CylinderGeometry(0.2, 0.15, 0.35, 14), m.pot, 0, 0.175, 0);

@@ -4,20 +4,24 @@ import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { TICK_RATE, type PlayerInfo, type WelcomeMessage } from '../../shared/protocol.ts';
 import { Media } from './assets/media.ts';
 import { Sounds } from './audio/sounds.ts';
-import { PostFX, type Quality } from './render/postfx.ts';
+import { PostFX } from './render/postfx.ts';
 import { LocalPlayer } from './game/localPlayer.ts';
 import { Input } from './input.ts';
 import { MissionClient } from './game/missions.ts';
 import { Connection } from './net/connection.ts';
 import { RemotePlayers } from './net/remotePlayers.ts';
-import { renderClock, renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnected, showHud, toggleHelp } from './ui/hud.ts';
+import { applyHudSettings, renderClock, renderFps, renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnected, showHud, toggleHelp } from './ui/hud.ts';
+import { Menu } from './ui/menu.ts';
+import { onSettings, settings } from './settings.ts';
 import { Chat } from './ui/chat.ts';
 import { runLobby, setLobbyStatus } from './ui/lobby.ts';
 import { Minimap } from './ui/minimap.ts';
 import { TitleScene } from './ui/titleScene.ts';
 import { showNotice } from './ui/notices.ts';
 import { CAR } from './vehicles/carPhysics.ts';
+import { Appliances } from './world/appliances.ts';
 import { Doors } from './world/doors.ts';
+import { seatsOf } from './world/seats.ts';
 import { InteriorLights } from './world/interiorLights.ts';
 import { StreetLights } from './world/streetLights.ts';
 import { FurnitureModels } from './world/town/furnitureModels.ts';
@@ -75,12 +79,6 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   container.appendChild(labels.domElement);
 
   const postfx = new PostFX(world.renderer, world.scene, world.camera);
-  const qualitySelect = document.getElementById('quality') as HTMLSelectElement;
-  qualitySelect.value = postfx.quality;
-  qualitySelect.addEventListener('change', () => {
-    postfx.setQuality(qualitySelect.value as Quality);
-    qualitySelect.blur(); // so game keys don't change the selection
-  });
 
   const resize = () => {
     world.resize(innerWidth, innerHeight);
@@ -96,11 +94,19 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     void (document.hidden ? listener.context.suspend() : listener.context.resume());
   });
   let muted = false;
+  const applyVolume = () => listener.setMasterVolume(muted ? 0 : settings.volume);
+  onSettings((s) => {
+    postfx.setQuality(s.quality);
+    applyVolume();
+    applyHudSettings(s);
+  });
 
   const sounds = new Sounds(listener);
   const doors = new Doors(world.scene, world.town.layout.houses, world.materials, world.physics);
   doors.onSwing = (position, opening) => sounds.door(position, opening);
   for (const id of welcome.openDoors) doors.setOpen(id, true, true);
+  const appliances = new Appliances(world.scene, world.town.layout.houses, world.town.interiors);
+  for (const id of welcome.switchedOn) appliances.setOn(id, true);
   const interiorLights = new InteriorLights(world.scene, world.town.layout.houses, world.town.interiors);
   const streetLights = new StreetLights(world.scene, lampPositions(world.town.layout), world.materials.lampGlow);
 
@@ -110,10 +116,14 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   const spawn = spawns[(welcome.players.length - 1) % spawns.length];
   const player = new LocalPlayer(world, doors, sounds, me.id, me.color, { position: new THREE.Vector3(spawn.x, 0.8, spawn.z), yaw: spawn.rotation }, listener);
   player.requestDoor = (id, open) => conn.send({ type: 'door', id, open });
+  player.requestSwitch = (id, on) => conn.send({ type: 'switch', id, on });
+  player.appliances = appliances;
+  player.seats = world.town.layout.houses.flatMap((h) => seatsOf(h, world.town.interiors.get(h.id)!));
   const car = player.car;
 
   const remotes = new RemotePlayers(world.scene, world.physics, welcome.id, listener);
   welcome.players.forEach((p) => remotes.add(p));
+  player.takenSeats = () => remotes.seatedPositions();
 
   const players = new Map<string, PlayerInfo>(welcome.players.map((p) => [p.id, p]));
   const missionsMode = welcome.mode === 'missions';
@@ -136,6 +146,32 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   const chat = new Chat();
   chat.onSend = (text) => conn.send({ type: 'chat', text });
   chat.onOpen = () => input.releaseAll();
+
+  // The in-game menu: Esc (or the Menu button). Game keys pause while it's open.
+  const menu = new Menu(welcome.room);
+  menu.onToggle = (open) => {
+    input.enabled = !open;
+    input.releaseAll();
+  };
+  // Esc while the mouse is captured releases it (the browser's rule), so that opens the
+  // menu too, unless chat or the menu itself let the mouse go. Browsers differ on whether
+  // that Esc also arrives as a key press, so ignore one that follows right after.
+  let wasLocked = false;
+  let openedOnUnlock = -Infinity;
+  document.addEventListener('pointerlockchange', () => {
+    const locked = document.pointerLockElement !== null;
+    if (wasLocked && !locked && !chat.isOpen && !menu.isOpen) {
+      menu.open();
+      openedOnUnlock = performance.now();
+    }
+    wasLocked = locked;
+  });
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'Escape' || chat.isOpen || e.target instanceof HTMLInputElement) return;
+    e.preventDefault();
+    if (document.pointerLockElement || performance.now() - openedOnUnlock < 400) return;
+    menu.toggle();
+  });
   chat.system(missionsMode ? 'Missions mode: follow the arrow at the top of the screen. Press Enter to chat.' : 'Free roam. Press Enter to chat.');
 
   conn.on((msg) => {
@@ -174,6 +210,12 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
       case 'door':
         doors.setOpen(msg.id, msg.open);
         break;
+      case 'switch': {
+        appliances.setOn(msg.id, msg.on);
+        const a = appliances.get(msg.id);
+        if (a) sounds.click(a.world);
+        break;
+      }
     }
   });
   conn.onClose = showDisconnected;
@@ -191,7 +233,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     if (input.wasPressed('KeyN') && welcome.mode === 'freeroam') conn.send({ type: 'time', skip: 2 });
     if (input.wasPressed('KeyM')) {
       muted = !muted;
-      listener.setMasterVolume(muted ? 0 : 1);
+      applyVolume();
     }
     if (input.wasPressed('KeyH')) toggleHelp();
     if (input.wasPressed('KeyF')) {
@@ -227,11 +269,13 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     renderClock(world.dayNight.hours(now));
     world.town.updateInteriors(world.camera.position);
     furniture.update(world.camera.position);
+    appliances.update(world.camera.position, dt);
 
     renderMode(player.mode, input.pointerLocked);
-    renderPrompt(player.interaction);
+    renderPrompt(player.interaction, player.remoteTv);
     const speed = car.physics.speed;
     renderGauges(Math.abs(speed) < 0.3 ? 0 : speed, car.physics.gear, car.physics.rpm / CAR.redlineRpm);
+    if (settings.showFps) renderFps(now);
     world.camera.getWorldDirection(view);
     const focus = player.focus;
     minimap.update(
