@@ -8,6 +8,24 @@ automatic gearbox and engine sound around a small town of 48 houses. Get out to 
 open front doors and explore furnished rooms (two-story houses have stairs). Cars and people
 are solid, so you can bump into your friends.
 
+Around the town are **eight themed zones** (the town is the middle of a 3 × 3 grid, about
+1.2 km across), joined by highways. Each has its own ground, weather and sky, and you see
+its name as you drive in:
+
+| Zone | Where | What's there |
+|---|---|---|
+| **Frostfang Tundra** (Arctic) | north-west | Snowy spruce forest, a frozen lake (slippery!), an igloo camp, a log-cabin outpost, an observatory, glaciers, reindeer and penguins, snowfall, and the northern lights at night. On foot you get cold: warm up by a campfire, indoors, in an igloo or in your car. |
+| **Kingdom of Eldermoor** (Medieval) | north | A moated castle with a drawbridge, towers and a great hall with a throne; knights on guard; a timber-framed market village, a smithy, a windmill, tournament grounds, and a dragon circling the keep. |
+| **Outpost Nova** (Deep Space) | north-east | An alien world with **low gravity**, craters, glowing crystals and plants, a domed base with astronauts, a starship, radio dishes, a ringed planet and an asteroid belt in the sky, and a rocket that launches every 4 minutes. |
+| **Emerald Jungle** | west | Dense rainforest, a waterfall from a cliff, a river with a rope bridge, a lagoon, and an overgrown temple with a hidden chamber; parrots, butterflies and fireflies. |
+| **Neon Spire** (Cyberpunk) | east | Skyscrapers with neon signs and giant screens, rain, a monorail, flying traffic, a night market, and the **Helix Tower**: drive up its spiral ramp to a deck 36 m up. |
+| **Primeval Valley** (Prehistoric) | south-west | A volcano that erupts every 3 minutes, lava flows, a cave you can drive into (with cave paintings), hot springs, a giant fossil, and sauropods, a T. rex, raptors, triceratops, mammoths and pterosaurs. |
+| **Valley of Empires** (Ancient) | south | The Colosseum (drive in through its gates), an aqueduct, a triumphal arch, a Greek temple, a Mayan step pyramid you can climb, the pyramids and the Sphinx, an oasis, legionaries and camels. |
+| **Coral Bay** (Ocean) | south-east | A harbor with a pier, boats, a galleon and a lighthouse; under the sea, coral reefs, kelp, a shipwreck, a sunken city, sharks, rays, turtles, a whale and glowing jellyfish, and a glass tunnel road down to a domed station on the sea floor. You can drive or swim under water. |
+
+Some zones have houses you can go into, like the town's (log cabins, half-timbered cottages,
+seaside cottages, Roman villas), and campfires or braziers you can light with **E**.
+
 The minimap in the top-right corner turns with your view and shows streets, houses, your
 friends (arrows in their colors) and your next mission target (yellow diamond). Below it is
 the name of the street or house you're at.
@@ -26,10 +44,11 @@ mark targets around town. Press **Enter** to chat in either mode.
 
 Time of day is shared by everyone in a room: a full day takes 24 minutes, with sunrise,
 sunset and night (street lamps, lit windows, headlights, stars). In free roam, press **N**
-to skip ahead 2 hours. The **Graphics** menu in the top-left panel trades looks for speed:
+to skip ahead 2 hours. The **Graphics** setting (Esc → Settings) trades looks for speed:
 Low (no post-processing), Medium (glow), High (glow plus ambient occlusion).
 
-Surfaces (asphalt, brick, siding, roof slates, grass, floors, carpet) use real photo-scanned
+Surfaces (asphalt, brick, siding, roof slates, grass, floors, carpet, and in the zones snow,
+sand, rock, cobblestones, castle stone, thatch, marble, metal and more) use real photo-scanned
 textures, and living rooms, dining rooms and bedrooms have real furniture models. They come
 from [Poly Haven](https://polyhaven.com) and [ambientCG](https://ambientcg.com), are CC0
 (free to use for anything, no credit needed) and live in `client/public/media`. To change
@@ -83,14 +102,14 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 |---|---|
 | W A S D | Walk |
 | Shift | Run |
-| Space | Jump |
+| Space | Jump (under water: swim up) |
 | Mouse / arrows | Look around (click the game to capture the mouse; Esc releases it) |
-| E | Whatever you're looking at: get in the car, open/close a door, sit on a sofa, chair or bed, turn a TV, floor lamp or stove on/off |
+| E | Whatever you're looking at: get in the car, open/close a door, sit on a sofa, chair or bed, turn a TV, floor lamp or stove on/off, light or put out a campfire |
 | E or move | Stand up |
 | R (sitting) | TV remote: turn the nearest TV on/off |
 
-M, N, F, H, Enter and Esc work on foot too. Switched-on TVs, lamps and stoves, and who's
-sitting where, are shared with everyone in the room.
+M, N, F, H, Enter and Esc work on foot too. Switched-on TVs, lamps, stoves and fires, and
+who's sitting where, are shared with everyone in the room.
 
 **Settings** (Esc → Settings, remembered in your browser): volume, mouse sensitivity, invert
 mouse, graphics quality, field of view, km/h or mph, and showing the minimap, key help,
@@ -102,7 +121,7 @@ player names and frame rate. **Leave room** in the same menu goes back to the ti
 ## Other commands
 
 ```sh
-npm test          # car handling, walking, town/floor-plan, missions and server tests
+npm test          # car handling, walking, town/zone/floor-plan, missions and server tests
 npm run typecheck # client + server
 npm run build     # build client into client/dist (plus compressed copies)
 npm start         # serve client/dist + WebSocket server on $PORT (default 8080)
@@ -113,7 +132,8 @@ npm start         # serve client/dist + WebSocket server on $PORT (default 8080)
 ```
 client/   Three.js + Rapier game (Vite)
 server/   Node WebSocket room server; also serves the built client
-shared/   Message types, the town layout and house floor plans, shared by client and server
+shared/   Message types, the town and zone layouts, the shape of the ground, and house floor
+          plans, shared by client and server (shared/zones/ has one file per zone)
 ```
 
 ## Put it online with Fly.io

@@ -1,13 +1,15 @@
-import { ASPHALT_WIDTH, locationName, TOWN_HALF_EXTENT, type TownLayout } from '../../../shared/town.ts';
+import { ASPHALT_WIDTH, TOWN_HALF_EXTENT, type TownLayout } from '../../../shared/town.ts';
+import { generateWorld, SEA_LEVEL, type Shape, TERRAIN_HALF, TERRAIN_STEP, WORLD_HALF, worldLocationName, zoneAt, type ZoneId } from '../../../shared/world.ts';
 
 /** Resolution of the pre-drawn town map. */
 const PX_PER_M = 2;
-/** Grass drawn around the town on the map, in meters. */
-const MARGIN = 60;
-const EXTENT = TOWN_HALF_EXTENT + MARGIN;
+const EXTENT = TOWN_HALF_EXTENT;
+/** The world map around it: coarser, and covering everything out to the edge. */
+const WORLD_PX_PER_M = 1;
+const WORLD_EXTENT = WORLD_HALF + 60;
 /** Meters from the center to the rim: closer when slow, further out at speed. */
 const MIN_RANGE = 70;
-const MAX_RANGE = 140;
+const MAX_RANGE = 190;
 const TARGET_COLOR = '#ffd24a';
 
 export interface MapPlayer {
@@ -25,16 +27,20 @@ export interface MapPlayer {
 export class Minimap {
   private ctx: CanvasRenderingContext2D;
   private base: HTMLCanvasElement;
+  private world: HTMLCanvasElement;
   private range = MIN_RANGE;
   private lastLabel = '';
 
   constructor(
     private canvas: HTMLCanvasElement,
     private label: HTMLElement,
-    private layout: TownLayout,
+    layout: TownLayout,
+    /** Ground heights on the terrain grid (see Terrain), for shading hills. */
+    heights: Float32Array,
   ) {
     this.ctx = canvas.getContext('2d')!;
     this.base = drawTown(layout);
+    this.world = drawWorld(heights);
     const size = canvas.clientWidth || 180;
     canvas.width = canvas.height = Math.round(size * Math.min(devicePixelRatio, 2));
   }
@@ -66,11 +72,17 @@ export class Minimap {
     ctx.fillStyle = '#26321f';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.translate(r, r);
+    ctx.imageSmoothingEnabled = true;
+    ctx.save();
+    ctx.rotate(turn);
+    ctx.scale(scale / WORLD_PX_PER_M, scale / WORLD_PX_PER_M);
+    ctx.translate(-(self.x + WORLD_EXTENT) * WORLD_PX_PER_M, -(self.z + WORLD_EXTENT) * WORLD_PX_PER_M);
+    ctx.drawImage(this.world, 0, 0);
+    ctx.restore();
     ctx.save();
     ctx.rotate(turn);
     ctx.scale(scale / PX_PER_M, scale / PX_PER_M);
     ctx.translate(-(self.x + EXTENT) * PX_PER_M, -(self.z + EXTENT) * PX_PER_M);
-    ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.base, 0, 0);
     ctx.restore();
 
@@ -116,7 +128,7 @@ export class Minimap {
     ctx.fillText('N', n.x, n.y + 0.5 * unit);
     ctx.restore();
 
-    const text = locationName(this.layout, self.x, self.z);
+    const text = worldLocationName(self.x, self.z);
     if (text !== this.lastLabel) {
       this.lastLabel = text;
       this.label.textContent = text;
@@ -154,8 +166,6 @@ function drawTown(layout: TownLayout): HTMLCanvasElement {
   const px = (v: number) => (v + EXTENT) * PX_PER_M;
   const rect = (minX: number, minZ: number, maxX: number, maxZ: number) => ctx.fillRect(px(minX), px(minZ), (maxX - minX) * PX_PER_M, (maxZ - minZ) * PX_PER_M);
 
-  ctx.fillStyle = '#26321f';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
   const e = TOWN_HALF_EXTENT;
   ctx.fillStyle = '#8d9091';
   rect(-e, -e, e, e);
@@ -200,6 +210,124 @@ function drawTown(layout: TownLayout): HTMLCanvasElement {
     ctx.fillStyle = '#d8d0c0';
     rect(h.x - h.width / 2, h.z - h.depth / 2, h.x + h.width / 2, h.z + h.depth / 2);
     ctx.strokeRect(px(h.x - h.width / 2), px(h.z - h.depth / 2), h.width * PX_PER_M, h.depth * PX_PER_M);
+  }
+  return canvas;
+}
+
+/** Map colors for each zone's ground. */
+const ZONE_COLORS: Record<ZoneId, [number, number, number]> = {
+  town: [62, 87, 53],
+  arctic: [222, 232, 240],
+  medieval: [79, 118, 63],
+  space: [84, 64, 98],
+  jungle: [44, 86, 36],
+  cyberpunk: [58, 58, 68],
+  prehistoric: [104, 88, 70],
+  ancient: [216, 192, 140],
+  ocean: [214, 200, 160],
+};
+
+/**
+ * Everything outside the town, drawn once: each zone's ground shaded by its hills, the
+ * water, the roads, and the houses.
+ */
+function drawWorld(heights: Float32Array): HTMLCanvasElement {
+  const world = generateWorld();
+  const size = Math.ceil(WORLD_EXTENT * 2 * WORLD_PX_PER_M);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const px = (v: number) => (v + WORLD_EXTENT) * WORLD_PX_PER_M;
+
+  // Ground: one pixel per terrain cell, lit from the north-west, then scaled up smoothly.
+  const n = Math.round((2 * TERRAIN_HALF) / TERRAIN_STEP) + 1;
+  const cells = Math.ceil((WORLD_EXTENT * 2) / TERRAIN_STEP);
+  const small = document.createElement('canvas');
+  small.width = small.height = cells;
+  const sctx = small.getContext('2d')!;
+  const img = sctx.createImageData(cells, cells);
+  const h = (x: number, z: number) => {
+    const i = Math.min(n - 1, Math.max(0, Math.round((x + TERRAIN_HALF) / TERRAIN_STEP)));
+    const j = Math.min(n - 1, Math.max(0, Math.round((z + TERRAIN_HALF) / TERRAIN_STEP)));
+    return heights[i * n + j];
+  };
+  for (let a = 0; a < cells; a++) {
+    for (let b = 0; b < cells; b++) {
+      const x = -WORLD_EXTENT + (a + 0.5) * TERRAIN_STEP;
+      const z = -WORLD_EXTENT + (b + 0.5) * TERRAIN_STEP;
+      const y = h(x, z);
+      const zone = zoneAt(x, z);
+      let [r, g, bl] = ZONE_COLORS[zone];
+      // Hillshade: brighter on slopes facing the light, darker away from it.
+      const shade = 1 + Math.max(-0.45, Math.min(0.45, (h(x - 4, z - 4) - h(x + 4, z + 4)) * 0.06));
+      // Snowy peaks.
+      if ((zone === 'arctic' || zone === 'medieval') && y > 50) [r, g, bl] = [236, 240, 244];
+      if (zone === 'ocean' && y < SEA_LEVEL) {
+        const depth = Math.min(1, (SEA_LEVEL - y) / 18);
+        [r, g, bl] = [60 - depth * 40, 140 - depth * 70, 170 - depth * 60];
+      }
+      const k = (b * cells + a) * 4;
+      img.data[k] = Math.min(255, r * shade);
+      img.data[k + 1] = Math.min(255, g * shade);
+      img.data[k + 2] = Math.min(255, bl * shade);
+      img.data[k + 3] = 255;
+    }
+  }
+  sctx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(small, 0, 0, size, size);
+
+  // Water (the sea is in the ground colors already).
+  const fill = (shape: Shape) => {
+    ctx.beginPath();
+    switch (shape.type) {
+      case 'circle':
+        ctx.arc(px(shape.x), px(shape.z), shape.r * WORLD_PX_PER_M, 0, Math.PI * 2);
+        break;
+      case 'rect':
+        ctx.rect(px(shape.minX), px(shape.minZ), (shape.maxX - shape.minX) * WORLD_PX_PER_M, (shape.maxZ - shape.minZ) * WORLD_PX_PER_M);
+        break;
+      case 'ring':
+        ctx.rect(px(shape.x - shape.outer), px(shape.z - shape.outer), shape.outer * 2 * WORLD_PX_PER_M, shape.outer * 2 * WORLD_PX_PER_M);
+        ctx.rect(px(shape.x + shape.inner), px(shape.z - shape.inner), -shape.inner * 2 * WORLD_PX_PER_M, shape.inner * 2 * WORLD_PX_PER_M);
+        break;
+      case 'path':
+        ctx.lineWidth = shape.width * WORLD_PX_PER_M;
+        ctx.lineCap = 'round';
+        shape.path.forEach((p, i) => (i ? ctx.lineTo(px(p.x), px(p.z)) : ctx.moveTo(px(p.x), px(p.z))));
+        ctx.stroke();
+        return;
+    }
+    ctx.fill('evenodd');
+  };
+  for (const w of world.waters) {
+    if (w.kind === 'sea') continue;
+    ctx.fillStyle = ctx.strokeStyle = w.kind === 'lava' ? '#e8601a' : w.kind === 'ice' ? '#b8dcef' : '#3a86a8';
+    fill(w.shape);
+  }
+
+  // Roads, with a dashed center line on the bigger ones.
+  ctx.lineJoin = ctx.lineCap = 'round';
+  for (const road of world.roads) {
+    ctx.strokeStyle = road.surface === 'dirt' ? '#8a6a48' : road.surface === 'cobble' || road.surface === 'sandstone' ? '#9a9286' : '#4a4f56';
+    ctx.lineWidth = road.width * WORLD_PX_PER_M;
+    ctx.beginPath();
+    road.path.forEach((p, i) => (i ? ctx.lineTo(px(p.x), px(p.z)) : ctx.moveTo(px(p.x), px(p.z))));
+    ctx.stroke();
+  }
+  // Houses out in the zones.
+  ctx.fillStyle = '#d8d0c0';
+  for (const house of world.houses) {
+    if (Math.abs(house.x) < TOWN_HALF_EXTENT && Math.abs(house.z) < TOWN_HALF_EXTENT) continue;
+    ctx.fillRect(px(house.x - house.width / 2), px(house.z - house.depth / 2), house.width * WORLD_PX_PER_M, house.depth * WORLD_PX_PER_M);
+  }
+  // Landmarks: a small marker each.
+  ctx.fillStyle = 'rgba(255, 220, 120, 0.9)';
+  for (const l of world.landmarks) {
+    if (l.r > 100) continue;
+    ctx.beginPath();
+    ctx.arc(px(l.x), px(l.z), 3, 0, Math.PI * 2);
+    ctx.fill();
   }
   return canvas;
 }

@@ -43,7 +43,8 @@ export interface Road {
   center: number;
 }
 
-export type HouseStyle = 'plaster' | 'brick' | 'siding';
+export type HouseStyle = 'plaster' | 'brick' | 'siding' | 'timber' | 'log' | 'stone';
+export type RoofKind = 'shingles' | 'thatch' | 'clay';
 
 export interface House {
   id: string;
@@ -71,11 +72,17 @@ export interface House {
   drivewaySide: -1 | 1;
   /** Distance from the sidewalk edge to the house front. */
   setback: number;
+  /** Roofing; shingles unless set. */
+  roof?: RoofKind;
+  /** Country houses: a footpath to the door, but no driveway or mailbox. */
+  rustic?: boolean;
 }
 
 export interface Tree {
   x: number;
   z: number;
+  /** Ground height; the block surface (curb height) unless set. */
+  y?: number;
   /** Overall height in meters. */
   height: number;
 }

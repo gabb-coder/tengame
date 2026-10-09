@@ -103,10 +103,18 @@ fight the day/night cycle).
 - Esc menu with settings (volume, mouse, invert, graphics, FOV, units, HUD toggles, FPS)
   and "Leave room" back to the title screen.
 
+- Eight themed zones around the town (Arctic, Medieval, Deep Space, Jungle, Cyberpunk,
+  Prehistoric, Ancient Empires, Ocean), joined by highways: shaped terrain (one Rapier
+  heightfield for the whole world), roads that level the ground under them, water, lava and
+  ice, per-zone haze, sky and weather, low gravity, swimming, Arctic warmth, animated animals
+  and people, timed events (rocket launches, eruptions) in sync for everyone, zone houses and
+  lightable fires (server-checked), a world minimap and zone names on arrival.
+
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.
 - Show the driver sitting in the car (the animation library has a driving pose).
 - Doors inside houses (two-story houses currently have open doorways only).
-- More mission types, more car choices, a bigger town.
+- More mission types (e.g. a cross-zone rally), more car choices.
+- Real CC0 models for some zone props (ships, rocks, statues) instead of shapes.
 - Server-side sanity checks on player positions (not needed among friends).

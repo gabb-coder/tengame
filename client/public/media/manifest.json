@@ -48,6 +48,111 @@
     "carpet": {
       "size": 1.7,
       "source": "https://ambientcg.com/view?id=Carpet016"
+    },
+    "snow": {
+      "size": 2,
+      "source": "https://polyhaven.com/a/snow_02",
+      "lazy": true
+    },
+    "forest": {
+      "size": 2,
+      "source": "https://polyhaven.com/a/forrest_ground_01",
+      "lazy": true
+    },
+    "sand": {
+      "size": 4.5,
+      "source": "https://polyhaven.com/a/sand_01",
+      "lazy": true
+    },
+    "beach": {
+      "size": 15,
+      "source": "https://polyhaven.com/a/coast_sand_01",
+      "lazy": true
+    },
+    "volcanic": {
+      "size": 2.5,
+      "source": "https://polyhaven.com/a/burned_ground_01",
+      "lazy": true
+    },
+    "alien": {
+      "size": 2,
+      "source": "https://polyhaven.com/a/cracked_red_ground",
+      "lazy": true
+    },
+    "rock": {
+      "size": 2.38,
+      "source": "https://polyhaven.com/a/rock_face",
+      "lazy": true
+    },
+    "darkRock": {
+      "size": 2.421,
+      "source": "https://polyhaven.com/a/dark_rock",
+      "lazy": true
+    },
+    "cobble": {
+      "size": 1,
+      "source": "https://polyhaven.com/a/cobblestone_floor_01",
+      "lazy": true
+    },
+    "dirt": {
+      "size": 2,
+      "source": "https://polyhaven.com/a/rocky_trail",
+      "lazy": true
+    },
+    "paving": {
+      "size": 3,
+      "source": "https://polyhaven.com/a/large_sandstone_blocks",
+      "lazy": true
+    },
+    "metal": {
+      "size": 0.5,
+      "source": "https://polyhaven.com/a/metal_plate",
+      "lazy": true
+    },
+    "castle": {
+      "size": 2.5,
+      "source": "https://polyhaven.com/a/castle_wall_slates",
+      "lazy": true
+    },
+    "timber": {
+      "size": 2,
+      "source": "https://polyhaven.com/a/medieval_wall_01",
+      "lazy": true
+    },
+    "thatch": {
+      "size": 0.54,
+      "source": "https://polyhaven.com/a/thatch_roof_angled",
+      "lazy": true
+    },
+    "log": {
+      "size": 1.25,
+      "source": "https://polyhaven.com/a/wood_trunk_wall",
+      "lazy": true
+    },
+    "sandstone": {
+      "size": 3,
+      "source": "https://polyhaven.com/a/sandstone_blocks_08",
+      "lazy": true
+    },
+    "marble": {
+      "size": 1.5,
+      "source": "https://polyhaven.com/a/marble_01",
+      "lazy": true
+    },
+    "clay": {
+      "size": 4,
+      "source": "https://polyhaven.com/a/clay_roof_tiles",
+      "lazy": true
+    },
+    "planks": {
+      "size": 1,
+      "source": "https://polyhaven.com/a/brown_planks_03",
+      "lazy": true
+    },
+    "mossy": {
+      "size": 2,
+      "source": "https://polyhaven.com/a/mossy_stone_wall",
+      "lazy": true
     }
   },
   "models": {

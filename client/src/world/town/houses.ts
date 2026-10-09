@@ -61,6 +61,7 @@ export function buildHouse(
   const base = FOUNDATION_HEIGHT;
   const wallTop = base + H;
   const wallMat = m.walls[h.style];
+  const roofMat = m.roofs[h.roof ?? 'shingles'];
   const wallTile = TEXTURE_TILE[h.style];
 
   // Foundation (its top is the ground floor).
@@ -111,7 +112,7 @@ export function buildHouse(
   };
   porch(DOOR_WIDTH + 1.6, base, 1.3, d / 2 + 0.65);
   porch(DOOR_WIDTH + 1.0, base / 2, PORCH_STEP_DEPTH, d / 2 + 1.3 + PORCH_STEP_DEPTH / 2);
-  builder.add(box(DOOR_WIDTH + 1.2, 0.1, 1.1, TEXTURE_TILE.shingles), m.roof, at(h.doorOffset, base + DOOR_HEIGHT + 0.35, d / 2 + 0.55), h.roofColor);
+  builder.add(box(DOOR_WIDTH + 1.2, 0.1, 1.1, TEXTURE_TILE.shingles), roofMat, at(h.doorOffset, base + DOOR_HEIGHT + 0.35, d / 2 + 0.55), h.roofColor);
 
   // Gable roof with the ridge along the width.
   const rise = (d / 2) * h.roofPitch;
@@ -123,14 +124,14 @@ export function buildHouse(
     // Raise the slab by half its thickness so its underside rests on the walls.
     const cy = ridgeY - (run / 2) * h.roofPitch + ROOF_THICKNESS / 2 / Math.cos(slope);
     builder.add(
-      box(w + 2 * ROOF_OVERHANG, ROOF_THICKNESS, slabLength, TEXTURE_TILE.shingles),
-      m.roof,
+      box(w + 2 * ROOF_OVERHANG, h.roof === 'thatch' ? ROOF_THICKNESS * 2.5 : ROOF_THICKNESS, slabLength, TEXTURE_TILE.shingles),
+      roofMat,
       at(0, cy, (dir * run) / 2, 0, dir * slope),
       h.roofColor,
     );
   }
   // Ridge cap and the triangular gable walls.
-  builder.add(box(w + 2 * ROOF_OVERHANG, 0.12, 0.3), m.roof, at(0, ridgeY + ROOF_THICKNESS, 0), h.roofColor);
+  builder.add(box(w + 2 * ROOF_OVERHANG, 0.12, 0.3), roofMat, at(0, ridgeY + ROOF_THICKNESS, 0), h.roofColor);
   const gable = gableGeometry(d, rise, T, wallTile);
   builder.add(gable, wallMat, at(-w / 2 + T, wallTop, 0), h.wallColor);
   builder.add(gable, wallMat, at(w / 2, wallTop, 0), h.wallColor);
@@ -144,6 +145,8 @@ export function buildHouse(
     new THREE.Vector3(w / 2, ridgeY, 0),
   ]);
 
+  if (h.style === 'timber') timberFrame(builder, m, h, at, base, wallTop);
+
   if (h.hasChimney) {
     const cx = w / 2 - 1.3;
     const cz = -d / 4;
@@ -152,9 +155,16 @@ export function buildHouse(
     builder.add(box(0.8, height, 0.8, TEXTURE_TILE.brick), m.walls.brick, at(cx, bottom + height / 2, cz), '#8a5446');
   }
 
-  // Yard: driveway beside the house, path to the door, and a mailbox by the sidewalk.
+  // Yard: driveway beside the house, path to the door, and a mailbox by the sidewalk
+  // (country houses just get the path).
   const yardY = 0.005;
   const lotFront = d / 2 + h.setback;
+  if (h.rustic) {
+    builder.add(flatRect(h.doorOffset - 0.6, d / 2 + 1.3 + PORCH_STEP_DEPTH, h.doorOffset + 0.6, lotFront, yardY, TEXTURE_TILE.concrete), m.paving, M, undefined, {
+      castShadow: false,
+    });
+    return;
+  }
   const driveX = h.drivewaySide * (w / 2 + 2);
   builder.add(flatRect(driveX - 1.6, -d / 2, driveX + 1.6, lotFront, yardY, TEXTURE_TILE.concrete), m.paving, M, undefined, {
     castShadow: false,
@@ -165,6 +175,28 @@ export function buildHouse(
   const mailX = h.doorOffset - h.drivewaySide * 1.2;
   builder.add(box(0.08, 1.05, 0.08), m.darkMetal, at(mailX, 0.52, lotFront - 0.6));
   builder.add(new THREE.CapsuleGeometry(0.17, 0.32, 4, 10).rotateX(Math.PI / 2), m.door, at(mailX, 1.15, lotFront - 0.6), h.doorColor);
+}
+
+/**
+ * Dark oak beams on a half-timbered house's plaster: corner posts, and a beam at the sill,
+ * each floor line and the eaves, all the way round.
+ */
+function timberFrame(builder: MeshBuilder, m: TownMaterials, h: House, at: (x: number, y: number, z: number) => THREE.Matrix4, base: number, wallTop: number): void {
+  const { width: w, depth: d } = h;
+  const t = 0.2;
+  const out = 0.05;
+  const oak = '#3a2a1e';
+  const lines = [base + 0.1, wallTop - 0.1];
+  for (let s = 1; s < h.stories; s++) lines.push(base + s * STORY_HEIGHT);
+  for (const y of lines) {
+    builder.add(box(w + 2 * out, t, t), m.door, at(0, y, d / 2 + out - t / 2 + 0.02), oak);
+    builder.add(box(w + 2 * out, t, t), m.door, at(0, y, -d / 2 - out + t / 2 - 0.02), oak);
+    builder.add(box(t, t, d + 2 * out), m.door, at(w / 2 + out - t / 2 + 0.02, y, 0), oak);
+    builder.add(box(t, t, d + 2 * out), m.door, at(-w / 2 - out + t / 2 - 0.02, y, 0), oak);
+  }
+  for (const x of [-1, 1]) {
+    for (const z of [-1, 1]) builder.add(box(t + 0.04, wallTop - base, t + 0.04), m.door, at((x * (w + 0.04)) / 2, (base + wallTop) / 2, (z * (d + 0.04)) / 2), oak);
+  }
 }
 
 /**

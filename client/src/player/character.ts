@@ -77,18 +77,22 @@ export class CharacterPhysics {
    * One fixed physics step. `move` is the desired horizontal direction in world space
    * with length 0..1; call before `world.step()`.
    */
-  step(move: THREE.Vector3, run: boolean, jump: boolean, dt: number): void {
-    const target = move.clone().multiplyScalar(run ? AVATAR.runSpeed : AVATAR.walkSpeed);
+  step(move: THREE.Vector3, run: boolean, jump: boolean, dt: number, place: { gravity: number; underwater: boolean } = { gravity: 1, underwater: false }): void {
+    // Under water: slower, floaty, and jump swims upward.
+    const swim = place.underwater;
+    const target = move.clone().multiplyScalar((run ? AVATAR.runSpeed : AVATAR.walkSpeed) * (swim ? 0.55 : 1));
     // Ease horizontal velocity toward the target; less control in the air.
-    const k = 1 - Math.exp(-AVATAR.acceleration * dt * (this.grounded ? 1 : 0.15));
+    const k = 1 - Math.exp(-AVATAR.acceleration * dt * (this.grounded || place.underwater ? 1 : 0.15));
     this.velocity.x += (target.x - this.velocity.x) * k;
     this.velocity.z += (target.z - this.velocity.z) * k;
 
     // While grounded, move horizontally only (snap-to-ground handles going down):
     // Rapier's autostep doesn't trigger when the requested move points into the ground.
-    if (this.grounded && jump) this.velocity.y = AVATAR.jumpSpeed;
+    const gravity = AVATAR.gravity * place.gravity * (swim ? 0.12 : 1);
+    if (swim && jump) this.velocity.y = Math.min(this.velocity.y + 9 * dt, 2.6);
+    else if (this.grounded && jump) this.velocity.y = AVATAR.jumpSpeed;
     else if (this.grounded) this.velocity.y = 0;
-    else this.velocity.y -= AVATAR.gravity * dt;
+    else this.velocity.y = Math.max(this.velocity.y - gravity * dt, swim ? -1.6 : -60);
 
     const desired = this.velocity.clone().multiplyScalar(dt);
     this.controller.computeColliderMovement(this.collider, desired);

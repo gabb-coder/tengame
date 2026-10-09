@@ -29,6 +29,15 @@ const GAITS = ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'];
 
 type Body = 'male' | 'female';
 
+/** Clothing chosen for a person instead of picked at random (uniforms, costumes). */
+export interface Outfit {
+  pants?: string;
+  shoes?: string;
+  body?: Body;
+  /** Bald (under a helmet, say). */
+  noHair?: boolean;
+}
+
 interface HumanAssets {
   bodies: Record<Body, THREE.Object3D>;
   /** Alternative, lighter skin color map per body. */
@@ -149,8 +158,9 @@ export class Human {
     private assets: HumanAssets,
     shirtColor: string,
     seed: string,
+    outfit: Outfit = {},
   ) {
-    const body: Body = pick(['male', 'female'], seed, 7);
+    const body: Body = outfit.body ?? pick(['male', 'female'], seed, 7);
     const scene = cloneSkinned(assets.bodies[body]);
     const lightSkin = pick([false, true], seed, 8) ? assets.lightSkin[body] : undefined;
     const hairTint = pick(HAIR_TINTS, seed, 3);
@@ -162,7 +172,7 @@ export class Human {
       mesh.receiveShadow = true;
       const mat = mesh.material as THREE.MeshStandardMaterial;
       if (mat.name.includes('Superhero')) {
-        mesh.material = dress(mat, shirtColor, pick(PANTS_COLORS, seed, 2), pick(SHOE_COLORS, seed, 4));
+        mesh.material = dress(mat, shirtColor, outfit.pants ?? pick(PANTS_COLORS, seed, 2), outfit.shoes ?? pick(SHOE_COLORS, seed, 4));
         if (lightSkin) (mesh.material as THREE.MeshStandardMaterial).map = lightSkin;
       } else if (mat.name.includes('Hair')) {
         // Eyebrows share the hair material.
@@ -176,7 +186,7 @@ export class Human {
     const head = scene.getObjectByName('Head');
     if (head) {
       const toHead = head.matrixWorld.clone().invert();
-      for (const name of pick(HAIRSTYLES[body], seed, 5)) {
+      for (const name of outfit.noHair ? [] : pick(HAIRSTYLES[body], seed, 5)) {
         const template = assets.hair.get(name);
         if (!template) continue;
         const hair = template.clone();
@@ -244,6 +254,22 @@ export class Human {
       action.time = GAITS.includes(name) ? this.phase * duration : (action.time + dt) % duration;
     }
     this.mixer.update(0);
+  }
+
+  /**
+   * Hangs `object` on a bone so it moves with it (a helmet on the head, a sword in the
+   * hand). `object` is modeled in meters around the bone's position, facing +Z like the
+   * person. Call before the person is moved or animated.
+   */
+  attach(boneName: string, object: THREE.Object3D): boolean {
+    const bone = this.root.getObjectByName(boneName);
+    if (!bone) return false;
+    this.root.updateMatrixWorld(true);
+    const boneInRoot = this.root.matrixWorld.clone().invert().multiply(bone.matrixWorld);
+    const at = new THREE.Matrix4().makeTranslation(new THREE.Vector3().setFromMatrixPosition(boneInRoot));
+    object.applyMatrix4(boneInRoot.invert().multiply(at));
+    bone.add(object);
+    return true;
   }
 
   /** Where the hips are, relative to the feet origin (in `root`'s own frame, unrotated). */

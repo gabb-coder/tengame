@@ -100,21 +100,33 @@ export function buildBlock(block: Rect, builder: MeshBuilder, m: TownMaterials, 
   sidewalkRing(outer, block, y, builder, m);
 }
 
-/** The outer sidewalk along the far side of the perimeter roads. */
+/**
+ * The outer sidewalk along the far side of the perimeter roads, with gaps where the middle
+ * streets and avenues leave town for the highways.
+ */
 export function buildPerimeterSidewalk(builder: MeshBuilder, m: TownMaterials, physics: RAPIER.World): void {
   const e = TOWN_HALF_EXTENT;
   const inner = e - SIDEWALK_WIDTH;
   const outer = { minX: -e, minZ: -e, maxX: e, maxZ: e };
   const hole = { minX: -inner, minZ: -inner, maxX: inner, maxZ: inner };
-  for (const piece of ringPieces(outer, hole)) {
-    const sx = piece.maxX - piece.minX;
-    const sz = piece.maxZ - piece.minZ;
-    const center = { x: (piece.minX + piece.maxX) / 2, y: CURB_HEIGHT / 2, z: (piece.minZ + piece.maxZ) / 2 };
-    boxCollider(physics, IDENTITY, center, { x: sx, y: CURB_HEIGHT, z: sz });
-  }
-  curbs(outer, builder, m);
-  curbs(hole, builder, m);
-  sidewalkRing(outer, hole, CURB_HEIGHT, builder, m);
+  const exits: number[] = [];
+  for (let i = 1; i < BLOCKS_PER_SIDE; i++) exits.push(roadCenter(i));
+  const gap = ASPHALT_WIDTH / 2;
+  ringPieces(outer, hole).forEach((strip, i) => {
+    // The first two strips run east-west (gaps along x), the others north-south.
+    const alongX = i < 2;
+    const [lo, hi] = alongX ? [strip.minX, strip.maxX] : [strip.minZ, strip.maxZ];
+    const cuts = [lo, ...exits.flatMap((c) => [c - gap, c + gap]), hi];
+    for (let k = 0; k < cuts.length; k += 2) {
+      const piece = alongX ? { ...strip, minX: cuts[k], maxX: cuts[k + 1] } : { ...strip, minZ: cuts[k], maxZ: cuts[k + 1] };
+      const sx = piece.maxX - piece.minX;
+      const sz = piece.maxZ - piece.minZ;
+      const center = { x: (piece.minX + piece.maxX) / 2, y: CURB_HEIGHT / 2, z: (piece.minZ + piece.maxZ) / 2 };
+      boxCollider(physics, IDENTITY, center, { x: sx, y: CURB_HEIGHT, z: sz });
+      curbs(piece, builder, m);
+      builder.add(flatRect(piece.minX, piece.minZ, piece.maxX, piece.maxZ, CURB_HEIGHT, TEXTURE_TILE.sidewalk), m.sidewalk, IDENTITY, undefined, NO_SHADOW);
+    }
+  });
 }
 
 /** Street lamp positions along both sidewalks of every road, clear of intersections. */

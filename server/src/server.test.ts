@@ -10,6 +10,7 @@ import { appliancesOf } from '../../shared/appliances.ts';
 import { generateInterior } from '../../shared/interior.ts';
 import { MAX_PLAYERS, type ServerMessage } from '../../shared/protocol.ts';
 import { doorPosition, generateTown } from '../../shared/town.ts';
+import { generateWorld } from '../../shared/world.ts';
 import { createGameServer, type GameServer } from './server.ts';
 
 let server: GameServer;
@@ -356,4 +357,27 @@ test('players standing by a TV can switch it on, and everyone sees it', async ()
   c.send({ type: 'join', name: 'Cat', room });
   assert.deepEqual((await c.next('welcome')).switchedOn, [tv.id]);
   for (const client of [a, b, c]) client.close();
+});
+
+test('players out in the zones can light a campfire, and everyone sees it burning', async () => {
+  const fire = generateWorld().fires.find((f) => f.id === 'arctic/camp')!;
+  const car = { steer: 0, rpm: 0, load: 0, speed: 0, braking: false };
+  const standAt = (x: number, y: number, z: number) => ({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car, avatar: { p: [x, y, z], yaw: 0, speed: 0 } });
+
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const { room } = await a.next('welcome');
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room });
+  await b.next('welcome');
+
+  // From across the camp: ignored. Next to it: lit, for everyone.
+  a.send(standAt(fire.x + 20, fire.y, fire.z));
+  await a.next('snapshot');
+  a.send({ type: 'switch', id: fire.id, on: true });
+  a.send(standAt(fire.x + 1.2, fire.y, fire.z));
+  await a.next('snapshot');
+  a.send({ type: 'switch', id: fire.id, on: true });
+  assert.deepEqual(await b.next('switch'), { type: 'switch', id: fire.id, on: true });
+  for (const client of [a, b]) client.close();
 });

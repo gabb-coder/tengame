@@ -16,6 +16,7 @@ import type { Appliances } from '../world/appliances.ts';
 import type { Doors } from '../world/doors.ts';
 import { nearestSeat, type Seat } from '../world/seats.ts';
 import type { World } from '../world/world.ts';
+import { placeEffects } from '../world/zones/index.ts';
 
 /** How close (meters from the car's center) you must be to get in. */
 const CAR_REACH = 3.2;
@@ -59,6 +60,8 @@ export class LocalPlayer {
   takenSeats: () => THREE.Vector3[] = () => [];
   /** The seat we're sitting on, if any. */
   private seat: Seat | null = null;
+  /** Walking speed as a fraction of normal (slowed when freezing). */
+  speedScale = 1;
 
   constructor(
     private world: World,
@@ -85,20 +88,25 @@ export class LocalPlayer {
 
   /** Fixed-step physics update; call before `world.physics.step()`. */
   fixedStep(input: Input, dt: number): void {
+    const at = this.car.physics.body.translation();
+    const carPlace = placeEffects(at.x, at.y, at.z);
     if (this.mode === 'car') {
-      this.car.step(this.frozen ? PARKED : input.car, dt);
+      this.car.step(this.frozen ? PARKED : input.car, dt, carPlace);
       return;
     }
-    this.car.step(PARKED, dt);
+    this.car.step(PARKED, dt, carPlace);
+    const feet = this.character.feet;
+    const place = placeEffects(feet.x, feet.y + 1.2, feet.z);
     if (this.seat) {
-      this.character.step(new THREE.Vector3(), false, false, dt);
+      this.character.step(new THREE.Vector3(), false, false, dt, place);
       return;
     }
     const c = input.foot;
     const { forward, right } = this.orbit.basis;
     const move = forward.multiplyScalar(c.forward).addScaledVector(right, c.strafe);
     if (move.lengthSq() > 1) move.normalize();
-    this.character.step(move, c.run, c.jump, dt);
+    move.multiplyScalar(this.speedScale);
+    this.character.step(move, c.run, c.jump, dt, place);
   }
 
   /** Per-frame update after physics: interactions, models and camera. */

@@ -11,11 +11,14 @@
   </head>
   <body>
     <div id="app"></div>
+    <div id="underwater" hidden></div>
+    <div id="frost" hidden></div>
+    <div id="zone-banner" hidden><div class="zone-theme"></div><div class="zone-name"></div></div>
 
     <div id="lobby" class="lobby">
       <header class="lobby-brand">
         <div class="logo" aria-label="Tengame">TEN<span>GAME</span></div>
-        <p class="tagline">Drive, explore every house and play missions in a little town with up to three friends.</p>
+        <p class="tagline">Explore a town and the eight wild lands around it, from castles to coral reefs, and play missions with up to three friends.</p>
       </header>
 
       <form class="lobby-card" id="lobby-form">
@@ -82,6 +85,10 @@
       <div class="panel hud-speed" aria-live="off">
         <div class="speed-row"><span id="hud-speed">0</span><small id="hud-speed-unit">km/h</small></div>
         <div class="gear-row"><span id="hud-gear">N</span><div class="rpm"><div id="hud-rpm"></div></div></div>
+      </div>
+      <div id="hud-warmth" class="panel hud-warmth" hidden>
+        <div class="warmth-row"><span>❄</span><span>Warmth</span></div>
+        <div class="warmth"><div id="hud-warmth-bar"></div></div>
       </div>
       <div id="mission" class="panel hud-mission" hidden>
         <div class="mission-head"><strong id="mission-title"></strong><span id="mission-timer"></span></div>

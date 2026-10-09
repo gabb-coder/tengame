@@ -1,7 +1,7 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { type FurnitureType, generateInterior, type Interior } from '../../../../shared/interior.ts';
-import { CURB_HEIGHT, type Rect, TOWN_HALF_EXTENT, type TownLayout, generateTown, mulberry32, type Tree } from '../../../../shared/town.ts';
+import { CURB_HEIGHT, type House, type Rect, roadCenter, TOWN_HALF_EXTENT, type TownLayout, generateTown, mulberry32, type Tree } from '../../../../shared/town.ts';
 import { boxCollider } from './colliders.ts';
 import { type BlockFurniture, FURNITURE_MODELS, type FurnitureSlot } from './furnitureModels.ts';
 import { buildHouse, houseMatrix } from './houses.ts';
@@ -11,10 +11,6 @@ import { buildBlock, buildPerimeterSidewalk, buildRoads, lampPositions } from '.
 import { buildLamps, buildTrees } from './props.ts';
 import { TEXTURE_TILE } from './textures.ts';
 
-/** How far past the town edge the invisible boundary walls stand. */
-const BOUNDARY_MARGIN = 25;
-const BACKDROP_TREES = 220;
-
 /** Interiors further than this from the camera are hidden; they're only seen up close. */
 const INTERIOR_VIEW_DISTANCE = 45;
 
@@ -22,6 +18,8 @@ export interface Town {
   layout: TownLayout;
   /** Floor plan and furniture of each house, by house id. */
   interiors: Map<string, Interior>;
+  /** Every house: the town's, then the zones'. */
+  houses: House[];
   group: THREE.Group;
   /** Furniture that real models can replace, per block (see FurnitureModels). */
   furniture: BlockFurniture[];
@@ -29,10 +27,14 @@ export interface Town {
   updateInteriors(camera: THREE.Vector3): void;
 }
 
-/** Builds the whole town into the scene and physics world. */
-export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMaterials): Town {
+/**
+ * Builds the whole town into the scene and physics world, plus the houses out in the
+ * zones (`zoneHouses`, one list per neighborhood).
+ */
+export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMaterials, zoneHouses: House[][] = []): Town {
   const layout = generateTown();
-  const interiors = new Map(layout.houses.map((h) => [h.id, generateInterior(h)]));
+  const houses = [...layout.houses, ...zoneHouses.flat()];
+  const interiors = new Map(houses.map((h) => [h.id, generateInterior(h)]));
   const group = new THREE.Group();
   group.name = 'town';
 
@@ -44,15 +46,15 @@ export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMate
   // One merged chunk per block, so off-screen blocks are frustum-culled as a unit.
   const insides: { group: THREE.Group; block: Rect }[] = [];
   const furniture: BlockFurniture[] = [];
-  layout.blocks.forEach((block, i) => {
+  /** Builds the houses standing in `area` (with `extra` for the ground they stand on). */
+  const neighborhood = (name: string, area: Rect, list: House[], extra: (builder: MeshBuilder) => void, hasInteriors: boolean) => {
     const builder = new MeshBuilder();
     const inside = new MeshBuilder();
     // Furniture that has real models is drawn separately, so it can be swapped out later.
     const standIns = new Map<FurnitureType, MeshBuilder>();
     const slots: FurnitureSlot[] = [];
-    buildBlock(block, builder, m, physics);
-    for (const h of layout.houses) {
-      if (!(h.x > block.minX && h.x < block.maxX && h.z > block.minZ && h.z < block.maxZ)) continue;
+    extra(builder);
+    for (const h of list) {
       const M = houseMatrix(h);
       buildHouse(h, interiors.get(h.id)!, builder, inside, m, physics, (f) => {
         if (!FURNITURE_MODELS[f.type]) return inside;
@@ -61,27 +63,47 @@ export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMate
         return standIns.get(f.type)!;
       });
     }
-    if (block === layout.park) buildParkRamps(block, builder, m, physics);
-    group.add(builder.build(`block-${i}`));
-    if (block !== layout.park) {
-      const g = inside.build(`block-${i}-interiors`);
-      const groups = new Map([...standIns].map(([type, b]) => [type, b.build(`block-${i}-${type}`)] as const));
-      for (const s of groups.values()) g.add(s);
-      group.add(g);
-      insides.push({ group: g, block });
-      furniture.push({ group: g, standIns: groups, slots });
-    }
+    group.add(builder.build(name));
+    if (!hasInteriors) return;
+    const g = inside.build(`${name}-interiors`);
+    const groups = new Map([...standIns].map(([type, b]) => [type, b.build(`${name}-${type}`)] as const));
+    for (const s of groups.values()) g.add(s);
+    group.add(g);
+    insides.push({ group: g, block: area });
+    furniture.push({ group: g, standIns: groups, slots });
+  };
+  layout.blocks.forEach((block, i) => {
+    const inBlock = layout.houses.filter((h) => h.x > block.minX && h.x < block.maxX && h.z > block.minZ && h.z < block.maxZ);
+    neighborhood(
+      `block-${i}`,
+      block,
+      inBlock,
+      (builder) => {
+        buildBlock(block, builder, m, physics);
+        if (block === layout.park) buildParkRamps(block, builder, m, physics);
+      },
+      block !== layout.park,
+    );
+  });
+  zoneHouses.forEach((list, i) => {
+    if (list.length === 0) return;
+    const area = {
+      minX: Math.min(...list.map((h) => h.x - h.width)),
+      maxX: Math.max(...list.map((h) => h.x + h.width)),
+      minZ: Math.min(...list.map((h) => h.z - h.depth)),
+      maxZ: Math.max(...list.map((h) => h.z + h.depth)),
+    };
+    neighborhood(`zone-houses-${i}`, area, list, () => {}, true);
   });
 
-  group.add(buildTrees(layout.trees, m, physics, 11));
-  group.add(buildTrees(backdropTrees(), m, null, 12));
+  group.add(buildTrees([...layout.trees, ...outskirtTrees()], m, physics, 11));
   group.add(buildLamps(lampPositions(layout), m, physics));
-  addBoundary(physics);
 
   scene.add(group);
   return {
     layout,
     interiors,
+    houses,
     group,
     furniture,
     updateInteriors(camera) {
@@ -115,31 +137,20 @@ function buildParkRamps(park: { minX: number; minZ: number; maxX: number; maxZ: 
   });
 }
 
-/** A ring of trees outside the boundary so the town doesn't end at a bare horizon. */
-function backdropTrees(): Tree[] {
+/** Trees on the grass between the town and the highways, clear of the roads out of town. */
+function outskirtTrees(): Tree[] {
   const rng = mulberry32(99);
   const trees: Tree[] = [];
-  for (let i = 0; i < BACKDROP_TREES; i++) {
-    const angle = rng() * Math.PI * 2;
-    // Square-ish ring hugging the boundary.
-    const r = TOWN_HALF_EXTENT + BOUNDARY_MARGIN + 6 + rng() * 60;
-    const k = 1 / Math.max(Math.abs(Math.cos(angle)), Math.abs(Math.sin(angle)));
-    trees.push({ x: Math.cos(angle) * r * Math.min(k, 1.25), z: Math.sin(angle) * r * Math.min(k, 1.25), height: 8 + rng() * 8 });
+  const exits = [roadCenter(1), roadCenter(2)];
+  while (trees.length < 70) {
+    const x = (rng() * 2 - 1) * 192;
+    const z = (rng() * 2 - 1) * 192;
+    const edge = Math.max(Math.abs(x), Math.abs(z));
+    if (edge < TOWN_HALF_EXTENT + 5 || edge > 190) continue;
+    // Keep clear of the exit roads (along the axis that leaves town).
+    const across = Math.abs(x) > Math.abs(z) ? z : x;
+    if (exits.some((c) => Math.abs(across - c) < 9)) continue;
+    trees.push({ x, z, y: 0, height: 7 + rng() * 6 });
   }
   return trees;
 }
-
-/** Invisible walls so cars can't leave the map. */
-function addBoundary(physics: RAPIER.World): void {
-  const e = TOWN_HALF_EXTENT + BOUNDARY_MARGIN;
-  const height = 30;
-  for (const [x, z, sx, sz] of [
-    [0, -e, 2 * e, 1],
-    [0, e, 2 * e, 1],
-    [-e, 0, 1, 2 * e],
-    [e, 0, 1, 2 * e],
-  ]) {
-    boxCollider(physics, IDENTITY, { x, y: height / 2, z }, { x: sx, y: height, z: sz });
-  }
-}
-

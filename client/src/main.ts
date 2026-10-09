@@ -10,7 +10,8 @@ import { Input } from './input.ts';
 import { MissionClient } from './game/missions.ts';
 import { Connection } from './net/connection.ts';
 import { RemotePlayers } from './net/remotePlayers.ts';
-import { applyHudSettings, renderClock, renderFps, renderGauges, renderMode, renderPlayerList, renderPrompt, showDisconnected, showHud, toggleHelp } from './ui/hud.ts';
+import { applyHudSettings, renderClock, renderFps, renderGauges, renderMode, renderPlayerList, renderPrompt, renderUnderwater, renderWarmth, renderZone, showDisconnected, showHud, toggleHelp } from './ui/hud.ts';
+import { FIRE_WARMTH_RANGE, Warmth } from './game/warmth.ts';
 import { Menu } from './ui/menu.ts';
 import { onSettings, settings } from './settings.ts';
 import { Chat } from './ui/chat.ts';
@@ -26,10 +27,12 @@ import { InteriorLights } from './world/interiorLights.ts';
 import { StreetLights } from './world/streetLights.ts';
 import { FurnitureModels } from './world/town/furnitureModels.ts';
 import { applyRealTextures } from './world/town/realTextures.ts';
+import { applyZoneTextures } from './world/zones/materials.ts';
 import { lampPositions } from './world/town/roads.ts';
 import { CarModel } from './vehicles/carModel.ts';
 import { AvatarModel } from './player/avatarModel.ts';
 import { World } from './world/world.ts';
+import { generateWorld, zoneAt, ZONES } from '../../shared/world.ts';
 
 const SEND_INTERVAL_MS = 1000 / TICK_RATE;
 const PHYSICS_STEP = 1 / 60;
@@ -47,10 +50,14 @@ const nextPaint = () => new Promise((done) => requestAnimationFrame(() => setTim
 
 // Build the town as soon as physics is ready, and show it behind the title screen.
 const titleReady = physicsReady.then(nextPaint).then(() => {
-  const world = new World(container);
+  const world = new World(container, media);
   world.physics.timestep = PHYSICS_STEP;
   // Real textures replace the generated ones as they arrive.
   void media.textures.then((textures) => applyRealTextures(world.materials, textures));
+  void media.zoneTextures.then((textures) => {
+    applyZoneTextures(world.zoneMaterials, textures);
+    applyRealTextures(world.materials, textures);
+  });
   const title = new TitleScene(world);
   title.start();
   return { world, title };
@@ -102,12 +109,12 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   });
 
   const sounds = new Sounds(listener);
-  const doors = new Doors(world.scene, world.town.layout.houses, world.materials, world.physics);
+  const doors = new Doors(world.scene, world.town.houses, world.materials, world.physics);
   doors.onSwing = (position, opening) => sounds.door(position, opening);
   for (const id of welcome.openDoors) doors.setOpen(id, true, true);
-  const appliances = new Appliances(world.scene, world.town.layout.houses, world.town.interiors);
+  const appliances = new Appliances(world.scene, world.town.houses, world.town.interiors, generateWorld().fires, world.materials, world.zones.lights);
   for (const id of welcome.switchedOn) appliances.setOn(id, true);
-  const interiorLights = new InteriorLights(world.scene, world.town.layout.houses, world.town.interiors);
+  const interiorLights = new InteriorLights(world.scene, world.town.houses, world.town.interiors);
   const streetLights = new StreetLights(world.scene, lampPositions(world.town.layout), world.materials.lampGlow);
 
   const me = welcome.players.find((p) => p.id === welcome.id)!;
@@ -118,7 +125,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   player.requestDoor = (id, open) => conn.send({ type: 'door', id, open });
   player.requestSwitch = (id, on) => conn.send({ type: 'switch', id, on });
   player.appliances = appliances;
-  player.seats = world.town.layout.houses.flatMap((h) => seatsOf(h, world.town.interiors.get(h.id)!));
+  player.seats = world.town.houses.flatMap((h) => seatsOf(h, world.town.interiors.get(h.id)!));
   const car = player.car;
 
   const remotes = new RemotePlayers(world.scene, world.physics, welcome.id, listener);
@@ -139,7 +146,8 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   missions.apply(welcome.mission, performance.now());
   world.dayNight.setClock(welcome.clock, performance.now());
 
-  const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, document.getElementById('map-label')!, world.town.layout);
+  const warmth = new Warmth();
+  const minimap = new Minimap(document.getElementById('minimap') as HTMLCanvasElement, document.getElementById('map-label')!, world.town.layout, world.terrain.heights);
   const view = new THREE.Vector3();
 
   const input = new Input(world.renderer.domElement);
@@ -248,6 +256,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
       accumulator -= PHYSICS_STEP;
     }
     doors.update(dt);
+    world.water.update(dt);
     player.update(input, dt);
     input.endFrame();
 
@@ -259,7 +268,16 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     remotes.update(now, dt);
     missions.update(now, world.camera);
     interiorLights.update(player.focus);
-    world.dayNight.update(now, dt, player.focus, interiorLights.inside);
+    const ambience = world.zones.update(dt, world.camera, player.focus, world.dayNight.night, interiorLights.inside);
+    world.dayNight.update(now, dt, player.focus, interiorLights.inside, ambience);
+    const zone = ZONES[zoneAt(player.focus.x, player.focus.z)];
+    renderZone(zone.name, zone.theme, dt);
+    renderUnderwater(world.zones.submerged);
+    // Arctic survival: keep warm by fires, indoors or in the car.
+    warmth.update(dt, { position: player.focus, onFoot: player.mode === 'foot', indoors: interiorLights.inside, nearFire: appliances.litFireNear(player.focus, FIRE_WARMTH_RANGE) });
+    player.speedScale = warmth.speed;
+    renderWarmth(warmth.value, zone.id === 'arctic' && player.mode === 'foot');
+    if (warmth.takeWarning()) showNotice("You're freezing! Warm up by a fire, indoors or in your car");
     const night = world.dayNight.night;
     streetLights.update(player.focus, night, dt);
     world.materials.glassOutsideLit.emissiveIntensity = night * 1.4;

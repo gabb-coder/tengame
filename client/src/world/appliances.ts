@@ -1,9 +1,12 @@
 import * as THREE from 'three';
-import { type Appliance, appliancesOf } from '../../../shared/appliances.ts';
+import { type Appliance, appliancesOf, fireAppliances } from '../../../shared/appliances.ts';
 import type { Interior } from '../../../shared/interior.ts';
 import type { House } from '../../../shared/town.ts';
+import type { Fire } from '../../../shared/world.ts';
 import { houseMatrix } from './town/houses.ts';
-import { placement } from './town/meshBuilder.ts';
+import { MeshBuilder, placement } from './town/meshBuilder.ts';
+import type { TownMaterials } from './town/materials.ts';
+import type { LightPool } from './zones/kit.ts';
 
 /** Lamps close to the camera that also light the room around them (lights are costly). */
 const LAMP_LIGHTS = 2;
@@ -17,6 +20,12 @@ const burnerMaterial = new THREE.MeshStandardMaterial({ color: '#3a0a00', emissi
 const lampShade = new THREE.CylinderGeometry(0.143, 0.203, 0.302, 20);
 const burnerRing = new THREE.TorusGeometry(0.07, 0.009, 6, 24).rotateX(Math.PI / 2);
 const BURNERS: [number, number][] = [[-0.13, -0.1], [0.13, -0.1], [-0.13, 0.13], [0.13, 0.13]];
+const flameMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 1.1, 0.35), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+const flameCone = new THREE.ConeGeometry(0.28, 1, 7, 1, true).translate(0, 0.5, 0);
+/** Fires in the castle and the old empires burn in raised iron braziers; the rest are campfires. */
+const isBrazier = (id: string) => id.startsWith('medieval/') || id.startsWith('ancient/');
+/** How high above the ground a fire's flames start. */
+const flameBase = (id: string) => (isBrazier(id) ? 1.05 : 0.15);
 
 /**
  * TVs, floor lamps and stoves that players switch on and off. What's on is shared by the
@@ -30,14 +39,23 @@ export class Appliances {
   private tv = new TvPicture();
   private lights: THREE.PointLight[] = [];
   private tvClock = 0;
+  private time = 0;
 
   constructor(
     private scene: THREE.Scene,
     houses: House[],
     interiors: Map<string, Interior>,
+    fires: Fire[] = [],
+    m?: TownMaterials,
+    lights?: LightPool,
   ) {
-    this.list = houses.flatMap((h) => appliancesOf(h, interiors.get(h.id)!));
+    this.list = [...houses.flatMap((h) => appliancesOf(h, interiors.get(h.id)!)), ...fireAppliances(fires)];
     this.byId = new Map(this.list.map((a) => [a.id, a]));
+    if (m) scene.add(firePits(fires, m));
+    // A lit fire lights up its surroundings.
+    for (const f of fires) {
+      lights?.add({ position: new THREE.Vector3(f.x, f.y + flameBase(f.id) + 0.8, f.z), color: '#ff9a4a', intensity: 22, range: 14, flicker: true, active: () => this.isOn(f.id) });
+    }
     for (let i = 0; i < LAMP_LIGHTS; i++) {
       const light = new THREE.PointLight('#ffd9a8', 0, 7, 1.6);
       light.visible = false;
@@ -62,10 +80,24 @@ export class Appliances {
       this.shown.delete(id);
       return;
     }
-    const f = a.furniture;
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
-    group.matrix.copy(houseMatrix(a.house).multiply(placement(f.x, f.y, f.z, f.yaw)).multiply(placement(a.local.x, a.local.y, a.local.z)));
+    if (a.kind === 'fire') {
+      group.matrix.copy(placement(a.world.x, a.floorY + flameBase(a.id), a.world.z));
+      for (let k = 0; k < 5; k++) {
+        const flame = new THREE.Mesh(flameCone, flameMaterial);
+        const ang = (k / 5) * Math.PI * 2;
+        flame.position.set(k ? Math.cos(ang) * 0.18 : 0, 0, k ? Math.sin(ang) * 0.18 : 0);
+        flame.userData.phase = k * 1.7;
+        group.add(flame);
+      }
+      group.updateMatrixWorld(true);
+      this.scene.add(group);
+      this.shown.set(id, group);
+      return;
+    }
+    const f = a.furniture!;
+    group.matrix.copy(houseMatrix(a.house!).multiply(placement(f.x, f.y, f.z, f.yaw)).multiply(placement(a.local.x, a.local.y, a.local.z)));
     if (a.kind === 'tv') group.add(new THREE.Mesh(new THREE.PlaneGeometry(1.24, 0.7), this.tv.material));
     else if (a.kind === 'lamp') group.add(new THREE.Mesh(lampShade, lampOnMaterial));
     else
@@ -77,6 +109,15 @@ export class Appliances {
     group.updateMatrixWorld(true);
     this.scene.add(group);
     this.shown.set(id, group);
+  }
+
+  /** Whether a lit fire is within `range` of `p`. */
+  litFireNear(p: THREE.Vector3Like, range: number): boolean {
+    for (const id of this.shown.keys()) {
+      const a = this.byId.get(id)!;
+      if (a.kind === 'fire' && Math.hypot(p.x - a.world.x, p.z - a.world.z) < range && Math.abs(p.y - a.floorY) < 3) return true;
+    }
+    return false;
   }
 
   /** The closest appliance within reach of someone standing at `feet`, on the same floor. */
@@ -93,6 +134,19 @@ export class Appliances {
   /** Animates TV pictures and puts the room lights on the lamps nearest `camera`. */
   update(camera: THREE.Vector3, dt: number): void {
     const on = [...this.shown.keys()].map((id) => this.byId.get(id)!);
+    // Flames lick and flicker.
+    this.time += dt;
+    for (const a of on) {
+      if (a.kind !== 'fire' || Math.hypot(camera.x - a.world.x, camera.z - a.world.z) > 90) continue;
+      const group = this.shown.get(a.id)!;
+      for (const flame of group.children) {
+        const p = flame.userData.phase as number;
+        const h = 0.7 + 0.35 * Math.sin(this.time * 9 + p) * Math.sin(this.time * 5.3 + p * 2) + (flame.position.x === 0 ? 0.5 : 0);
+        flame.scale.set(1 + 0.15 * Math.sin(this.time * 7 + p), h, 1 + 0.15 * Math.cos(this.time * 6 + p));
+        flame.updateMatrix();
+      }
+      group.updateMatrixWorld(true);
+    }
     const near = (a: Appliance, max: number) => Math.hypot(camera.x - a.world.x, camera.z - a.world.z) < max;
 
     this.tvClock += dt;
@@ -112,6 +166,28 @@ export class Appliances {
       light.intensity = 6;
     });
   }
+}
+
+/** The fire pits themselves (lit or not): stones and logs, or an iron brazier. */
+function firePits(fires: Fire[], m: TownMaterials): THREE.Group {
+  const b = new MeshBuilder();
+  const stone = new THREE.DodecahedronGeometry(0.22, 0);
+  const log = new THREE.CylinderGeometry(0.08, 0.09, 0.9, 6).rotateZ(Math.PI / 2);
+  for (const f of fires) {
+    if (isBrazier(f.id)) {
+      b.add(new THREE.CylinderGeometry(0.45, 0.25, 0.35, 12, 1, true).translate(0, 0.95, 0), m.darkMetal, placement(f.x, f.y, f.z));
+      b.add(new THREE.CircleGeometry(0.42, 12).rotateX(-Math.PI / 2).translate(0, 0.9, 0), m.darkMetal, placement(f.x, f.y, f.z));
+      for (let k = 0; k < 3; k++) b.add(new THREE.CylinderGeometry(0.03, 0.03, 1, 5).rotateZ(0.25).translate(0.12, 0.45, 0).rotateY((k / 3) * Math.PI * 2), m.darkMetal, placement(f.x, f.y, f.z));
+      for (let k = 0; k < 3; k++) b.add(log.clone().scale(0.5, 0.6, 0.6), m.bark, placement(f.x, f.y + 0.98, f.z, k * 1.1));
+      continue;
+    }
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2;
+      b.add(stone, m.concrete, placement(f.x + Math.cos(a) * 0.65, f.y + 0.08, f.z + Math.sin(a) * 0.65, a), '#8a8680');
+    }
+    for (let k = 0; k < 3; k++) b.add(log, m.bark, placement(f.x, f.y + 0.12 + k * 0.05, f.z, k * 1.05, 0, 0.15));
+  }
+  return b.build('fire-pits');
 }
 
 /**

@@ -36,6 +36,29 @@ const TEXTURES = [
   { name: 'bark', from: 'polyhaven', id: 'bark_brown_02' },
   { name: 'grass', from: 'ambientcg', id: 'Grass001', size: 1.4 },
   { name: 'carpet', from: 'ambientcg', id: 'Carpet016', size: 1.7 },
+  // The themed zones around the town. These load after the game starts ("lazy").
+  // Ground covers are larger (1024 px); building surfaces are 512 px.
+  { name: 'snow', from: 'polyhaven', id: 'snow_02', lazy: true },
+  { name: 'forest', from: 'polyhaven', id: 'forrest_ground_01', lazy: true },
+  { name: 'sand', from: 'polyhaven', id: 'sand_01', lazy: true, stretch: 3 },
+  { name: 'beach', from: 'polyhaven', id: 'coast_sand_01', lazy: true },
+  { name: 'volcanic', from: 'polyhaven', id: 'burned_ground_01', lazy: true, stretch: 2.5 },
+  { name: 'alien', from: 'polyhaven', id: 'cracked_red_ground', lazy: true },
+  { name: 'rock', from: 'polyhaven', id: 'rock_face', lazy: true, res: 512 },
+  { name: 'darkRock', from: 'polyhaven', id: 'dark_rock', lazy: true, res: 512 },
+  { name: 'cobble', from: 'polyhaven', id: 'cobblestone_floor_01', lazy: true, res: 512 },
+  { name: 'dirt', from: 'polyhaven', id: 'rocky_trail', lazy: true, res: 512 },
+  { name: 'paving', from: 'polyhaven', id: 'large_sandstone_blocks', lazy: true, res: 512 },
+  { name: 'metal', from: 'polyhaven', id: 'metal_plate', lazy: true, res: 512 },
+  { name: 'castle', from: 'polyhaven', id: 'castle_wall_slates', lazy: true, res: 512 },
+  { name: 'timber', from: 'polyhaven', id: 'medieval_wall_01', lazy: true, res: 512 },
+  { name: 'thatch', from: 'polyhaven', id: 'thatch_roof_angled', lazy: true, res: 512 },
+  { name: 'log', from: 'polyhaven', id: 'wood_trunk_wall', lazy: true, res: 512 },
+  { name: 'sandstone', from: 'polyhaven', id: 'sandstone_blocks_08', lazy: true, res: 512 },
+  { name: 'marble', from: 'polyhaven', id: 'marble_01', lazy: true, res: 512 },
+  { name: 'clay', from: 'polyhaven', id: 'clay_roof_tiles', lazy: true, res: 512 },
+  { name: 'planks', from: 'polyhaven', id: 'brown_planks_03', lazy: true, res: 512 },
+  { name: 'mossy', from: 'polyhaven', id: 'mossy_stone_wall', lazy: true, res: 512 },
 ];
 
 /**
@@ -91,7 +114,7 @@ const HUMANS = {
   moving: ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'],
 };
 
-const TEXTURE_SIZE = 1024;
+const DEFAULT_TEXTURE_SIZE = 1024;
 const MODEL_TEXTURE_SIZE = 512;
 
 async function download(url, file) {
@@ -141,6 +164,7 @@ async function processTexture(t) {
   const src = await fetchTextureSource(t);
   const dir = join(OUT, 'textures', t.name);
   mkdirSync(dir, { recursive: true });
+  const TEXTURE_SIZE = t.res ?? DEFAULT_TEXTURE_SIZE;
   const fit = (file) => sharp(file).resize(TEXTURE_SIZE, TEXTURE_SIZE, { fit: 'fill' });
   await fit(src.color).webp({ quality: 82 }).toFile(join(dir, 'color.webp'));
   await fit(src.normal).webp({ quality: 90 }).toFile(join(dir, 'normal.webp'));
@@ -155,7 +179,9 @@ async function processTexture(t) {
   await sharp(arm, { raw: { width: TEXTURE_SIZE, height: TEXTURE_SIZE, channels: 3 } })
     .webp({ quality: 85 })
     .toFile(join(dir, 'arm.webp'));
-  return { size: Math.round(src.size * 1000) / 1000, source: sourceUrl(t.from, t.id) };
+  // `stretch` spreads a small texture over more ground, so it repeats less.
+  const size = Math.round(src.size * (t.stretch ?? 1) * 1000) / 1000;
+  return { size, source: sourceUrl(t.from, t.id), ...(t.lazy ? { lazy: true } : {}) };
 }
 
 async function processModel(io, m) {

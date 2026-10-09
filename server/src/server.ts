@@ -10,14 +10,17 @@ import {
   type ServerMessage,
   TICK_RATE,
 } from '../../shared/protocol.ts';
-import { APPLIANCE_REACH, type Appliance, appliancesOf, TV_REMOTE_REACH } from '../../shared/appliances.ts';
+import { APPLIANCE_REACH, type Appliance, appliancesOf, fireAppliances, TV_REMOTE_REACH } from '../../shared/appliances.ts';
 import { generateInterior } from '../../shared/interior.ts';
-import { doorPosition, generateTown } from '../../shared/town.ts';
+import { doorPosition } from '../../shared/town.ts';
+import { generateWorld } from '../../shared/world.ts';
 import { RoomManager, type Player, type Room } from './rooms.ts';
 
-const HOUSES = new Map(generateTown().houses.map((h) => [h.id, h]));
+const WORLD = generateWorld();
+/** Every house in town and out in the zones. */
+const HOUSES = new Map(WORLD.houses.map((h) => [h.id, h]));
 const APPLIANCES = new Map<string, Appliance>(
-  [...HOUSES.values()].flatMap((h) => appliancesOf(h, generateInterior(h))).map((a) => [a.id, a]),
+  [...[...HOUSES.values()].flatMap((h) => appliancesOf(h, generateInterior(h))), ...fireAppliances(WORLD.fires)].map((a) => [a.id, a]),
 );
 /** Extra reach allowed on the server, since positions arrive a little late. */
 const DOOR_REACH_SLACK = 1.5;

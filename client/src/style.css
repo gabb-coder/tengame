@@ -983,3 +983,79 @@ button:disabled {
 body.hide-names .name-tag {
   display: none;
 }
+
+/* Under the sea: everything goes murky blue-green, darker at the edges. */
+#underwater {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 30%, #8fd0d8 0%, #3e8a98 55%, #123c48 100%);
+  mix-blend-mode: multiply;
+}
+
+/* The name of a zone, shown for a moment on arrival. */
+#zone-banner {
+  position: fixed;
+  left: 50%;
+  top: 22%;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.6);
+  animation: zone-banner 4.5s ease forwards;
+}
+#zone-banner .zone-theme {
+  font-size: 13px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+#zone-banner .zone-name {
+  margin-top: 6px;
+  font-size: clamp(28px, 6vw, 52px);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+@keyframes zone-banner {
+  0% { opacity: 0; transform: translate(-50%, 10px); }
+  12% { opacity: 1; transform: translate(-50%, 0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Arctic warmth: a bar above the speedometer, and frost creeping in from the edges. */
+.hud-warmth {
+  position: absolute;
+  right: 16px;
+  bottom: 118px;
+  min-width: 160px;
+  font-size: 13px;
+}
+.warmth-row {
+  display: flex;
+  gap: 6px;
+  color: var(--muted);
+}
+.warmth {
+  margin-top: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+#hud-warmth-bar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #6ad0ff, #ffb04a);
+  transition: width 0.3s;
+}
+#hud-warmth-bar.cold {
+  background: #9ad8ff;
+}
+#frost {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(220, 240, 255, 0) 45%, rgba(220, 240, 255, 0.85) 100%);
+}

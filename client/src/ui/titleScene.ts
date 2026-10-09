@@ -34,7 +34,8 @@ export class TitleScene {
       const angle = 2.2 + ((now - start) / 1000) * ORBIT_SPEED;
       camera.position.set(Math.cos(angle) * ORBIT_RADIUS, ORBIT_HEIGHT, Math.sin(angle) * ORBIT_RADIUS);
       camera.lookAt(0, 0, 0);
-      world.dayNight.update(now, dt, camera.position.clone().multiplyScalar(0.5).setY(0), false);
+      const focus = camera.position.clone().multiplyScalar(0.5).setY(0);
+      world.dayNight.update(now, dt, focus, false, world.zones.update(dt, camera, focus, 0));
       world.town.updateInteriors(camera.position);
       world.renderer.render(world.scene, camera);
     });

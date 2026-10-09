@@ -4,7 +4,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 /** Written by scripts/fetch-assets.mjs. */
 interface Manifest {
-  textures: Record<string, { size: number }>;
+  textures: Record<string, { size: number; lazy?: boolean }>;
   models: Record<string, { min: [number, number, number]; max: [number, number, number] }>;
   humans?: HumansInfo;
 }
@@ -39,7 +39,10 @@ const BASE = '/media/';
  * optional: if a file is missing or fails to load, the game keeps its generated stand-in.
  */
 export class Media {
+  /** The town's textures (the game waits a little for these). */
   readonly textures: Promise<Map<string, TextureSet>>;
+  /** The zones' textures, fetched after the town's. */
+  readonly zoneTextures: Promise<Map<string, TextureSet>>;
   private manifest: Promise<Manifest | null>;
   private gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   private models = new Map<string, Promise<Model | null>>();
@@ -48,7 +51,8 @@ export class Media {
     this.manifest = fetch(`${BASE}manifest.json`)
       .then((r) => (r.ok ? (r.json() as Promise<Manifest>) : null))
       .catch(() => null);
-    this.textures = this.manifest.then((m) => (m ? loadTextures(m) : new Map()));
+    this.textures = this.manifest.then((m) => (m ? loadTextures(m, false) : new Map()));
+    this.zoneTextures = this.textures.then(() => this.manifest).then((m) => (m ? loadTextures(m, true) : new Map()));
   }
 
   /** What the people pack holds, or null if it isn't installed. */
@@ -99,7 +103,7 @@ export class Media {
   }
 }
 
-async function loadTextures(manifest: Manifest): Promise<Map<string, TextureSet>> {
+async function loadTextures(manifest: Manifest, lazy: boolean): Promise<Map<string, TextureSet>> {
   const loader = new THREE.TextureLoader();
   const load = async (name: string, map: string, color: boolean) => {
     const tex = await loader.loadAsync(`${BASE}textures/${name}/${map}.webp`);
@@ -108,15 +112,17 @@ async function loadTextures(manifest: Manifest): Promise<Map<string, TextureSet>
     return tex;
   };
   const sets = await Promise.all(
-    Object.entries(manifest.textures).map(async ([name, { size }]) => {
-      try {
-        const [color, normal, arm] = await Promise.all([load(name, 'color', true), load(name, 'normal', false), load(name, 'arm', false)]);
-        return [name, { color, normal, arm, size }] as const;
-      } catch (err) {
-        console.warn(`texture ${name} failed to load`, err);
-        return null;
-      }
-    }),
+    Object.entries(manifest.textures)
+      .filter(([, t]) => !!t.lazy === lazy)
+      .map(async ([name, { size }]) => {
+        try {
+          const [color, normal, arm] = await Promise.all([load(name, 'color', true), load(name, 'normal', false), load(name, 'arm', false)]);
+          return [name, { color, normal, arm, size }] as const;
+        } catch (err) {
+          console.warn(`texture ${name} failed to load`, err);
+          return null;
+        }
+      }),
   );
   return new Map(sets.filter((s) => s !== null));
 }

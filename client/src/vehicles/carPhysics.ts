@@ -54,6 +54,17 @@ export const CAR = {
   rollingResistance: 14,
 } as const;
 
+/** How the place the car is in changes things (see world/zones). */
+export interface CarEnvironment {
+  /** Gravity as a fraction of normal. */
+  gravity: number;
+  /** Tire grip as a fraction of normal. */
+  grip: number;
+  underwater: boolean;
+}
+
+const NORMAL_PLACE: CarEnvironment = { gravity: 1, grip: 1, underwater: false };
+
 const DRIVEN = [2, 3]; // rear wheels
 const STEERED = [0, 1]; // front wheels
 const MAX_SPEED_FOR_STEER = 50; // m/s
@@ -166,7 +177,7 @@ export class CarPhysics {
     return Math.acos(Math.min(1, Math.abs(cos)));
   }
 
-  step(c: CarControls, dt: number): void {
+  step(c: CarControls, dt: number, place: CarEnvironment = NORMAL_PLACE): void {
     const speed = this.speed;
     const absSpeed = Math.abs(speed);
 
@@ -198,7 +209,7 @@ export class CarPhysics {
       // Gentle engine braking so the car coasts to a stop.
       if (pedal === 0 && braking === 0 && !c.handbrake) brake = absSpeed < 0.5 ? 10 : CAR.engineBrake;
       this.vehicle.setWheelBrake(i, brake);
-      this.vehicle.setWheelFrictionSlip(i, CAR.frictionSlip * (c.handbrake && rear ? CAR.handbrakeGrip : 1));
+      this.vehicle.setWheelFrictionSlip(i, CAR.frictionSlip * place.grip * (c.handbrake && rear ? CAR.handbrakeGrip : 1));
     }
 
     // Aerodynamic drag and rolling resistance oppose the velocity.
@@ -208,6 +219,17 @@ export class CarPhysics {
       const drag = CAR.dragCoefficient * vMag * vMag + CAR.rollingResistance * vMag;
       const k = (-drag / vMag) * dt;
       this.body.applyImpulse({ x: lv.x * k, y: lv.y * k, z: lv.z * k }, true);
+    }
+
+    // Low gravity: an upward push cancels part of the world's pull. Under water, the car
+    // floats a little and the water holds it back.
+    const lift = (1 - place.gravity) + (place.underwater ? 0.45 : 0);
+    if (lift > 0) this.body.applyImpulse({ x: 0, y: CAR.mass * 9.81 * lift * dt, z: 0 }, true);
+    if (place.underwater) {
+      const k = -CAR.mass * 0.9 * dt;
+      this.body.applyImpulse({ x: lv.x * k, y: lv.y * k, z: lv.z * k }, true);
+      const av = this.body.angvel();
+      this.body.setAngvel({ x: av.x * 0.97, y: av.y * 0.97, z: av.z * 0.97 }, true);
     }
 
     this.vehicle.updateVehicle(dt);

@@ -24,7 +24,7 @@ export function buildTrees(trees: Tree[], m: TownMaterials, physics: RAPIER.Worl
   const color = new THREE.Color();
 
   trees.forEach((t, i) => {
-    const base = CURB_HEIGHT;
+    const base = t.y ?? CURB_HEIGHT;
     const trunkHeight = t.height * 0.45;
     matrix.compose(new THREE.Vector3(t.x, base, t.z), q.identity(), new THREE.Vector3(1, trunkHeight, 1));
     trunks.setMatrixAt(i, matrix);

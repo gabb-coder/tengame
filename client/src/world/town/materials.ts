@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { HouseStyle } from '../../../../shared/town.ts';
+import type { HouseStyle, RoofKind } from '../../../../shared/town.ts';
 import { createTownTextures, normalMapFrom } from './textures.ts';
 
 export type TownMaterials = ReturnType<typeof createTownMaterials>;
@@ -32,6 +32,16 @@ export function createTownMaterials() {
     plaster: std({ map: t.plaster, ...n.plaster, vertexColors: true, roughness: 0.92 }),
     brick: std({ map: t.brick, ...n.brick, vertexColors: true, roughness: 0.95 }),
     siding: std({ map: t.siding, ...n.siding, vertexColors: true, roughness: 0.8 }),
+    // Zone houses: stand-ins until their real textures (see realTextures.ts) arrive.
+    timber: std({ map: t.plaster, ...n.plaster, vertexColors: true, roughness: 0.92 }),
+    log: std({ map: t.siding, ...n.siding, vertexColors: true, roughness: 0.85 }),
+    stone: std({ map: t.brick, ...n.brick, vertexColors: true, roughness: 0.95 }),
+  };
+  const roof = std({ map: t.shingles, ...n.shingles, vertexColors: true, roughness: 0.9 });
+  const roofs: Record<RoofKind, THREE.MeshStandardMaterial> = {
+    shingles: roof,
+    thatch: std({ map: t.shingles, ...n.shingles, vertexColors: true, roughness: 1 }),
+    clay: std({ map: t.shingles, ...n.shingles, vertexColors: true, roughness: 0.85 }),
   };
   return {
     asphalt: std({ map: t.asphalt, ...n.asphalt, color: '#5d6066', roughness: 0.95 }),
@@ -43,7 +53,8 @@ export function createTownMaterials() {
     markingYellow: std({ color: '#d8ae3c', roughness: 0.6, ...decal }),
     markingWhite: std({ color: '#e9e9e4', roughness: 0.6, ...decal }),
     walls,
-    roof: std({ map: t.shingles, ...n.shingles, vertexColors: true, roughness: 0.9 }),
+    roof,
+    roofs,
     trim: std({ color: '#f1efe9', roughness: 0.6 }),
     door: std({ vertexColors: true, roughness: 0.45, metalness: 0.05 }),
     floor: std({ map: t.wood, ...n.wood, color: '#b08a62', roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }),

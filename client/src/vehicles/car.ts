@@ -2,10 +2,10 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { CarState, Quat, Vec3 } from '../../../shared/protocol.ts';
 import { CarModel } from './carModel.ts';
-import { CarPhysics, type CarControls } from './carPhysics.ts';
+import { type CarControls, type CarEnvironment, CarPhysics } from './carPhysics.ts';
 import { EngineSound, TireSound } from './engineSound.ts';
 
-const RESPAWN_BELOW_Y = -20;
+const RESPAWN_BELOW_Y = -60;
 /** Sideways/forward deceleration (m/s²) that counts as hitting something; hard braking is ~10. */
 const IMPACT_ACCEL = 35;
 const IMPACT_COOLDOWN = 0.4; // s
@@ -63,10 +63,11 @@ export class Car {
   }
 
   /** Fixed-step physics update. */
-  step(controls: CarControls, dt: number): void {
+  step(controls: CarControls, dt: number, place?: CarEnvironment & { lava?: boolean }): void {
     this.controls = controls;
-    this.physics.step(controls, dt);
-    if (this.physics.body.translation().y < RESPAWN_BELOW_Y) this.respawn();
+    this.physics.step(controls, dt, place);
+    // Fell off the world, or drove into lava: back to the start.
+    if (this.physics.body.translation().y < RESPAWN_BELOW_Y || place?.lava) this.respawn();
   }
 
   /** Puts the car back on its wheels where it is. */

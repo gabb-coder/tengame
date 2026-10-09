@@ -1,6 +1,7 @@
 import { generateInterior, type FurnitureType } from '../../shared/interior.ts';
 import type { AvatarState, MissionKind, MissionState, MissionTarget, Vec3 } from '../../shared/protocol.ts';
-import { BLOCKS_PER_SIDE, doorPosition, generateTown, type House, houseToWorld, roadCenter } from '../../shared/town.ts';
+import { BLOCKS_PER_SIDE, doorPosition, type House, houseToWorld, roadCenter } from '../../shared/town.ts';
+import { generateWorld, zoneAt, ZONES } from '../../shared/world.ts';
 
 export const BRIEFING_MS = 6000;
 export const DONE_MS = 7000;
@@ -29,7 +30,14 @@ const SURFACES: Partial<Record<FurnitureType, number>> = {
   counter: 0.92,
 };
 
-const town = generateTown();
+/** Deliveries and lost things can be anywhere: in town or out in the zones. */
+const HOUSES = generateWorld().houses;
+
+/** A house's address, plus its zone when it's out of town. */
+function where(h: House): string {
+  const zone = zoneAt(h.x, h.z);
+  return zone === 'town' ? h.address : `${h.address}, ${ZONES[zone].name}`;
+}
 
 export interface MissionPlayer {
   id: string;
@@ -147,15 +155,15 @@ export class MissionManager {
       state: {
         ...base,
         title: 'Special delivery',
-        objective: `Pick up the package at ${from.address}`,
+        objective: `Pick up the package at ${where(from)}`,
         targets: [pickup, dropoff],
         carrier: null,
       },
       phaseEndsAt: 0,
       pickup,
       dropoff,
-      pickupAddress: from.address,
-      dropoffAddress: to.address,
+      pickupAddress: where(from),
+      dropoffAddress: where(to),
     };
   }
 
@@ -180,7 +188,7 @@ export class MissionManager {
 
   private makeFetch(base: Omit<MissionState, 'title' | 'objective'>): Current {
     for (;;) {
-      const house = town.houses[Math.floor(this.rng() * town.houses.length)];
+      const house = HOUSES[Math.floor(this.rng() * HOUSES.length)];
       const plan = generateInterior(house);
       const spots = plan.furniture.filter((f) => SURFACES[f.type] !== undefined);
       if (spots.length === 0) continue;
@@ -196,13 +204,13 @@ export class MissionManager {
         state: {
           ...base,
           title: 'Lost and found',
-          objective: `Someone left their ${item} inside ${house.address}. Find them first!`,
+          objective: `Someone left their ${item} inside ${where(house)}. Find them first!`,
           targets: [target],
           item,
         },
         phaseEndsAt: 0,
         itemTarget: target,
-        fetchAddress: house.address,
+        fetchAddress: where(house),
       };
     }
   }
@@ -294,8 +302,8 @@ export class MissionManager {
 
   private twoHousesApart(minDistance: number): [House, House] {
     for (;;) {
-      const a = town.houses[Math.floor(this.rng() * town.houses.length)];
-      const b = town.houses[Math.floor(this.rng() * town.houses.length)];
+      const a = HOUSES[Math.floor(this.rng() * HOUSES.length)];
+      const b = HOUSES[Math.floor(this.rng() * HOUSES.length)];
       const da = doorPosition(a);
       const db = doorPosition(b);
       if (Math.hypot(da.x - db.x, da.z - db.z) >= minDistance) return [a, b];

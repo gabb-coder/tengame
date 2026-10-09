@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Media } from '../assets/media.ts';
-import { Human, loadHumans } from './humanModel.ts';
+import { Human, loadHumans, type Outfit } from './humanModel.ts';
 
 /** The realistic people, once loaded (see AvatarModel.load), and every avatar waiting for them. */
 let humans: Awaited<ReturnType<typeof loadHumans>> = null;
@@ -47,6 +47,8 @@ export class AvatarModel {
   private human: Human | null = null;
   /** Sitting on something (see placeSeated). */
   seated = false;
+  /** Called when the realistic person replaces the simple one (to dress them up). */
+  onHuman: (human: Human) => void = () => {};
 
   /**
    * Loads the realistic people in the background; every avatar, existing or new, switches
@@ -63,6 +65,7 @@ export class AvatarModel {
   constructor(
     private shirtColor: string,
     private seed: string,
+    private outfit: Outfit = {},
   ) {
     const skin = new THREE.MeshStandardMaterial({ color: pick(SKIN_TONES, seed, 1), roughness: 0.7 });
     const shirt = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.85 });
@@ -100,7 +103,7 @@ export class AvatarModel {
     });
     this.root.add(this.body);
     avatars.add(this);
-    if (humans) this.useHuman();
+    if (humans) queueMicrotask(() => this.useHuman());
   }
 
   /**
@@ -128,9 +131,10 @@ export class AvatarModel {
 
   private useHuman(): void {
     if (!humans || this.human) return;
-    this.human = new Human(humans, this.shirtColor, this.seed);
+    this.human = new Human(humans, this.shirtColor, this.seed, this.outfit);
     this.root.remove(this.body);
     this.root.add(this.human.root);
+    this.onHuman(this.human);
   }
 
   /** Advances the walk cycle. `speed` in m/s; `airborne` tucks the legs. */

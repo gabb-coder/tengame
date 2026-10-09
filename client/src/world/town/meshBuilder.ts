@@ -37,6 +37,11 @@ export class MeshBuilder {
     }
     const g = geometry.index ? geometry.toNonIndexed() : geometry.clone();
     g.applyMatrix4(matrix);
+    // Every piece needs the same attributes to merge: normals, UVs (blank if none) and color.
+    if (!g.attributes.normal) g.computeVertexNormals();
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name);
+    g.morphAttributes = {};
     // Every piece gets a color attribute so all geometries can be merged.
     const c = new THREE.Color(color ?? 0xffffff);
     const count = g.attributes.position.count;
