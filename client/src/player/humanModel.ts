@@ -31,6 +31,12 @@ const SWIM = 'Swim_Fwd_Loop';
 /** Clips that play once and then hand back to walking or standing. */
 const ONCE = new Set(['Interact', 'PickUp_Table', 'Sword_Attack', 'Spell_Simple_Shoot', 'Hit_Chest']);
 
+/** A clip to blend in at a speed (m/s): standing still, walking, jogging, sprinting, swimming. */
+interface Gait {
+  name: string;
+  speed: number;
+}
+
 type Body = 'male' | 'female';
 
 /** Clothing chosen for a person instead of picked at random (uniforms, costumes). */
@@ -166,6 +172,10 @@ export class Human {
   private actionClock = 0;
   private playing: string | null = null;
   private pelvis: THREE.Object3D | undefined;
+  /** Rest pose then gaits by speed, on land and in water (worked out once). */
+  private stops: { land: Gait[]; swim: Gait[] };
+  /** How much each clip should play this frame (kept to save making a new one each time). */
+  private target = new Map<string, number>();
 
   constructor(
     private assets: HumanAssets,
@@ -230,6 +240,11 @@ export class Human {
       this.actions.set(name, action);
       this.weights.set(name, name === IDLE ? 1 : 0);
     }
+    const gaits = (names: string[]) => names.filter((g) => this.actions.has(g) && assets.speeds.has(g)).map((g) => ({ name: g, speed: assets.speeds.get(g)! }));
+    this.stops = {
+      land: [{ name: IDLE, speed: 0 }, ...gaits(GAITS)],
+      swim: [{ name: this.actions.has(SWIM_IDLE) ? SWIM_IDLE : IDLE, speed: 0 }, ...gaits([SWIM])],
+    };
   }
 
   /**
@@ -237,10 +252,8 @@ export class Human {
    * air, swim strokes in water, sitting, or the current `action`.
    */
   animate(speed: number, dt: number, airborne: boolean): void {
-    // Gaits in order of speed; blend the two around the current speed.
-    const gaitNames = this.swimming ? [SWIM] : GAITS;
-    const gaits = gaitNames.filter((g) => this.actions.has(g) && this.assets.speeds.has(g)).map((g) => ({ name: g, speed: this.assets.speeds.get(g)! }));
-    const target = new Map<string, number>([...this.actions.keys()].map((k) => [k, 0]));
+    const target = this.target;
+    for (const name of this.actions.keys()) target.set(name, 0);
     let stride = 1;
     // A new action starts from its beginning; a finished one-shot clears itself.
     if (this.action !== this.playing) {
@@ -256,8 +269,9 @@ export class Human {
     } else if (airborne && !this.swimming && this.actions.has(JUMP)) {
       target.set(JUMP, 1);
     } else {
-      const rest = this.swimming && this.actions.has(SWIM_IDLE) ? SWIM_IDLE : IDLE;
-      const stops = [{ name: rest, speed: 0 }, ...gaits];
+      // Gaits in order of speed; blend the two around the current speed.
+      const stops = this.swimming ? this.stops.swim : this.stops.land;
+      const rest = stops[0].name;
       let i = 0;
       while (i < stops.length - 2 && speed > stops[i + 1].speed) i++;
       const [a, b] = [stops[i], stops[i + 1] ?? stops[i]];

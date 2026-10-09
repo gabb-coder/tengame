@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { game } from '../../game/link.ts';
+import type { LightSource } from '../lightPool.ts';
 
 const MAX = 6000;
 const GRAVITY = 5.5;
@@ -31,8 +32,19 @@ export class Fireworks {
   private alpha = new Float32Array(MAX);
   private next = 0;
   private shells: Shell[] = [];
-  private flash: THREE.PointLight;
   private flashLeft = 0;
+  /** Whether any spark is alive: with none, there's nothing to move or send to the GPU. */
+  private sparks = false;
+  /** Each burst lights up the ground for a moment. */
+  readonly light: LightSource = {
+    position: new THREE.Vector3(),
+    color: new THREE.Color(),
+    intensity: 0,
+    range: 160,
+    decay: 1.2,
+    priority: 200,
+    instant: true,
+  };
 
   constructor() {
     const g = new THREE.BufferGeometry();
@@ -68,8 +80,6 @@ export class Fireworks {
     });
     this.points = new THREE.Points(g, material);
     this.points.frustumCulled = false;
-    this.flash = new THREE.PointLight('#ffffff', 0, 160, 1.2);
-    this.points.add(this.flash);
   }
 
   /** A show of `count` rockets over a few seconds, fired from `from`. */
@@ -101,6 +111,7 @@ export class Fireworks {
   }
 
   update(dt: number): void {
+    if (!this.sparks && this.shells.length === 0) return;
     for (let i = this.shells.length - 1; i >= 0; i--) {
       const s = this.shells[i];
       if (s.delay > 0) {
@@ -119,13 +130,15 @@ export class Fireworks {
     }
     if (this.flashLeft > 0) {
       this.flashLeft -= dt;
-      this.flash.intensity = Math.max(0, this.flashLeft) * 900;
+      this.light.intensity = Math.max(0, this.flashLeft) * 900;
     }
     const p = this.position;
     const v = this.velocity;
     const drag = Math.exp(-1.3 * dt);
+    this.sparks = false;
     for (let i = 0; i < MAX; i++) {
       if (this.life[i] <= 0) continue;
+      this.sparks = true;
       this.life[i] -= dt;
       const k = i * 3;
       v[k] *= drag;
@@ -153,8 +166,8 @@ export class Fireworks {
       const dir = ring ? new THREE.Vector3(Math.cos((i / n) * Math.PI * 2), (Math.random() - 0.5) * 0.15, Math.sin((i / n) * Math.PI * 2)) : randomDirection();
       this.spark(s.position, dir.multiplyScalar(speed * (0.85 + Math.random() * 0.3)), s.colors[i % s.colors.length], 1.8 + Math.random() * 1.0);
     }
-    this.flash.position.copy(s.position);
-    this.flash.color.copy(s.colors[0]);
+    this.light.position.copy(s.position);
+    (this.light.color as THREE.Color).copy(s.colors[0]);
     this.flashLeft = 0.25;
     game.sounds?.burstBang(s.position, s.size);
   }
@@ -162,6 +175,7 @@ export class Fireworks {
   private spark(at: THREE.Vector3, v: THREE.Vector3, color: THREE.Color, life: number): void {
     const i = this.next;
     this.next = (this.next + 1) % MAX;
+    this.sparks = true;
     const k = i * 3;
     this.position[k] = at.x;
     this.position[k + 1] = at.y;

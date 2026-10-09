@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { mulberry32 } from '../../../../shared/town.ts';
 import { generateWorld, shapeBounds, shapeDistance, type Shape, waterAt, type ZoneId } from '../../../../shared/world.ts';
 import type { Media } from '../../assets/media.ts';
+import type { LightPool } from '../lightPool.ts';
 import type { Terrain } from '../terrain.ts';
 import type { TownMaterials } from '../town/materials.ts';
 import { MeshBuilder, type MeshOptions } from '../town/meshBuilder.ts';
@@ -40,9 +41,11 @@ export interface ZoneView {
 }
 
 // ---------------------------------------------------------------------------
-// Merged static geometry, split into chunks so off-screen parts are culled.
+// Merged static geometry, split into chunks so off-screen parts are culled. Big chunks:
+// each one is a draw per material, and drawing a few unseen triangles costs far less than
+// a draw.
 
-const CHUNK = 100;
+const CHUNK = 200;
 const IDENTITY_MATRIX = new THREE.Matrix4();
 
 /** Like MeshBuilder, but each piece goes to the chunk its position falls in. */
@@ -101,10 +104,13 @@ export function instanced(
   }
   for (const list of buckets.values()) {
     const mesh = new THREE.InstancedMesh(geometry, material, list.length);
+    // Every set gets colors (white if none are given): a material drawn both with and
+    // without them has to switch shaders back and forth between draws.
     list.forEach((item, i) => {
       mesh.setMatrixAt(i, item.matrix);
-      if (item.color !== undefined) mesh.setColorAt(i, color.set(item.color));
+      mesh.setColorAt(i, color.set(item.color ?? '#ffffff'));
     });
+    mesh.matrixAutoUpdate = false;
     mesh.castShadow = options.castShadow ?? true;
     mesh.receiveShadow = options.receiveShadow ?? true;
     mesh.computeBoundingSphere();
@@ -318,75 +324,8 @@ export function hullOf(physics: RAPIER.World, geometry: THREE.BufferGeometry, ma
   if (desc) physics.createCollider(desc);
 }
 
-// ---------------------------------------------------------------------------
-// Lights.
-
-export interface LightSource {
-  position: THREE.Vector3;
-  color: THREE.ColorRepresentation;
-  intensity: number;
-  range: number;
-  /** Only lit when this says so (e.g. a fire that's burning, or at night). */
-  active?: () => boolean;
-  /** Fires flicker. */
-  flicker?: boolean;
-}
-
-const POOL = 6;
-
-/**
- * A few real point lights shared by every glowing thing in the zones (fires, braziers,
- * neon, lava): each goes to the nearest active sources. A fixed number of lights keeps
- * shaders from recompiling.
- */
-export class LightPool {
-  private sources: LightSource[] = [];
-  private lights: THREE.PointLight[] = [];
-  private assigned: (LightSource | null)[] = [];
-  private since = Infinity;
-  private time = 0;
-
-  constructor(scene: THREE.Scene) {
-    for (let i = 0; i < POOL; i++) {
-      const light = new THREE.PointLight('#ffffff', 0, 20, 1.6);
-      light.visible = false;
-      scene.add(light);
-      this.lights.push(light);
-      this.assigned.push(null);
-    }
-  }
-
-  add(source: LightSource): void {
-    this.sources.push(source);
-  }
-
-  update(dt: number, camera: THREE.Vector3): void {
-    this.time += dt;
-    this.since += dt;
-    if (this.since > 0.4) {
-      this.since = 0;
-      const near = this.sources
-        .filter((s) => (s.active?.() ?? true) && s.position.distanceToSquared(camera) < (s.range + 60) ** 2)
-        .sort((a, b) => a.position.distanceToSquared(camera) - b.position.distanceToSquared(camera))
-        .slice(0, POOL);
-      this.lights.forEach((light, i) => {
-        const s = near[i] ?? null;
-        this.assigned[i] = s;
-        light.visible = !!s;
-        if (!s) return;
-        light.position.copy(s.position);
-        light.color.set(s.color);
-        light.distance = s.range;
-      });
-    }
-    this.lights.forEach((light, i) => {
-      const s = this.assigned[i];
-      if (!s) return;
-      const flicker = s.flicker ? 0.82 + 0.18 * Math.sin(this.time * 13 + i * 3) * Math.sin(this.time * 7.3 + i) : 1;
-      light.intensity = s.intensity * flicker;
-    });
-  }
-}
+// Lights: one pool shared by the whole world.
+export { LightPool, type LightSource } from '../lightPool.ts';
 
 /** A seeded random generator, re-exported for zone builders. */
 export { mulberry32 };

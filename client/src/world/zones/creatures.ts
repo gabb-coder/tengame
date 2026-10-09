@@ -96,6 +96,7 @@ export class Herd {
   /** Tints one animal's part (e.g. a parrot's wings). */
   tint(animal: number, part: number, color: THREE.ColorRepresentation): void {
     this.meshes[part].setColorAt(animal, new THREE.Color(color));
+    this.meshes[part].instanceColor!.needsUpdate = true;
   }
 
   update(t: number, camera: THREE.Vector3): void {
@@ -127,10 +128,8 @@ export class Herd {
         this.meshes[p].setMatrixAt(i, this.world[p]);
       });
     }
-    for (const mesh of this.meshes) {
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    }
+    // Send the new poses to the GPU, unless they're all still hidden.
+    if (shown > 0 || this.group.visible) for (const mesh of this.meshes) mesh.instanceMatrix.needsUpdate = true;
     this.group.visible = shown > 0;
   }
 }

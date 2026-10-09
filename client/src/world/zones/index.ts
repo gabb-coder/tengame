@@ -6,7 +6,8 @@ import type { Media } from '../../assets/media.ts';
 import type { Terrain } from '../terrain.ts';
 import type { TownMaterials } from '../town/materials.ts';
 import { AMBIENCE, type Ambience, blendAmbience, emptyAmbience, UNDERWATER, zoneWeights } from './ambience.ts';
-import { LightPool, type ZoneContent, type ZoneContext } from './kit.ts';
+import type { LightPool } from '../lightPool.ts';
+import type { ZoneContent, ZoneContext } from './kit.ts';
 import type { ZoneMaterials } from './materials.ts';
 import { buildAncient } from './ancient.ts';
 import { buildCyberpunk } from './cyberpunk.ts';
@@ -25,6 +26,27 @@ import { Weather } from './weather.ts';
 
 /** Zones are only animated while the camera is this close to their middle. */
 const ACTIVE_RANGE = 650;
+/**
+ * Small things stop being drawn this many times their size away (a few pixels by then,
+ * in the haze); things this big (radius, m) always are, since they make the skyline.
+ */
+const SIZE_TO_DISTANCE = 150;
+const MIN_DRAW_DISTANCE = 80;
+const ALWAYS_DRAWN = 20;
+/**
+ * Things too far to draw move to a layer the camera doesn't see (their `visible` is left
+ * to the game, which shows and hides some of them).
+ */
+const FAR_LAYER = 31;
+
+interface Detail {
+  mesh: THREE.Mesh;
+  /** Its bounds, in its own frame. */
+  sphere: THREE.Sphere;
+  radius: number;
+  /** Drawn while its nearest point is closer than this. */
+  limit: number;
+}
 
 /** How a place changes the rules: gravity, tire grip, water. */
 export interface PlaceEffects {
@@ -45,16 +67,16 @@ export interface PlaceEffects {
  */
 export class Zones {
   readonly group = new THREE.Group();
-  readonly lights: LightPool;
   private contents: ZoneContent[] = [];
   private weather = new Weather();
   private stars = new ShootingStars();
   private npcs: Npcs;
   private blended = emptyAmbience();
   private time = 0;
-  /** Small things (plants, coral) drawn only near the camera, and when to check again. */
-  private details: THREE.Mesh[] = [];
+  /** Small things drawn only near the camera, and when to check again. */
+  private details: Detail[] = [];
   private sinceDetail = Infinity;
+  private center = new THREE.Vector3();
   /** The zone the camera is in. */
   current: ZoneId = 'town';
   /** Whether the camera is under water. */
@@ -67,10 +89,11 @@ export class Zones {
     private zm: ZoneMaterials,
     terrain: Terrain,
     media: Media,
+    lights: LightPool,
   ) {
     this.group.name = 'zones';
-    this.lights = new LightPool(scene);
-    const ctx: ZoneContext = { scene, physics, m, zm, terrain, media, lights: this.lights };
+    lights.add(fireworks.light);
+    const ctx: ZoneContext = { scene, physics, m, zm, terrain, media, lights };
     for (const build of [buildPark, buildArctic, buildMedieval, buildSpace, buildJungle, buildCyberpunk, buildPrehistoric, buildAncient, buildOcean]) {
       const content = build(ctx);
       this.contents.push(content);
@@ -79,9 +102,23 @@ export class Zones {
     this.npcs = new Npcs(terrain);
     this.group.add(this.weather.group, this.npcs.group, fireworks.points, this.stars.mesh);
     scene.add(this.group);
-    this.group.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh && o.userData.maxDistance) this.details.push(o as THREE.Mesh);
-    });
+    this.group.updateMatrixWorld(true);
+    for (const c of this.contents) {
+      c.group.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        const instanced = mesh as THREE.InstancedMesh;
+        // Left alone: things that move about without their bounds following (herds,
+        // particles), and sets of copies spread over a wide area, unless marked as details.
+        if (!mesh.isMesh || !mesh.frustumCulled) return;
+        if (instanced.isInstancedMesh && mesh.userData.maxDistance === undefined) return;
+        if (instanced.isInstancedMesh && !instanced.boundingSphere) instanced.computeBoundingSphere();
+        if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+        const sphere = (instanced.isInstancedMesh ? instanced.boundingSphere : mesh.geometry.boundingSphere)!.clone();
+        const radius = sphere.radius * mesh.matrixWorld.getMaxScaleOnAxis();
+        const limit = mesh.userData.maxDistance ?? (radius < ALWAYS_DRAWN ? Math.max(MIN_DRAW_DISTANCE, radius * SIZE_TO_DISTANCE) : 0);
+        if (limit) this.details.push({ mesh, sphere, radius, limit });
+      });
+    }
   }
 
   /**
@@ -95,18 +132,18 @@ export class Zones {
     for (const c of this.contents) {
       const z = ZONES[c.id];
       const near = Math.max(Math.abs(cam.x - z.x), Math.abs(cam.z - z.z)) < ACTIVE_RANGE;
-      c.group.visible = near;
+      // Hidden things still have their places worked out every frame unless told not to.
+      c.group.visible = c.group.matrixWorldAutoUpdate = near;
       if (near) c.update?.(view);
     }
-    this.lights.update(dt, cam);
     this.npcs.update(dt, cam);
     fireworks.update(dt);
     this.sinceDetail += dt;
     if (this.sinceDetail > 0.3) {
       this.sinceDetail = 0;
-      for (const mesh of this.details) {
-        const sphere = (mesh as THREE.InstancedMesh).boundingSphere;
-        mesh.visible = !sphere || sphere.center.distanceTo(cam) - sphere.radius < mesh.userData.maxDistance;
+      for (const d of this.details) {
+        const at = this.center.copy(d.sphere.center).applyMatrix4(d.mesh.matrixWorld);
+        d.mesh.layers.set(at.distanceTo(cam) - d.radius < d.limit ? 0 : FAR_LAYER);
       }
     }
 

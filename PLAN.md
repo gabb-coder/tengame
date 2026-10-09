@@ -118,6 +118,14 @@ fight the day/night cycle).
   synced to friends; seats everywhere; background sounds per zone; wind-blown grass; and
   more detail in the town (yards, playground, bus stops) and every zone.
 
+- Speed-up pass: shaders are all built while loading (no more freezes the first time
+  something comes into view); one shared pool of 8 real lights for every lamp, fire and
+  glow (a changing number of lights rebuilt every shader); physics steps no longer re-list
+  every collider; name tags and speech bubbles no longer walk the whole scene; hidden
+  people and far zones skip their per-frame bookkeeping; the car model and all front doors
+  are drawn in a few draws instead of hundreds; small props far away aren't drawn; house
+  interiors don't cast sun shadows; Medium draws at most 1.5× the screen's pixels.
+
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.

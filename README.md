@@ -76,7 +76,10 @@ mark targets around town. Press **Enter** to chat in either mode.
 Time of day is shared by everyone in a room: a full day takes 24 minutes, with sunrise,
 sunset and night (street lamps, lit windows, headlights, stars). In free roam, press **N**
 to skip ahead 2 hours. The **Graphics** setting (Esc → Settings) trades looks for speed:
-Low (no post-processing), Medium (glow), High (glow plus ambient occlusion).
+Low (no post-processing, no grass), Medium (glow, grass), High (glow plus ambient
+occlusion, more grass). On sharp (Retina) screens, Low draws at normal resolution,
+Medium at up to 1.5× and High at up to 2×. If the game stutters, try Low, and turn on
+"Show frame rate (FPS)" to see how it runs.
 
 Surfaces (asphalt, brick, siding, roof slates, grass, floors, carpet, and in the zones snow,
 sand, rock, cobblestones, castle stone, thatch, marble, metal and more) use real photo-scanned

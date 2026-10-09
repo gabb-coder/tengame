@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Media, Model } from '../assets/media.ts';
+import { mergeByMaterial } from '../render/merge.ts';
 import { CAR } from './carPhysics.ts';
 
 const WHEEL_POSITIONS: [number, number][] = [
@@ -209,6 +210,15 @@ export class CarModel {
       node.removeFromParent();
       this.wheels.push(steer);
       this.wheelRestY.push(steer.position.y);
+    }
+
+    // The model has over a hundred parts: draw the body and each wheel as one mesh per
+    // material instead.
+    mergeByMaterial(fit);
+    for (const steer of this.wheels) {
+      const spin = steer.children[0];
+      mergeByMaterial(spin);
+      mergeByMaterial(steer, [spin]);
     }
   }
 

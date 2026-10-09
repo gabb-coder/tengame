@@ -10,6 +10,8 @@ const SWING_SPEED = 2.6; // rad/s
 
 interface Door {
   house: House;
+  /** Which of the instanced panels (and pairs of knobs) is this door's. */
+  index: number;
   /** Hinge pivot; rotating it around Y swings the door. */
   pivot: THREE.Object3D;
   collider: RAPIER.Collider;
@@ -25,51 +27,61 @@ export interface DoorMaterials {
   brass: THREE.Material;
 }
 
-/** Every house's front door: a swinging panel with a collider that moves with it. */
+/** Where the two knobs sit on a door, relative to its hinge. */
+const KNOBS = [-1, 1].map((side) => new THREE.Matrix4().makeTranslation(DOOR_WIDTH - 0.12, 1.0, side * (DOOR_THICKNESS / 2 + 0.03)));
+
+/**
+ * Every house's front door: a swinging panel with a collider that moves with it. All the
+ * panels are drawn together in one go, and all the knobs in another.
+ */
 export class Doors {
   private doors = new Map<string, Door>();
-  private materials = new Map<string, THREE.MeshStandardMaterial>();
+  private panels: THREE.InstancedMesh;
+  private knobs: THREE.InstancedMesh;
+  private knob = new THREE.Matrix4();
   /** Plays a sound at a door when it starts to open or close. */
   onSwing: (position: THREE.Vector3, opening: boolean) => void = () => {};
 
   constructor(scene: THREE.Scene, houses: House[], m: DoorMaterials, physics: RAPIER.World) {
     const panel = new THREE.BoxGeometry(DOOR_WIDTH - 0.02, DOOR_HEIGHT - 0.01, DOOR_THICKNESS).translate(DOOR_WIDTH / 2, DOOR_HEIGHT / 2, 0);
     const knob = new THREE.SphereGeometry(0.035, 10, 8);
+    // Each door takes its house's color.
+    const paint = m.door.clone();
+    paint.vertexColors = false;
+    paint.color.set('#ffffff');
+    this.panels = new THREE.InstancedMesh(panel, paint, houses.length);
+    this.panels.castShadow = this.panels.receiveShadow = true;
+    this.knobs = new THREE.InstancedMesh(knob, m.brass.clone(), houses.length * 2);
     const group = new THREE.Group();
     group.name = 'doors';
+    group.add(this.panels, this.knobs);
 
-    for (const house of houses) {
+    houses.forEach((house, index) => {
       const M = houseMatrix(house);
       const pivot = new THREE.Object3D();
       const hinge = doorHingeLocal(house).applyMatrix4(M);
       pivot.position.copy(hinge);
       pivot.rotation.y = house.rotation;
-
-      const mesh = new THREE.Mesh(panel, this.material(m, house.doorColor));
-      mesh.castShadow = mesh.receiveShadow = true;
-      pivot.add(mesh);
-      for (const side of [-1, 1]) {
-        const k = new THREE.Mesh(knob, m.brass);
-        k.position.set(DOOR_WIDTH - 0.12, 1.0, side * (DOOR_THICKNESS / 2 + 0.03));
-        pivot.add(k);
-      }
-      group.add(pivot);
       pivot.updateMatrixWorld();
+      this.panels.setColorAt(index, new THREE.Color(house.doorColor));
 
       const collider = physics.createCollider(RAPIER.ColliderDesc.cuboid(DOOR_WIDTH / 2, DOOR_HEIGHT / 2, DOOR_THICKNESS / 2));
       const front = doorPosition(house);
       const inward = new THREE.Vector3(0, 0, -WALL_THICKNESS / 2).applyAxisAngle(THREE.Object3D.DEFAULT_UP, house.rotation);
       const door: Door = {
         house,
+        index,
         pivot,
         collider,
         center: new THREE.Vector3(front.x, hinge.y, front.z).add(inward),
         angle: 0,
         open: false,
       };
-      this.placeCollider(door);
+      this.place(door);
       this.doors.set(house.id, door);
-    }
+    });
+    this.panels.computeBoundingSphere();
+    this.knobs.computeBoundingSphere();
     scene.add(group);
   }
 
@@ -122,23 +134,18 @@ export class Doors {
     const eased = t * t * (3 - 2 * t);
     door.pivot.rotation.y = door.house.rotation + eased * OPEN_ANGLE;
     door.pivot.updateMatrixWorld();
-    this.placeCollider(door);
+    this.place(door);
   }
 
-  private placeCollider(door: Door): void {
-    const center = new THREE.Vector3(DOOR_WIDTH / 2, DOOR_HEIGHT / 2, 0).applyMatrix4(door.pivot.matrixWorld);
+  /** Puts the door's panel, knobs and collider where its pivot says. */
+  private place(door: Door): void {
+    const hinge = door.pivot.matrixWorld;
+    this.panels.setMatrixAt(door.index, hinge);
+    this.panels.instanceMatrix.needsUpdate = true;
+    KNOBS.forEach((offset, k) => this.knobs.setMatrixAt(door.index * 2 + k, this.knob.multiplyMatrices(hinge, offset)));
+    this.knobs.instanceMatrix.needsUpdate = true;
+    const center = new THREE.Vector3(DOOR_WIDTH / 2, DOOR_HEIGHT / 2, 0).applyMatrix4(hinge);
     door.collider.setTranslation(center);
     door.collider.setRotation(door.pivot.quaternion);
-  }
-
-  private material(m: DoorMaterials, color: string): THREE.MeshStandardMaterial {
-    let mat = this.materials.get(color);
-    if (!mat) {
-      mat = m.door.clone();
-      mat.vertexColors = false;
-      mat.color.set(color);
-      this.materials.set(color, mat);
-    }
-    return mat;
   }
 }

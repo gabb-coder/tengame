@@ -7,7 +7,7 @@ import { TRIGGERS_BY_ID } from '../../../../shared/activities.ts';
 import { game, onTrigger } from '../../game/link.ts';
 import { buttonActivity } from './buttons.ts';
 import { grazer, Herd, loopMover, penguin, runner } from './creatures.ts';
-import { ChunkedBuilder, compose, conifer, cylinderCollider, instanced, mulberry32, Placement, rockGeometry, type ZoneContent, type ZoneContext } from './kit.ts';
+import { ChunkedBuilder, compose, conifer, cylinderCollider, instanced, type LightSource, mulberry32, Placement, rockGeometry, type ZoneContent, type ZoneContext } from './kit.ts';
 import { lineActivities, loopCurve, TransitLine, type VehicleState } from './transit.ts';
 
 /** Frostfang Tundra: snowy forest, glaciers, igloos, the outpost, and the aurora. */
@@ -341,8 +341,8 @@ function buildFlare(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; 
   })();
   const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: '#ff5a3a', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   flare.scale.setScalar(9);
-  const light = new THREE.PointLight('#ff3a1a', 0, 260, 1.1);
-  flare.add(light);
+  const light: LightSource = { position: flare.position, color: '#ff3a1a', intensity: 0, range: 260, decay: 1.1, priority: 200, instant: true, active: () => t >= 0 };
+  ctx.lights.add(light);
   flare.visible = false;
   group.add(flare);
   const trail = new Float32Array(40 * 3);

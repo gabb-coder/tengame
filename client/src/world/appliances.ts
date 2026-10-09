@@ -6,7 +6,7 @@ import type { Fire } from '../../../shared/world.ts';
 import { houseMatrix } from './town/houses.ts';
 import { MeshBuilder, placement } from './town/meshBuilder.ts';
 import type { TownMaterials } from './town/materials.ts';
-import type { LightPool } from './zones/kit.ts';
+import type { LightPool, LightSource } from './lightPool.ts';
 import { zoneSeats } from './zones/buttons.ts';
 
 /** Lamps close to the camera that also light the room around them (lights are costly). */
@@ -38,7 +38,7 @@ export class Appliances {
   /** What's drawn for each switched-on appliance. */
   private shown = new Map<string, THREE.Object3D>();
   private tv = new TvPicture();
-  private lights: THREE.PointLight[] = [];
+  private lights: LightSource[] = [];
   private tvClock = 0;
   private time = 0;
 
@@ -58,9 +58,8 @@ export class Appliances {
       lights?.add({ position: new THREE.Vector3(f.x, f.y + flameBase(f.id) + 0.8, f.z), color: '#ff9a4a', intensity: 22, range: 14, flicker: true, active: () => this.isOn(f.id) });
     }
     for (let i = 0; i < LAMP_LIGHTS; i++) {
-      const light = new THREE.PointLight('#ffd9a8', 0, 7, 1.6);
-      light.visible = false;
-      scene.add(light);
+      const light: LightSource = { position: new THREE.Vector3(), color: '#ffd9a8', intensity: 0, range: 7, priority: 50 };
+      lights?.add(light);
       this.lights.push(light);
     }
   }
@@ -171,10 +170,8 @@ export class Appliances {
       .sort((a, b) => Math.hypot(camera.x - a.world.x, camera.z - a.world.z) - Math.hypot(camera.x - b.world.x, camera.z - b.world.z));
     this.lights.forEach((light, i) => {
       const lamp = lamps[i];
-      light.visible = !!lamp;
-      if (!lamp) return;
-      light.position.set(lamp.world.x, lamp.world.y, lamp.world.z);
-      light.intensity = 6;
+      light.intensity = lamp ? 6 : 0;
+      if (lamp) light.position.set(lamp.world.x, lamp.world.y, lamp.world.z);
     });
   }
 }

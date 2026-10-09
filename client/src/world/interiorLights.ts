@@ -3,8 +3,9 @@ import type { Interior } from '../../../shared/interior.ts';
 import type { House } from '../../../shared/town.ts';
 import { roomCenter } from './town/interior.ts';
 import { houseMatrix } from './town/houses.ts';
+import type { LightPool, LightSource } from './lightPool.ts';
 
-/** Lights are expensive per pixel, so only this many exist; they follow the player. */
+/** Rooms lit at once: the ones nearest the player. */
 const POOL_SIZE = 4;
 const INTENSITY = 4;
 
@@ -16,23 +17,23 @@ interface Entry {
 }
 
 /**
- * Warm ceiling lights for the rooms of whichever house the player is in. A fixed pool of
- * point lights is moved between houses (keeping the light count constant avoids shader
- * recompiles), and turned off outdoors.
+ * Warm ceiling lights for the rooms of whichever house the player is in, taken from the
+ * shared pool ahead of anything outside; off outdoors.
  */
 export class InteriorLights {
-  private lights: THREE.PointLight[] = [];
+  private lights: LightSource[] = [];
   private entries: Entry[];
   private current = '';
+  private local = new THREE.Vector3();
 
-  constructor(scene: THREE.Scene, houses: House[], interiors: Map<string, Interior>) {
+  constructor(pool: LightPool, houses: House[], interiors: Map<string, Interior>) {
     this.entries = houses.map((house) => {
       const matrix = houseMatrix(house);
       return { house, plan: interiors.get(house.id)!, matrix, inverse: matrix.clone().invert() };
     });
     for (let i = 0; i < POOL_SIZE; i++) {
-      const light = new THREE.PointLight('#ffdcb0', 0, 9, 2);
-      scene.add(light);
+      const light: LightSource = { position: new THREE.Vector3(), color: '#ffdcb0', intensity: 0, range: 9, decay: 2, priority: 100 };
+      pool.add(light);
       this.lights.push(light);
     }
   }
@@ -43,7 +44,7 @@ export class InteriorLights {
   update(focus: THREE.Vector3): void {
     let found: { entry: Entry; story: number; local: THREE.Vector3 } | null = null;
     for (const entry of this.entries) {
-      const local = focus.clone().applyMatrix4(entry.inverse);
+      const local = this.local.copy(focus).applyMatrix4(entry.inverse);
       const r = entry.plan.inner;
       if (local.x < r.minX || local.x > r.maxX || local.z < r.minZ || local.z > r.maxZ) continue;
       const story = entry.plan.stories === 2 && local.y > entry.plan.floorY[1] - 0.3 ? 1 : 0;

@@ -1,9 +1,9 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { TICK_RATE, type PlayerInfo, type WelcomeMessage } from '../../shared/protocol.ts';
 import { Media } from './assets/media.ts';
 import { Sounds } from './audio/sounds.ts';
+import { Labels } from './render/labels.ts';
 import { PostFX } from './render/postfx.ts';
 import { LocalPlayer } from './game/localPlayer.ts';
 import { Input } from './input.ts';
@@ -53,6 +53,8 @@ CarModel.load(media);
 AvatarModel.load(media);
 /** How long to wait for textures before starting with the generated ones. */
 const TEXTURE_WAIT_MS = 8000;
+/** How long to wait for shaders to build before starting anyway. */
+const COMPILE_WAIT_MS = 15000;
 
 const container = document.getElementById('app')!;
 const nextPaint = () => new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
@@ -81,18 +83,16 @@ runLobby(async ({ name, room, mode }) => {
   setLobbyStatus('Loading textures…');
   await Promise.race([media.textures, new Promise((done) => setTimeout(done, TEXTURE_WAIT_MS))]);
   title.stop();
-  startGame(conn, welcome, listener, world);
+  setLobbyStatus('Preparing graphics…');
+  await startGame(conn, welcome, listener, world);
 });
 
-function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.AudioListener, world: World): void {
+async function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.AudioListener, world: World): Promise<void> {
   syncClock(welcome.now);
   // Real furniture replaces the generated stand-ins as the models arrive.
   const furniture = new FurnitureModels(world.town.furniture, media);
 
-  const labels = new CSS2DRenderer();
-  labels.domElement.style.position = 'fixed';
-  labels.domElement.style.inset = '0';
-  labels.domElement.style.pointerEvents = 'none';
+  const labels = new Labels();
   container.appendChild(labels.domElement);
 
   const postfx = new PostFX(world.renderer, world.scene, world.camera);
@@ -125,10 +125,10 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   const doors = new Doors(world.scene, world.town.houses, world.materials, world.physics);
   doors.onSwing = (position, opening) => sounds.door(position, opening);
   for (const id of welcome.openDoors) doors.setOpen(id, true, true);
-  const appliances = new Appliances(world.scene, world.town.houses, world.town.interiors, generateWorld().fires, world.materials, world.zones.lights);
+  const appliances = new Appliances(world.scene, world.town.houses, world.town.interiors, generateWorld().fires, world.materials, world.lights);
   for (const id of welcome.switchedOn) appliances.setOn(id, true);
-  const interiorLights = new InteriorLights(world.scene, world.town.houses, world.town.interiors);
-  const streetLights = new StreetLights(world.scene, lampPositions(world.town.layout), world.materials.lampGlow);
+  const interiorLights = new InteriorLights(world.lights, world.town.houses, world.town.interiors);
+  const streetLights = new StreetLights(world.lights, lampPositions(world.town.layout), world.materials.lampGlow);
 
   const me = welcome.players.find((p) => p.id === welcome.id)!;
   // Separate spawn points so players don't start inside each other.
@@ -276,7 +276,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   let lastSend = 0;
   let last = performance.now();
 
-  world.renderer.setAnimationLoop(() => {
+  const frame = () => {
     const now = performance.now();
     const dt = Math.min((now - last) / 1000, 0.1);
     accumulator += dt;
@@ -297,7 +297,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     // Fixed-step physics keeps handling identical across frame rates.
     while (accumulator >= PHYSICS_STEP) {
       player.fixedStep(input, PHYSICS_STEP);
-      world.physics.step();
+      world.stepPhysics();
       accumulator -= PHYSICS_STEP;
     }
     doors.update(dt);
@@ -349,7 +349,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     renderWarmth(warmth.value, zone.id === 'arctic' && player.mode === 'foot');
     if (warmth.takeWarning()) showNotice("You're freezing! Warm up by a fire, indoors or in your car");
     const night = world.dayNight.night;
-    streetLights.update(player.focus, night, dt);
+    streetLights.update(night);
     world.materials.glassOutsideLit.emissiveIntensity = night * 1.4;
     CarModel.setHeadlights(night);
     car.setNight(night);
@@ -358,6 +358,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     world.town.updateInteriors(world.camera.position);
     furniture.update(world.camera.position);
     appliances.update(world.camera.position, dt);
+    world.lights.update(dt, world.camera.position);
 
     renderMode(player.mode, input.pointerLocked);
     renderPrompt(player.interaction, player.remoteTv);
@@ -376,6 +377,14 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     );
 
     postfx.render(night);
-    labels.render(world.scene, world.camera);
-  });
+    labels.render(world.camera);
+  };
+
+  // Build every shader while the lobby is still up, rather than freezing mid-game the
+  // first time each thing comes into view.
+  await Promise.race([postfx.compile(), new Promise((done) => setTimeout(done, COMPILE_WAIT_MS))]);
+  last = performance.now();
+  // The first frame finishes anything still being built (shadows, glow), lobby still up.
+  frame();
+  world.renderer.setAnimationLoop(frame);
 }

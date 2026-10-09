@@ -8,6 +8,16 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 
 export type Quality = 'low' | 'medium' | 'high';
 
+/**
+ * The most pixels drawn per screen pixel, by quality. Sharp (Retina) screens have two or
+ * more; drawing all of them at medium would mean four times the work for a little
+ * sharpness.
+ */
+const MAX_PIXEL_RATIO: Record<Quality, number> = { low: 1, medium: 1.5, high: 2 };
+
+export function pixelRatio(quality: Quality): number {
+  return Math.min(devicePixelRatio, MAX_PIXEL_RATIO[quality]);
+}
 
 /**
  * Rendering with optional post-processing, by quality setting:
@@ -35,12 +45,27 @@ export class PostFX {
   setQuality(q: Quality): void {
     if (q === this.quality) return;
     this.quality = q;
+    this.renderer.setPixelRatio(pixelRatio(q));
     this.build();
   }
 
   setSize(width: number, height: number): void {
     this.size.set(width, height);
     this.composer?.setSize(width, height);
+  }
+
+  /**
+   * Builds the shaders for everything in the scene now, so the game doesn't freeze to
+   * build them the first time each thing comes into view. Where the browser can, they're
+   * built in the background and this waits for them.
+   */
+  async compile(): Promise<void> {
+    // Shaders differ when drawing into the effects' buffer rather than to the screen.
+    const previous = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(this.composer?.renderTarget1 ?? null);
+    const ready = this.renderer.compileAsync(this.scene, this.camera);
+    this.renderer.setRenderTarget(previous);
+    await ready;
   }
 
   /** Renders a frame; `night` (0..1) strengthens the glow after dark. */

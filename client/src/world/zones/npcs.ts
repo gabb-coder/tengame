@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { Label } from '../../render/labels.ts';
 import { generateTown, PARK_FOUNTAIN } from '../../../../shared/town.ts';
 import { ANCIENT } from '../../../../shared/zones/ancient.ts';
 import { ARCTIC } from '../../../../shared/zones/arctic.ts';
@@ -43,7 +43,7 @@ interface Npc {
   /** Seconds left of talking to the player, and which line is next. */
   talking: number;
   line: number;
-  bubble: CSS2DObject | null;
+  bubble: Label | null;
 }
 
 const metal = new THREE.MeshStandardMaterial({ color: '#b8bcc4', metalness: 0.9, roughness: 0.3 });
@@ -329,7 +329,7 @@ export class Npcs {
     if (!n.bubble) {
       const el = document.createElement('div');
       el.className = 'speech';
-      n.bubble = new CSS2DObject(el);
+      n.bubble = new Label(el);
       n.bubble.position.y = 2.25;
       n.avatar.root.add(n.bubble);
     }
@@ -372,7 +372,8 @@ export class Npcs {
       }
       if (n.talking > 0) yaw = Math.atan2(me.x - x, me.z - z);
       const near = (x - camera.x) ** 2 + (z - camera.z) ** 2 < RANGE * RANGE;
-      n.avatar.root.visible = near;
+      // Far away, skip them entirely: each person is some eighty bones and parts to place.
+      n.avatar.root.visible = n.avatar.root.matrixWorldAutoUpdate = near;
       if (!near) continue;
       const y = n.floor ?? this.terrain.heightAt(x, z);
       n.avatar.root.position.set(x, y, z);

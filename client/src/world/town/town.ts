@@ -68,6 +68,9 @@ export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMate
     const g = inside.build(`${name}-interiors`);
     const groups = new Map([...standIns].map(([type, b]) => [type, b.build(`${name}-${type}`)] as const));
     for (const s of groups.values()) g.add(s);
+    // Under a roof, rooms and furniture would add many draws to the sun's shadows for
+    // little to see.
+    g.traverse((o) => (o.castShadow = false));
     group.add(g);
     insides.push({ group: g, block: area });
     furniture.push({ group: g, standIns: groups, slots });
@@ -110,7 +113,7 @@ export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMate
       for (const { group: g, block } of insides) {
         const dx = Math.max(block.minX - camera.x, 0, camera.x - block.maxX);
         const dz = Math.max(block.minZ - camera.z, 0, camera.z - block.maxZ);
-        g.visible = Math.hypot(dx, dz) < INTERIOR_VIEW_DISTANCE;
+        g.visible = g.matrixWorldAutoUpdate = Math.hypot(dx, dz) < INTERIOR_VIEW_DISTANCE;
       }
     },
   };

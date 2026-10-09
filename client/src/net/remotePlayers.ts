@@ -1,6 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { Label } from '../render/labels.ts';
 import type { Act, AvatarState, CarState, PlayerInfo, PlayerTransform } from '../../../shared/protocol.ts';
 import { showAct } from '../player/acts.ts';
 import { AvatarModel } from '../player/avatarModel.ts';
@@ -41,7 +41,7 @@ interface Remote {
   engine: EngineSound;
   audio: THREE.PositionalAudio;
   avatar: AvatarModel;
-  nameTag: CSS2DObject;
+  nameTag: Label;
   samples: Sample[];
   wheelSpin: number;
   /** The act last shown, so one-shot moves play once. */
@@ -91,7 +91,7 @@ export class RemotePlayers {
   remove(id: string): void {
     const remote = this.remotes.get(id);
     if (!remote) return;
-    remote.nameTag.element.remove();
+    remote.nameTag.dispose();
     remote.avatar.dispose();
     this.scene.remove(remote.avatar.root);
     // Detach the positional audio before stopping its source; the reverse order throws.
@@ -228,11 +228,11 @@ function yawOf(q: THREE.Quaternion): number {
   return Math.atan2(forward.x, forward.z);
 }
 
-function createNameTag(name: string): CSS2DObject {
+function createNameTag(name: string): Label {
   const el = document.createElement('div');
   el.className = 'name-tag';
   el.textContent = name;
-  const tag = new CSS2DObject(el);
+  const tag = new Label(el);
   tag.position.set(0, 1.6, 0);
   return tag;
 }

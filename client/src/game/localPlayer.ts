@@ -114,7 +114,7 @@ export class LocalPlayer {
     this.orbit = new OrbitCamera(world.camera, (from, to) => this.castRay(from, to, this.character.body));
   }
 
-  /** Fixed-step physics update; call before `world.physics.step()`. */
+  /** Fixed-step physics update; call before `world.stepPhysics()`. */
   fixedStep(input: Input, dt: number): void {
     const at = this.car.physics.body.translation();
     const carPlace = placeEffects(at.x, at.y, at.z);

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { generateWorld, WORLD_HALF } from '../../../shared/world.ts';
 import { DayNight } from './dayNight.ts';
 import { Grass } from './grass.ts';
+import { LightPool } from './lightPool.ts';
 import { Terrain } from './terrain.ts';
 import { boxCollider } from './town/colliders.ts';
 import { createTownMaterials, type TownMaterials } from './town/materials.ts';
@@ -14,6 +15,8 @@ import { buildWorldRoads } from './zones/roads.ts';
 import { WaterBodies } from './zones/water.ts';
 import { Zones } from './zones/index.ts';
 import type { Media } from '../assets/media.ts';
+import { pixelRatio } from '../render/postfx.ts';
+import { settings } from '../settings.ts';
 
 /** Renderer, sky and time of day, physics world, the ground, the town and the zones. */
 export class World {
@@ -29,10 +32,12 @@ export class World {
   readonly water: WaterBodies;
   readonly zones: Zones;
   readonly grass: Grass;
+  /** The real point lights, shared by every lamp, fire and glow. */
+  readonly lights: LightPool;
 
   constructor(container: HTMLElement, media: Media) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.setPixelRatio(pixelRatio(settings.quality));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.6;
     this.renderer.shadowMap.enabled = true;
@@ -52,10 +57,22 @@ export class World {
     this.scene.add(buildWorldRoads(layout.roads, this.zoneMaterials, this.materials, this.physics, (x, z) => this.terrain.heightAt(x, z)));
     this.water = new WaterBodies(layout.waters, this.zoneMaterials);
     this.scene.add(this.water.group);
-    this.zones = new Zones(this.scene, this.physics, this.materials, this.zoneMaterials, this.terrain, media);
+    this.lights = new LightPool(this.scene);
+    this.zones = new Zones(this.scene, this.physics, this.materials, this.zoneMaterials, this.terrain, media, this.lights);
     this.grass = new Grass(this.terrain);
     this.scene.add(this.grass.mesh);
     addBoundary(this.physics);
+  }
+
+  /**
+   * One fixed physics step. Rapier's own `World.step` also re-lists every collider in
+   * JavaScript after each step, in case the engine added or removed one by itself (this
+   * game never lets it). With thousands of walls and props that took longer than the
+   * simulation, so step the pipeline directly.
+   */
+  stepPhysics(): void {
+    const w = this.physics;
+    w.physicsPipeline.step(w.gravity, w.integrationParameters, w.islands, w.broadPhase, w.narrowPhase, w.bodies, w.colliders, w.softBodies, w.impulseJoints, w.multibodyJoints, w.ccdSolver);
   }
 
   resize(width: number, height: number): void {
