@@ -29,6 +29,10 @@ export class CharacterPhysics {
   private controller: RAPIER.KinematicCharacterController;
   private velocity = new THREE.Vector3();
   grounded = false;
+  /** Thrown through the air (by a trebuchet, a geyser...): keeps its momentum until it lands. */
+  private ballistic = false;
+  /** Just thrown this step: don't let the ground hold us. */
+  private launched = false;
   private measuredSpeed = 0;
   /** Facing, radians around +Y; 0 faces +Z. */
   yaw = 0;
@@ -71,25 +75,57 @@ export class CharacterPhysics {
     this.velocity.set(0, 0, 0);
     this.measuredSpeed = 0;
     this.yaw = yaw;
+    this.setBallistic(false);
+  }
+
+  /** Throws the character with velocity `v` (m/s); it flies until it lands. */
+  launch(v: THREE.Vector3Like): void {
+    this.velocity.set(v.x, v.y, v.z);
+    this.launched = true;
+    this.grounded = false;
+    this.setBallistic(true);
+    if (Math.hypot(v.x, v.z) > 0.5) this.yaw = Math.atan2(v.x, v.z);
+  }
+
+  /** Current velocity (m/s). */
+  get motion(): THREE.Vector3 {
+    return this.velocity.clone();
+  }
+
+  /** Flying: don't snap back down to the ground. */
+  private setBallistic(on: boolean): void {
+    if (on === this.ballistic) return;
+    this.ballistic = on;
+    if (on) this.controller.disableSnapToGround();
+    else this.controller.enableSnapToGround(0.3);
   }
 
   /**
    * One fixed physics step. `move` is the desired horizontal direction in world space
    * with length 0..1; call before `world.step()`.
    */
-  step(move: THREE.Vector3, run: boolean, jump: boolean, dt: number, place: { gravity: number; underwater: boolean } = { gravity: 1, underwater: false }): void {
+  step(move: THREE.Vector3, run: boolean, jump: boolean, dt: number, place: { gravity: number; underwater: boolean } = { gravity: 1, underwater: false }, thrust = 0): void {
     // Under water: slower, floaty, and jump swims upward.
     const swim = place.underwater;
+    if (swim) this.setBallistic(false);
     const target = move.clone().multiplyScalar((run ? AVATAR.runSpeed : AVATAR.walkSpeed) * (swim ? 0.55 : 1));
-    // Ease horizontal velocity toward the target; less control in the air.
-    const k = 1 - Math.exp(-AVATAR.acceleration * dt * (this.grounded || place.underwater ? 1 : 0.15));
-    this.velocity.x += (target.x - this.velocity.x) * k;
-    this.velocity.z += (target.z - this.velocity.z) * k;
+    if (this.ballistic) {
+      // Flying through the air: keep the momentum, steering only a little.
+      this.velocity.x += target.x * 1.5 * dt;
+      this.velocity.z += target.z * 1.5 * dt;
+    } else {
+      // Ease horizontal velocity toward the target; less control in the air (more with a jetpack).
+      const k = 1 - Math.exp(-AVATAR.acceleration * dt * (this.grounded || place.underwater ? 1 : thrust > 0 ? 0.45 : 0.15));
+      this.velocity.x += (target.x - this.velocity.x) * k;
+      this.velocity.z += (target.z - this.velocity.z) * k;
+    }
 
     // While grounded, move horizontally only (snap-to-ground handles going down):
     // Rapier's autostep doesn't trigger when the requested move points into the ground.
     const gravity = AVATAR.gravity * place.gravity * (swim ? 0.12 : 1);
-    if (swim && jump) this.velocity.y = Math.min(this.velocity.y + 9 * dt, 2.6);
+    if (this.launched) this.launched = false;
+    else if (thrust > 0) this.velocity.y = Math.max(this.velocity.y, this.grounded ? 2 : -Infinity) + (thrust - gravity) * dt;
+    else if (swim && jump) this.velocity.y = Math.min(this.velocity.y + 9 * dt, 2.6);
     else if (this.grounded && jump) this.velocity.y = AVATAR.jumpSpeed;
     else if (this.grounded) this.velocity.y = 0;
     else this.velocity.y = Math.max(this.velocity.y - gravity * dt, swim ? -1.6 : -60);
@@ -98,7 +134,11 @@ export class CharacterPhysics {
     this.controller.computeColliderMovement(this.collider, desired);
     const moved = this.controller.computedMovement();
     this.grounded = this.controller.computedGrounded();
-    if (this.grounded && this.velocity.y < 0) this.velocity.y = 0;
+    if (this.grounded && this.velocity.y <= 0) {
+      this.velocity.y = 0;
+      // Landed from a throw.
+      this.setBallistic(false);
+    }
     // Bumped our head or a wall: don't keep pushing into it.
     if (this.velocity.y > 0 && moved.y < desired.y * 0.5) this.velocity.y = 0;
     // Keep the intended horizontal velocity (it's capped at the target speed), so slopes and

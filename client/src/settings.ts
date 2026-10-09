@@ -2,6 +2,8 @@
 export interface Settings {
   /** Master volume, 0..1. */
   volume: number;
+  /** Background sounds of each place (wind, birds, rain...), 0..1 of the master volume. */
+  ambience: number;
   /** Multiplier on mouse look speed. */
   mouseSensitivity: number;
   invertY: boolean;
@@ -17,6 +19,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   volume: 0.8,
+  ambience: 0.7,
   mouseSensitivity: 1,
   invertY: false,
   fov: 62,

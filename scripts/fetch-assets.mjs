@@ -110,8 +110,14 @@ const HUMANS = {
   // (Hair_Long is only side strands, made to go with scalp hair this version lacks.)
   hair: ['Hair_SimpleParted', 'Hair_Buzzed', 'Hair_Beard', 'Hair_Buns', 'Hair_BuzzedFemale'],
   /** Clips kept from the 43 in the library; walk/jog/sprint speeds are measured from its root-motion version. */
-  clips: ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Loop', 'Sitting_Idle_Loop'],
-  moving: ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'],
+  clips: [
+    ...['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Loop', 'Sitting_Idle_Loop', 'Swim_Fwd_Loop', 'Swim_Idle_Loop'],
+    // Emotes and things people do: dancing, talking, pressing buttons, picking things up,
+    // fencing, holding a torch, fixing things, casting spells, driving, getting hit.
+    ...['Dance_Loop', 'Idle_Talking_Loop', 'Sitting_Talking_Loop', 'Interact', 'PickUp_Table', 'Sword_Idle', 'Sword_Attack', 'Idle_Torch_Loop'],
+    ...['Fixing_Kneeling', 'Crouch_Idle_Loop', 'Spell_Simple_Idle_Loop', 'Spell_Simple_Shoot', 'Driving_Loop', 'Hit_Chest'],
+  ],
+  moving: ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Swim_Fwd_Loop'],
 };
 
 const DEFAULT_TEXTURE_SIZE = 1024;

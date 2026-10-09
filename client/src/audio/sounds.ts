@@ -10,7 +10,7 @@ export class Sounds {
 
   constructor(private listener: THREE.AudioListener) {
     this.ctx = listener.context;
-    this.noise = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.5, this.ctx.sampleRate);
+    this.noise = this.ctx.createBuffer(1, this.ctx.sampleRate * 3, this.ctx.sampleRate);
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
   }
@@ -53,6 +53,221 @@ export class Sounds {
     this.burst(this.at(position), this.ctx.currentTime, 'lowpass', 300, 0.25, 0.35);
   }
 
+  /** A big bronze bell: one strike, ringing on for seconds. Heard across the village. */
+  bell(position: THREE.Vector3Like, delay = 0): void {
+    const out = this.at(position, 40, 6);
+    const t = this.ctx.currentTime + delay;
+    // Church-bell partials: hum, prime, minor third, fifth, octave and up.
+    const f = 196;
+    [[0.5, 0.5, 5], [1, 0.6, 4], [1.19, 0.35, 3], [1.5, 0.25, 2.5], [2, 0.3, 2.2], [2.52, 0.15, 1.6], [3, 0.12, 1.2], [4.2, 0.08, 0.8]].forEach(([r, level, decay]) =>
+      this.tone(out, t, f * r, 'sine', 0.004, decay, level * 0.5),
+    );
+    this.burst(out, t, 'bandpass', 2400, 0.05, 0.25);
+  }
+
+  /** A temple gong: a shimmering swell that dies away slowly. */
+  gong(position: THREE.Vector3Like): void {
+    const out = this.at(position, 30, 6);
+    const t = this.ctx.currentTime;
+    [[82, 0.5, 6], [139, 0.35, 5], [187, 0.3, 4.5], [233, 0.22, 4], [311, 0.16, 3.4], [421, 0.1, 2.6], [587, 0.06, 2]].forEach(([freq, level, decay], i) =>
+      this.tone(out, t, freq, 'sine', 0.02 + i * 0.03, decay, level * 0.55, 4),
+    );
+    this.burst(out, t, 'lowpass', 500, 0.3, 0.6);
+  }
+
+  /** A lighthouse foghorn: a long, deep blast. */
+  horn(position: THREE.Vector3Like): void {
+    const out = this.at(position, 50, 8);
+    const t = this.ctx.currentTime;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 520;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.5, t + 0.35);
+    gain.gain.setValueAtTime(0.5, t + 2.6);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 3.6);
+    filter.connect(gain).connect(out);
+    for (const [freq, type] of [[98, 'sawtooth'], [98.7, 'sawtooth'], [49, 'square']] as const) {
+      const osc = this.ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq * 0.94, t);
+      osc.frequency.linearRampToValueAtTime(freq, t + 0.3);
+      osc.connect(filter);
+      osc.start(t);
+      osc.stop(t + 3.7);
+    }
+  }
+
+  /** A cannon shot: a deep boom and a crack. */
+  cannon(position: THREE.Vector3Like): void {
+    const out = this.at(position, 30, 6);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'lowpass', 160, 1.6, 2.2);
+    this.burst(out, t, 'bandpass', 900, 0.25, 0.9);
+    const thump = this.ctx.createOscillator();
+    thump.frequency.setValueAtTime(90, t);
+    thump.frequency.exponentialRampToValueAtTime(30, t + 0.5);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(1.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+    thump.connect(g).connect(out);
+    thump.start(t);
+    thump.stop(t + 0.8);
+  }
+
+  /** The creak and swoosh of a trebuchet's arm swinging. */
+  whoosh(position: THREE.Vector3Like, length = 0.9): void {
+    const out = this.at(position, 10, 4);
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 1.5;
+    filter.frequency.setValueAtTime(300, t);
+    filter.frequency.exponentialRampToValueAtTime(1800, t + length * 0.7);
+    filter.frequency.exponentialRampToValueAtTime(500, t + length);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.7, t + length * 0.6);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + length);
+    src.connect(filter).connect(gain).connect(out);
+    src.start(t);
+    src.stop(t + length + 0.05);
+  }
+
+  /** A firework rocket whistling up. */
+  whistle(position: THREE.Vector3Like, length: number): void {
+    const out = this.at(position, 25, 3);
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.frequency.setValueAtTime(700 + Math.random() * 200, t);
+    osc.frequency.exponentialRampToValueAtTime(2400 + Math.random() * 600, t + length);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.07, t + 0.1);
+    g.gain.setValueAtTime(0.07, t + length - 0.1);
+    g.gain.linearRampToValueAtTime(0, t + length);
+    osc.connect(g).connect(out);
+    osc.start(t);
+    osc.stop(t + length + 0.05);
+  }
+
+  /** A firework bursting: a bang, then crackle. */
+  burstBang(position: THREE.Vector3Like, size = 1): void {
+    const out = this.at(position, 60, 2);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'lowpass', 220, 1.2, 1.4 * size);
+    this.burst(out, t, 'bandpass', 1400, 0.3, 0.5 * size);
+    for (let i = 0; i < 14; i++) this.burst(out, t + 0.3 + Math.random() * 1.3, 'bandpass', 3000 + Math.random() * 3000, 0.03, 0.12 * size);
+  }
+
+  /** Something falling into water. */
+  splash(position: THREE.Vector3Like, size = 1): void {
+    const out = this.at(position, 6, 3);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'lowpass', 1400, 0.5 * size, 0.6 * size);
+    this.burst(out, t + 0.05, 'bandpass', 600, 0.4 * size, 0.4 * size);
+  }
+
+  /** A huge reptile's roar: a growling, falling bellow. */
+  roar(position: THREE.Vector3Like): void {
+    const out = this.at(position, 30, 4);
+    const t = this.ctx.currentTime;
+    const formant = this.ctx.createBiquadFilter();
+    formant.type = 'bandpass';
+    formant.Q.value = 1.2;
+    formant.frequency.setValueAtTime(500, t);
+    formant.frequency.linearRampToValueAtTime(320, t + 2.2);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(1.1, t + 0.25);
+    gain.gain.setValueAtTime(1, t + 1.4);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
+    formant.connect(gain).connect(out);
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.linearRampToValueAtTime(70, t + 2.4);
+    // A wobble for the growl.
+    const lfo = this.ctx.createOscillator();
+    lfo.frequency.value = 23;
+    const depth = this.ctx.createGain();
+    depth.gain.value = 18;
+    lfo.connect(depth).connect(osc.frequency);
+    osc.connect(formant);
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this.noise;
+    noise.loop = true;
+    const ng = this.ctx.createGain();
+    ng.gain.value = 0.5;
+    noise.connect(ng).connect(formant);
+    for (const n of [osc, lfo, noise]) {
+      n.start(t);
+      n.stop(t + 2.7);
+    }
+  }
+
+  /** A bright arpeggio, not placed anywhere: you found a treasure. */
+  chime(grand = false): void {
+    const t = this.ctx.currentTime;
+    const notes = grand ? [523, 659, 784, 1047, 1319, 1568] : [880, 1109, 1319, 1760];
+    notes.forEach((f, i) => this.tone(this.listener.getInput(), t + i * 0.09, f, 'triangle', 0.005, 0.9, 0.12));
+  }
+
+  /** A two-note ding: an elevator arriving, a train's doors. */
+  ding(position: THREE.Vector3Like): void {
+    const out = this.at(position, 6, 2);
+    const t = this.ctx.currentTime;
+    this.tone(out, t, 1319, 'sine', 0.005, 1.1, 0.25);
+    this.tone(out, t + 0.25, 1047, 'sine', 0.005, 1.4, 0.25);
+  }
+
+  /** A plop: a fishing float hitting the water, or a fish taking the bait. */
+  plop(position: THREE.Vector3Like, level = 0.5): void {
+    const out = this.at(position, 4, 2);
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.frequency.setValueAtTime(900, t);
+    osc.frequency.exponentialRampToValueAtTime(240, t + 0.12);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(level, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    osc.connect(g).connect(out);
+    osc.start(t);
+    osc.stop(t + 0.2);
+    this.burst(out, t, 'lowpass', 1800, 0.25, level * 0.5);
+  }
+
+  /** A signal flare launching and fizzing. */
+  flare(position: THREE.Vector3Like): void {
+    const out = this.at(position, 20, 3);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'bandpass', 700, 0.4, 1.0);
+    this.burst(out, t + 0.1, 'highpass', 3000, 2.5, 0.25);
+  }
+
+  /** A sine (or other wave) note with a quick attack and exponential decay. */
+  private tone(out: AudioNode, start: number, freq: number, type: OscillatorType, attack: number, decay: number, level: number, wobble = 0): void {
+    const osc = this.ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.value = freq;
+    if (wobble) {
+      // A slow beat, as metal plates have.
+      osc.detune.setValueAtTime(-wobble, start);
+      osc.detune.linearRampToValueAtTime(wobble, start + decay);
+    }
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0, start);
+    g.gain.linearRampToValueAtTime(level, start + attack);
+    g.gain.exponentialRampToValueAtTime(0.0005, start + attack + decay);
+    osc.connect(g).connect(out);
+    osc.start(start);
+    osc.stop(start + attack + decay + 0.05);
+  }
+
   /** Filtered noise with a fast attack and exponential decay. */
   private burst(out: AudioNode, start: number, type: BiquadFilterType, freq: number, length: number, level: number): void {
     const src = this.ctx.createBufferSource();
@@ -69,18 +284,21 @@ export class Sounds {
     src.start(start, Math.random() * 0.3, length + 0.05);
   }
 
-  /** A panner at `position` that disconnects itself shortly after use. */
-  private at(position: THREE.Vector3Like): AudioNode {
+  /**
+   * A panner at `position` that disconnects itself after `seconds`. Loud things get a
+   * bigger `refDistance` (the distance at which they're at full volume).
+   */
+  private at(position: THREE.Vector3Like, refDistance = 2, seconds = 1.5): AudioNode {
     const panner = this.ctx.createPanner();
     panner.panningModel = 'HRTF';
     panner.distanceModel = 'inverse';
-    panner.refDistance = 2;
-    panner.rolloffFactor = 1.5;
+    panner.refDistance = refDistance;
+    panner.rolloffFactor = refDistance > 2 ? 1 : 1.5;
     panner.positionX.value = position.x;
     panner.positionY.value = position.y;
     panner.positionZ.value = position.z;
     panner.connect(this.listener.getInput());
-    setTimeout(() => panner.disconnect(), 1500);
+    setTimeout(() => panner.disconnect(), seconds * 1000);
     return panner;
   }
 }

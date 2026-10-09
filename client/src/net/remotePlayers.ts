@@ -1,7 +1,8 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import type { AvatarState, CarState, PlayerInfo, PlayerTransform } from '../../../shared/protocol.ts';
+import type { Act, AvatarState, CarState, PlayerInfo, PlayerTransform } from '../../../shared/protocol.ts';
+import { showAct } from '../player/acts.ts';
 import { AvatarModel } from '../player/avatarModel.ts';
 import { AVATAR, CAPSULE_CENTER } from '../player/character.ts';
 import { CAR } from '../vehicles/carPhysics.ts';
@@ -43,6 +44,8 @@ interface Remote {
   nameTag: CSS2DObject;
   samples: Sample[];
   wheelSpin: number;
+  /** The act last shown, so one-shot moves play once. */
+  act: Act | null;
   /** Stand-ins in our physics world, moved to where the player is drawn, so we bump into them. */
   carBody: RAPIER.RigidBody;
   avatarBody: RAPIER.RigidBody;
@@ -82,7 +85,7 @@ export class RemotePlayers {
     this.scene.add(model.root);
     const carBody = this.kinematicBody(RAPIER.ColliderDesc.cuboid(CAR.halfExtents.x, CAR.halfExtents.y, CAR.halfExtents.z));
     const avatarBody = this.kinematicBody(RAPIER.ColliderDesc.capsule(AVATAR.halfHeight, AVATAR.radius));
-    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0, carBody, avatarBody });
+    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0, act: null, carBody, avatarBody });
   }
 
   remove(id: string): void {
@@ -195,7 +198,10 @@ export class RemotePlayers {
     const dy = Math.atan2(Math.sin(to.yaw - from.yaw), Math.cos(to.yaw - from.yaw));
     avatar.root.rotation.y = from.yaw + dy * k;
     avatar.seated = !!to.seated;
-    avatar.animate(from.speed + (to.speed - from.speed) * k, dt);
+    const act = to.act ?? null;
+    showAct(avatar, act, to.gear, !!to.swim, remote.act, performance.now() / 1000);
+    remote.act = act;
+    avatar.animate(from.speed + (to.speed - from.speed) * k, dt, act === 'jet');
     const feet = avatar.root.position;
     // Someone sitting is part of the sofa; their standing body would only get in the way.
     moveBody(remote.avatarBody, to.seated ? PARKED_FAR : { x: feet.x, y: feet.y + CAPSULE_CENTER, z: feet.z });

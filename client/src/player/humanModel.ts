@@ -26,6 +26,10 @@ const IDLE = 'Idle_Loop';
 const JUMP = 'Jump_Loop';
 const SIT = 'Sitting_Idle_Loop';
 const GAITS = ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'];
+const SWIM_IDLE = 'Swim_Idle_Loop';
+const SWIM = 'Swim_Fwd_Loop';
+/** Clips that play once and then hand back to walking or standing. */
+const ONCE = new Set(['Interact', 'PickUp_Table', 'Sword_Attack', 'Spell_Simple_Shoot', 'Hit_Chest']);
 
 type Body = 'male' | 'female';
 
@@ -152,6 +156,15 @@ export class Human {
   private phase = 0;
   /** Sitting down (plays the sitting pose instead of standing or walking). */
   seated = false;
+  /** In the water: swim strokes instead of steps. */
+  swimming = false;
+  /**
+   * Something to do instead of standing about (a clip name such as 'Dance_Loop'). Looping
+   * clips play until this changes; one-shot clips (see ONCE) play once and then clear it.
+   */
+  action: string | null = null;
+  private actionClock = 0;
+  private playing: string | null = null;
   private pelvis: THREE.Object3D | undefined;
 
   constructor(
@@ -208,9 +221,7 @@ export class Human {
 
     this.mixer = new THREE.AnimationMixer(scene);
     this.pelvis = scene.getObjectByName('pelvis');
-    for (const name of [IDLE, JUMP, SIT, ...GAITS]) {
-      const clip = assets.clips.get(name);
-      if (!clip) continue;
+    for (const [name, clip] of assets.clips) {
       const action = this.mixer.clipAction(clip);
       action.play();
       action.setEffectiveWeight(name === IDLE ? 1 : 0);
@@ -221,18 +232,32 @@ export class Human {
     }
   }
 
-  /** Blends idle, walk, jog and sprint to match `speed` (m/s), or the jump pose in the air. */
+  /**
+   * Blends idle, walk, jog and sprint to match `speed` (m/s), or plays the jump pose in the
+   * air, swim strokes in water, sitting, or the current `action`.
+   */
   animate(speed: number, dt: number, airborne: boolean): void {
     // Gaits in order of speed; blend the two around the current speed.
-    const gaits = GAITS.filter((g) => this.actions.has(g) && this.assets.speeds.has(g)).map((g) => ({ name: g, speed: this.assets.speeds.get(g)! }));
+    const gaitNames = this.swimming ? [SWIM] : GAITS;
+    const gaits = gaitNames.filter((g) => this.actions.has(g) && this.assets.speeds.has(g)).map((g) => ({ name: g, speed: this.assets.speeds.get(g)! }));
     const target = new Map<string, number>([...this.actions.keys()].map((k) => [k, 0]));
     let stride = 1;
-    if (this.seated && this.actions.has(SIT)) {
-      target.set(SIT, 1);
-    } else if (airborne && this.actions.has(JUMP)) {
+    // A new action starts from its beginning; a finished one-shot clears itself.
+    if (this.action !== this.playing) {
+      this.playing = this.action;
+      this.actionClock = 0;
+    }
+    const act = this.action && this.actions.get(this.action);
+    if (act && ONCE.has(this.action!) && this.actionClock >= act.getClip().duration - 0.15) this.action = this.playing = null;
+    if (this.action && this.actions.has(this.action) && !this.seated) {
+      target.set(this.action, 1);
+    } else if (this.seated && this.actions.has(SIT)) {
+      target.set(this.action === 'Sitting_Talking_Loop' ? this.action : SIT, 1);
+    } else if (airborne && !this.swimming && this.actions.has(JUMP)) {
       target.set(JUMP, 1);
     } else {
-      const stops = [{ name: IDLE, speed: 0 }, ...gaits];
+      const rest = this.swimming && this.actions.has(SWIM_IDLE) ? SWIM_IDLE : IDLE;
+      const stops = [{ name: rest, speed: 0 }, ...gaits];
       let i = 0;
       while (i < stops.length - 2 && speed > stops[i + 1].speed) i++;
       const [a, b] = [stops[i], stops[i + 1] ?? stops[i]];
@@ -241,17 +266,26 @@ export class Human {
       target.set(b.name, w);
       // Distance covered per step cycle, blended like the clips.
       const cycle = (g: { name: string; speed: number }) => g.speed * this.actions.get(g.name)!.getClip().duration;
-      stride = a.name === IDLE ? cycle(b) : THREE.MathUtils.lerp(cycle(a), cycle(b), w);
+      stride = a.name === rest ? cycle(b) : THREE.MathUtils.lerp(cycle(a), cycle(b), w);
     }
     this.phase = (this.phase + (speed / Math.max(stride, 0.1)) * dt) % 1;
+    this.actionClock += dt;
 
     const k = 1 - Math.exp(-dt * 10);
     for (const [name, action] of this.actions) {
       const weight = this.weights.get(name)! + (target.get(name)! - this.weights.get(name)!) * k;
+      // Skip clips that have faded out entirely (most of the library, most of the time).
+      if (weight < 1e-3 && this.weights.get(name)! < 1e-3) {
+        if (action.getEffectiveWeight() !== 0) action.setEffectiveWeight(0);
+        this.weights.set(name, 0);
+        continue;
+      }
       this.weights.set(name, weight);
       action.setEffectiveWeight(weight);
       const duration = action.getClip().duration;
-      action.time = GAITS.includes(name) ? this.phase * duration : (action.time + dt) % duration;
+      if (GAITS.includes(name) || name === SWIM) action.time = this.phase * duration;
+      else if (name === this.playing) action.time = ONCE.has(name) ? Math.min(this.actionClock, duration - 0.01) : this.actionClock % duration;
+      else action.time = (action.time + dt) % duration;
     }
     this.mixer.update(0);
   }

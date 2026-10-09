@@ -3,13 +3,16 @@ import { createServer, type Server } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
+  ACTS,
   type AvatarState,
   type CarState,
   type ClientMessage,
   DOOR_REACH,
+  GEARS,
   type ServerMessage,
   TICK_RATE,
 } from '../../shared/protocol.ts';
+import { TRIGGER_REACH, TRIGGERS_BY_ID } from '../../shared/activities.ts';
 import { APPLIANCE_REACH, type Appliance, appliancesOf, fireAppliances, TV_REMOTE_REACH } from '../../shared/appliances.ts';
 import { generateInterior } from '../../shared/interior.ts';
 import { doorPosition } from '../../shared/town.ts';
@@ -156,6 +159,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           scores: room.scoreTable(),
           mission: room.missions?.snapshot(Date.now()) ?? null,
           clock: room.clock(),
+          now: Date.now(),
         });
       } else if (msg.type === 'time') {
         if (room) room.skipTime(Number(msg.skip));
@@ -169,7 +173,15 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         player.q = msg.q;
         const { steer, rpm, load, speed, braking } = msg.car;
         player.car = { steer, rpm, load, speed, braking };
-        player.avatar = avatar && { p: avatar.p, yaw: avatar.yaw, speed: avatar.speed, ...(avatar.seated ? { seated: true } : {}) };
+        player.avatar = avatar && {
+          p: avatar.p,
+          yaw: avatar.yaw,
+          speed: avatar.speed,
+          ...(avatar.seated ? { seated: true } : {}),
+          ...(avatar.swim ? { swim: true } : {}),
+          ...(avatar.act ? { act: avatar.act } : {}),
+          ...(avatar.gear ? { gear: avatar.gear } : {}),
+        };
       } else if (msg.type === 'door') {
         // Only players on foot, standing at that house's door, can use it.
         const house = HOUSES.get(String(msg.id));
@@ -194,6 +206,15 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         if (msg.on) room.switchedOn.add(appliance.id);
         else room.switchedOn.delete(appliance.id);
         room.broadcast({ type: 'switch', id: appliance.id, on: msg.on });
+      } else if (msg.type === 'trigger') {
+        // Bells, cannons, fireworks: only someone on foot beside one can set it off, and
+        // each needs a moment to reset.
+        const trigger = TRIGGERS_BY_ID.get(String(msg.id));
+        if (!room || !player?.avatar || !trigger) return;
+        const [x, y, z] = player.avatar.p;
+        if (Math.hypot(x - trigger.x, z - trigger.z) > TRIGGER_REACH + DOOR_REACH_SLACK || Math.abs(y - trigger.y) > 2.5) return;
+        if (!room.fire(trigger.id, trigger.cooldown)) return;
+        room.broadcast({ type: 'trigger', id: trigger.id, by: player.id });
       }
     });
 
@@ -238,8 +259,16 @@ function isVec(v: unknown, length: number): v is number[] {
 
 function isAvatarState(a: unknown): a is AvatarState {
   if (typeof a !== 'object' || a === null) return false;
-  const { p, yaw, speed, seated } = a as Record<string, unknown>;
-  return isVec(p, 3) && isVec([yaw, speed], 2) && (seated === undefined || typeof seated === 'boolean');
+  const { p, yaw, speed, seated, swim, act, gear } = a as Record<string, unknown>;
+  const flag = (v: unknown) => v === undefined || typeof v === 'boolean';
+  return (
+    isVec(p, 3) &&
+    isVec([yaw, speed], 2) &&
+    flag(seated) &&
+    flag(swim) &&
+    (act === undefined || (ACTS as readonly unknown[]).includes(act)) &&
+    (gear === undefined || (GEARS as readonly unknown[]).includes(gear))
+  );
 }
 
 function isCarState(c: unknown): c is CarState {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { catchFish, FISHING_SPOTS, RELICS, TRIGGERS } from '../../shared/activities.ts';
 import { appliancesOf, fireAppliances } from '../../shared/appliances.ts';
 import { generateInterior } from '../../shared/interior.ts';
 import { CURB_HEIGHT, TOWN_HALF_EXTENT } from '../../shared/town.ts';
@@ -114,4 +115,41 @@ test('places have names: landmarks, roads and zones', () => {
   assert.equal(worldLocationName(560, 120), 'Neon Spire');
   assert.equal(worldLocationName(-700, 0), '', 'past the edge');
   for (const l of world.landmarks) assert.ok(worldLocationName(l.x, l.z).length > 0);
+});
+
+test('relics, buttons and fishing spots are where they can be reached', () => {
+  assert.equal(new Set(RELICS.map((r) => r.id)).size, RELICS.length);
+  for (const zone of [...world.zones.map((z) => z.id), 'town' as const]) {
+    assert.ok(RELICS.filter((r) => r.zone === zone).length >= 3, `${zone} has relics to find`);
+  }
+  for (const r of RELICS) {
+    assert.equal(zoneAt(r.x, r.z), r.zone, `${r.id} is in its zone`);
+    assert.ok(Math.abs(r.x) < WORLD_HALF && Math.abs(r.z) < WORLD_HALF, `${r.id} is inside the world`);
+    // Floating no lower than the ground, and not too high to reach (unless it's on something).
+    assert.ok(r.y > groundHeight(r.x, r.z) - 0.1, `${r.id} is underground`);
+    assert.ok(r.hint.length > 5 && r.name.length > 2);
+  }
+  for (const t of TRIGGERS) {
+    assert.ok(t.y >= groundHeight(t.x, t.z) - 0.2, `${t.id} is underground`);
+    assert.ok(!underwater(t.x, t.y + 1, t.z), `${t.id} is under water`);
+  }
+  for (const s of FISHING_SPOTS) {
+    assert.ok(!underwater(s.x, s.y + 1, s.z), `${s.id}: you stand on dry land`);
+    assert.ok(waterAt(s.float.x, s.float.z), `${s.id}: the float lands in water`);
+    assert.ok(Math.abs(s.y - groundHeight(s.x, s.z)) < 1.5 || s.id === 'ocean/pier', `${s.id}: you stand on the ground`);
+  }
+});
+
+test('catches are mostly common fish, sometimes rare ones, with sensible weights', () => {
+  let seed = 7;
+  const rng = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const spot = FISHING_SPOTS[0];
+  const counts = new Map<string, number>();
+  for (let i = 0; i < 2000; i++) {
+    const { fish, kg } = catchFish(spot, rng);
+    assert.ok(kg >= fish.kg[0] && kg <= fish.kg[1]);
+    counts.set(fish.rarity, (counts.get(fish.rarity) ?? 0) + 1);
+  }
+  assert.ok(counts.get('common')! > counts.get('rare')!);
+  assert.ok(counts.get('legendary')! > 0 && counts.get('legendary')! < 200);
 });

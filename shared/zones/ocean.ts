@@ -23,6 +23,22 @@ export const OCEAN = {
     { x: 560, z: 250, r: 26 },
   ],
   trench: { x: 572, z: 565 },
+  /** A cannon on the cape that fires (you) out over the reef. */
+  cannon: { x: 474, z: 283, target: { x: 368, z: 334 } },
+  /** The glass-bottom boat's loop round the bay, starting from the end of the pier. */
+  ferry: [
+    [345.5, 342],
+    [352, 372],
+    [390, 392],
+    [452, 380],
+    [520, 330],
+    [548, 300],
+    [512, 300],
+    [440, 300],
+    [396, 290],
+    [360, 300],
+    [346, 322],
+  ] as [number, number][],
 } as const;
 
 const PASTELS = ['#9fc6d8', '#e8c5c0', '#f0e2b0', '#b9d8bf', '#d8d2e8', '#f4f0e8'];

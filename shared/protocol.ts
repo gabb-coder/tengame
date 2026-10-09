@@ -43,6 +43,13 @@ export interface CarState {
   braking: boolean;
 }
 
+/** Something a player's character is doing, shown to everyone. */
+export const ACTS = ['dance', 'talk', 'interact', 'pickup', 'fish', 'hit', 'jet'] as const;
+export type Act = (typeof ACTS)[number];
+/** Things a player can carry or wear. */
+export const GEARS = ['jetpack'] as const;
+export type Gear = (typeof GEARS)[number];
+
 /** A player walking around. Present only while out of the car. */
 export interface AvatarState {
   /** Feet position. */
@@ -51,8 +58,13 @@ export interface AvatarState {
   yaw: number;
   /** Horizontal speed in m/s, drives the walk animation. */
   speed: number;
-  /** Sitting down (on a sofa, chair or bed); `p` and `yaw` place the sitting body. */
+  /** Sitting down (on a sofa, chair, bench, or a ride); `p` and `yaw` place the sitting body. */
   seated?: boolean;
+  /** Swimming. */
+  swim?: boolean;
+  /** Dancing, chatting, fishing, flying a jetpack... */
+  act?: Act;
+  gear?: Gear;
 }
 
 export interface PlayerTransform {
@@ -108,7 +120,13 @@ export interface SwitchRequestMessage {
   on: boolean;
 }
 
-export type ClientMessage = JoinMessage | StateMessage | DoorRequestMessage | SwitchRequestMessage | ChatRequestMessage | TimeRequestMessage;
+/** Ask to use one of the shared buttons out in the world (see shared/activities.ts). Must be on foot and near it. */
+export interface TriggerRequestMessage {
+  type: 'trigger';
+  id: string;
+}
+
+export type ClientMessage = JoinMessage | StateMessage | DoorRequestMessage | SwitchRequestMessage | TriggerRequestMessage | ChatRequestMessage | TimeRequestMessage;
 
 // ---- server -> client ----
 
@@ -126,6 +144,11 @@ export interface WelcomeMessage {
   scores: Record<string, number>;
   mission: MissionState | null;
   clock: Clock;
+  /**
+   * The server's wall clock (ms) when this was sent. Timed things (rides, eruptions, rocket
+   * launches) run on it, so they're in the same place on every player's screen.
+   */
+  now: number;
 }
 
 /** The clock was changed (someone skipped time). */
@@ -213,6 +236,14 @@ export interface SwitchMessage {
   on: boolean;
 }
 
+/** Someone used a shared button: everyone plays what happens (a bell rings, fireworks go up). */
+export interface TriggerMessage {
+  type: 'trigger';
+  id: string;
+  /** Who pressed it. */
+  by: string;
+}
+
 export interface PlayerJoinedMessage {
   type: 'player_joined';
   player: PlayerInfo;
@@ -243,6 +274,7 @@ export type ServerMessage =
   | SnapshotMessage
   | DoorMessage
   | SwitchMessage
+  | TriggerMessage
   | ChatMessage
   | NoticeMessage
   | MissionMessage

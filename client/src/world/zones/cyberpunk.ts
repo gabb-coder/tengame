@@ -2,7 +2,12 @@ import * as THREE from 'three';
 import { CYBERPUNK } from '../../../../shared/zones/cyberpunk.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, flatRect, IDENTITY, MeshBuilder, placement } from '../town/meshBuilder.ts';
+import { game, onTrigger } from '../../game/link.ts';
+import { AVATAR } from '../../player/character.ts';
+import { ballistic, benchSeats, buttonActivity, zoneSeats } from './buttons.ts';
+import { fireworks } from './fireworks.ts';
 import { ChunkedBuilder, cylinderCollider, mulberry32, type ZoneContent, type ZoneContext } from './kit.ts';
+import { buildMonorail } from './monorail.ts';
 
 const NEON = ['#ff2a8a', '#2af0ff', '#b44aff', '#ffe02a', '#2aff8a', '#ff6a2a'];
 const SIGN_WORDS = ['NEON', 'RAMEN', 'HOTEL', '24/7', 'CYBER', 'BAR', 'SUSHI', 'ARCADE', 'NOODLES', 'KARAOKE', 'CLINIC', 'DATA', 'PIXEL', 'VOLT', 'ZENITH', 'OPEN'];
@@ -28,6 +33,7 @@ export function buildCyberpunk(ctx: ZoneContext): ZoneContent {
     const helixBlock = Math.abs(cx - h.x) < 5 && Math.abs(cz - h.z) < 5;
     const marketBlock = Math.abs(cx - CYBERPUNK.market.x) < 5 && Math.abs(cz - CYBERPUNK.market.z) < 5;
     const zenith = Math.abs(cx - CYBERPUNK.zenith.x) < 5 && Math.abs(cz - CYBERPUNK.zenith.z) < 5;
+    const skypark = Math.abs(cx - CYBERPUNK.skypark.x) < 5 && Math.abs(cz - CYBERPUNK.skypark.z) < 5;
     // Sidewalk slab (the Helix plaza is level with the street so cars can drive in).
     if (!helixBlock) {
       b.add(box(maxX - minX, CURB, maxZ - minZ, 3), zm.roads.cobble, placement(cx, CURB / 2, cz), '#6a6a72');
@@ -38,6 +44,10 @@ export function buildCyberpunk(ctx: ZoneContext): ZoneContent {
     if (helixBlock) continue;
     if (marketBlock) {
       buildMarket(ctx, b, signs, cx, cz);
+      continue;
+    }
+    if (skypark) {
+      buildSkypark(ctx, b, facade);
       continue;
     }
     // Towers: one giant, or a few of varying heights.
@@ -83,8 +93,14 @@ export function buildCyberpunk(ctx: ZoneContext): ZoneContent {
   buildHelix(ctx, b, signs, signMat);
   const train = buildMonorail(ctx, b);
   const traffic = new FlyingTraffic();
+  const pad = buildBouncePad(ctx, b);
 
-  group.add(b.build('cyberpunk'), signs.build('cyber-signs'), train.group, traffic.mesh);
+  // Fireworks from the top of the Helix, over the whole city.
+  game.activities.add(buttonActivity('cyberpunk/fireworks'));
+  const top = h.rise * h.turns;
+  onTrigger('cyberpunk/fireworks', () => fireworks.show(new THREE.Vector3(h.x, top + 1, h.z - (h.inner + h.outer) / 2 + 3), 18, 60));
+
+  group.add(b.build('cyberpunk'), signs.build('cyber-signs'), train.group, traffic.mesh, pad.mesh);
   for (const [i, c] of NEON.entries()) {
     lights.add({ position: new THREE.Vector3(260 + i * 60, 8, -100 + (i % 3) * 100), color: c, intensity: 30, range: 26 });
   }
@@ -95,8 +111,9 @@ export function buildCyberpunk(ctx: ZoneContext): ZoneContent {
       facade.userData.time.value = view.time;
       signMat.userData.time.value = view.time;
       screen.update(view.dt);
-      train.update(view.time);
-      traffic.update(view.time);
+      train.update();
+      traffic.update(view.clock);
+      pad.update(view.dt);
     },
   };
 }
@@ -246,67 +263,75 @@ function buildHelix(ctx: ZoneContext, b: ChunkedBuilder, signs: MeshBuilder, sig
   b.add(box(1.2, 0.03, 8), zm.glow, placement(h.x + R, 0.04, h.z + h.outer + 6), '#2af0ff', { castShadow: false });
 }
 
-/** An elevated monorail loop with a train gliding around it. */
-function buildMonorail(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(t: number): void } {
-  const { physics, zm } = ctx;
-  const r = CYBERPUNK.monorail;
-  const y = r.height;
-  const corners: [number, number][] = [
-    [r.minX, r.minZ],
-    [r.maxX, r.minZ],
-    [r.maxX, r.maxZ],
-    [r.minX, r.maxZ],
-  ];
-  const streets = (v: number, list: readonly number[]) => list.some((s) => Math.abs(v - s) < 9);
-  for (let i = 0; i < 4; i++) {
-    const [x0, z0] = corners[i];
-    const [x1, z1] = corners[(i + 1) % 4];
-    const len = Math.hypot(x1 - x0, z1 - z0);
-    const yaw = Math.atan2(x1 - x0, z1 - z0);
-    b.add(box(1.6, 1.4, len + 1.6, 2), zm.paint, placement((x0 + x1) / 2, y, (z0 + z1) / 2, yaw), '#3a3e46');
-    b.add(box(1.7, 0.15, len + 1.7), zm.glow, placement((x0 + x1) / 2, y - 0.75, (z0 + z1) / 2, yaw), '#b44aff');
-    for (let s = 0; s <= len; s += 30) {
-      const px = x0 + ((x1 - x0) * s) / len;
-      const pz = z0 + ((z1 - z0) * s) / len;
-      if (streets(px, CYBERPUNK.avenues) || streets(pz, CYBERPUNK.streets)) continue;
-      b.add(new THREE.CylinderGeometry(0.8, 1, y, 10).translate(0, y / 2, 0), zm.paint, placement(px, 0, pz), '#2e3238');
-      cylinderCollider(physics, px, 0, pz, 1, y - 1);
-    }
+/**
+ * The Skypark: a lower tower with a garden on its roof, reached by the neon bounce pad on
+ * the sidewalk below.
+ */
+function buildSkypark(ctx: ZoneContext, b: ChunkedBuilder, facade: THREE.Material): void {
+  const { physics, zm, m } = ctx;
+  const sp = CYBERPUNK.skypark;
+  const top = sp.h;
+  b.add(box(sp.w, top - CURB, sp.d, 1), facade, placement(sp.x, CURB + (top - CURB) / 2, sp.z), '#262a34');
+  boxCollider(physics, IDENTITY, { x: sp.x, y: top / 2, z: sp.z }, { x: sp.w, y: top, z: sp.d });
+  b.add(box(sp.w + 0.3, 0.4, sp.d + 0.3), zm.glow, placement(sp.x, top - 0.2, sp.z), '#2aff8a');
+  // A parapet round the roof, with glowing caps.
+  for (const [x, z, w, d] of [
+    [sp.x, sp.z - sp.d / 2 + 0.2, sp.w, 0.4],
+    [sp.x, sp.z + sp.d / 2 - 0.2, sp.w, 0.4],
+    [sp.x - sp.w / 2 + 0.2, sp.z, 0.4, sp.d],
+    [sp.x + sp.w / 2 - 0.2, sp.z, 0.4, sp.d],
+  ]) {
+    b.add(box(w, 1.1, d, 1), zm.paint, placement(x, top + 0.55, z), '#3a3e46');
+    b.add(box(w + 0.05, 0.08, d + 0.05), zm.glow, placement(x, top + 1.12, z), '#2aff8a');
+    boxCollider(physics, IDENTITY, { x, y: top + 0.6, z }, { x: w, y: 1.2, z: d });
   }
-  const group = new THREE.Group();
-  const cars: THREE.Group[] = [];
-  const body = new THREE.MeshStandardMaterial({ color: '#e8ecf0', roughness: 0.3, metalness: 0.4 });
-  const windows = new THREE.MeshStandardMaterial({ color: '#101820', emissive: '#2af0ff', emissiveIntensity: 0.8 });
-  for (let k = 0; k < 4; k++) {
-    const car = new THREE.Group();
-    const shell = new THREE.Mesh(new THREE.CapsuleGeometry(1.5, 9, 6, 12).rotateX(Math.PI / 2), body);
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(3.05, 0.9, 9), windows);
-    glass.position.y = 0.3;
-    shell.castShadow = true;
-    car.add(shell, glass);
-    group.add(car);
-    cars.push(car);
+  // The garden: lawns, glowing trees, a pond and benches.
+  b.add(box(sp.w - 4, 0.12, sp.d - 4, 2), m.foliage, placement(sp.x, top + 0.06, sp.z), '#3f7a3a', { castShadow: false });
+  b.add(new THREE.CylinderGeometry(4, 4, 0.08, 28), zm.water, placement(sp.x - 6, top + 0.14, sp.z - 6));
+  const rng = mulberry32(114);
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    const x = sp.x + Math.cos(a) * 13;
+    const z = sp.z + Math.sin(a) * 13;
+    b.add(new THREE.CylinderGeometry(0.12, 0.18, 2.6, 6).translate(0, 1.3, 0), m.bark, placement(x, top, z));
+    b.add(new THREE.IcosahedronGeometry(1.4, 1), zm.glow, placement(x, top + 3.2, z), NEON[Math.floor(rng() * NEON.length)]);
+    cylinderCollider(physics, x, top, z, 0.25, 2.6);
   }
-  const perimeter = 2 * (r.maxX - r.minX + r.maxZ - r.minZ);
-  const at = (s: number) => {
-    s = ((s % perimeter) + perimeter) % perimeter;
-    for (let i = 0; i < 4; i++) {
-      const [x0, z0] = corners[i];
-      const [x1, z1] = corners[(i + 1) % 4];
-      const len = Math.hypot(x1 - x0, z1 - z0);
-      if (s <= len) return { x: x0 + ((x1 - x0) * s) / len, z: z0 + ((z1 - z0) * s) / len, yaw: Math.atan2(x1 - x0, z1 - z0) };
-      s -= len;
-    }
-    return { x: corners[0][0], z: corners[0][1], yaw: 0 };
-  };
+  for (const [x, z, yaw] of [[sp.x + 4, sp.z - 2, Math.PI / 2], [sp.x - 2, sp.z + 6, Math.PI]] as const) {
+    const M = placement(x, top, z, yaw);
+    b.add(box(2.4, 0.45, 0.7, 1), zm.paint, M.clone().multiply(placement(0, 0.22, 0)), '#3a3e46');
+    boxCollider(physics, M, { x: 0, y: 0.22, z: 0 }, { x: 2.4, y: 0.45, z: 0.7 });
+    const side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    zoneSeats.push(...benchSeats(`cyberpunk/skypark${x}`, { x: x - side.x * 0.8, z: z - side.z * 0.8 }, { x: x + side.x * 0.8, z: z + side.z * 0.8 }, top + 0.5, top, yaw, 'bench'));
+  }
+}
+
+/** The neon bounce pad: step on it and it flings you up onto the Skypark's roof. */
+function buildBouncePad(ctx: ZoneContext, b: ChunkedBuilder): { mesh: THREE.Mesh; update(dt: number): void } {
+  const { zm } = ctx;
+  const p = CYBERPUNK.bouncePad;
+  const sp = CYBERPUNK.skypark;
+  b.add(new THREE.CylinderGeometry(1.6, 1.8, 0.2, 24), zm.paint, placement(p.x, CURB + 0.1, p.z), '#22262e');
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 1.4, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.5, 2.4, 1.2), toneMapped: false, transparent: true }));
+  ring.position.set(p.x, CURB + 0.22, p.z);
+  // An arrow on the wall pointing up.
+  b.add(box(1.2, 6, 0.1), zm.glow, placement(p.x, CURB + 6, sp.z + sp.d / 2 + 0.1), '#2aff8a');
+  const target = new THREE.Vector3(sp.x, sp.h + 0.2, sp.z);
+  let cooldown = 0;
+  let flash = 0;
   return {
-    group,
-    update(t) {
-      cars.forEach((car, k) => {
-        const p = at(t * 22 - k * 12.5);
-        car.position.set(p.x, y + 2.3, p.z);
-        car.rotation.y = p.yaw;
-      });
+    mesh: ring,
+    update(dt) {
+      cooldown -= dt;
+      flash = Math.max(0, flash - dt * 2);
+      ring.scale.setScalar(1 + flash * 0.4 + Math.sin(performance.now() / 300) * 0.05);
+      const me = game.player.position;
+      if (cooldown > 0 || !game.player.onFoot || !game.player.grounded) return;
+      if (Math.hypot(me.x - p.x, me.z - p.z) > 1.4 || me.y > CURB + 0.6) return;
+      cooldown = 1.5;
+      flash = 1;
+      game.launch(ballistic(me, target, 1.31, AVATAR.gravity));
+      game.sounds?.whoosh(me, 1.4);
     },
   };
 }

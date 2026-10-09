@@ -47,6 +47,12 @@ export class AvatarModel {
   private human: Human | null = null;
   /** Sitting on something (see placeSeated). */
   seated = false;
+  /** In the water, swimming. */
+  swimming = false;
+  /** A clip to play instead of standing about (see Human.action); cleared when a one-shot ends. */
+  action: string | null = null;
+  /** Things worn or carried, hung on the realistic person's bones once they're loaded. */
+  private gear = new Map<string, { make: () => { bone: string; object: THREE.Object3D }; object: THREE.Object3D | null; on: boolean }>();
   /** Called when the realistic person replaces the simple one (to dress them up). */
   onHuman: (human: Human) => void = () => {};
 
@@ -135,15 +141,42 @@ export class AvatarModel {
     this.root.remove(this.body);
     this.root.add(this.human.root);
     this.onHuman(this.human);
+    for (const [name, g] of this.gear) if (g.on) this.setGear(name, true, g.make);
+  }
+
+  /**
+   * Shows or hides a piece of gear (a fishing rod, a jetpack). `make` builds it the first
+   * time: the object and the bone it hangs on (see Human.attach).
+   */
+  setGear(name: string, on: boolean, make: () => { bone: string; object: THREE.Object3D }): void {
+    let g = this.gear.get(name);
+    if (!g) this.gear.set(name, (g = { make, object: null, on }));
+    g.on = on;
+    if (on && !g.object && this.human) {
+      const { bone, object } = make();
+      if (this.human.attach(bone, object)) g.object = object;
+    }
+    if (g.object) g.object.visible = on;
+  }
+
+  /** The gear object, if it's been made (to animate it, e.g. a jetpack's flames). */
+  gearObject(name: string): THREE.Object3D | null {
+    return this.gear.get(name)?.object ?? null;
   }
 
   /** Advances the walk cycle. `speed` in m/s; `airborne` tucks the legs. */
   animate(speed: number, dt: number, airborne = false): void {
     if (this.human) {
       this.human.seated = this.seated;
+      this.human.swimming = this.swimming;
+      if (this.human.action !== this.action) this.human.action = this.action;
       this.human.animate(speed, dt, airborne);
+      // A one-shot that finished clears itself.
+      this.action = this.human.action;
       return;
     }
+    // The simple body can't dance or wave; one-shots end at once.
+    if (this.action && !this.action.endsWith('_Loop')) this.action = null;
     if (this.seated) {
       // Thighs forward, arms resting: as close to sitting as this simple body gets.
       for (const leg of this.legs) leg.rotation.x = -1.45;

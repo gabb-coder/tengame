@@ -3,8 +3,12 @@ import { smoothstep } from '../../../../shared/noise.ts';
 import { ARCTIC } from '../../../../shared/zones/arctic.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, placement } from '../town/meshBuilder.ts';
-import { grazer, Herd, loopMover, penguin } from './creatures.ts';
+import { TRIGGERS_BY_ID } from '../../../../shared/activities.ts';
+import { game, onTrigger } from '../../game/link.ts';
+import { buttonActivity } from './buttons.ts';
+import { grazer, Herd, loopMover, penguin, runner } from './creatures.ts';
 import { ChunkedBuilder, compose, conifer, cylinderCollider, instanced, mulberry32, Placement, rockGeometry, type ZoneContent, type ZoneContext } from './kit.ts';
+import { lineActivities, loopCurve, TransitLine, type VehicleState } from './transit.ts';
 
 /** Frostfang Tundra: snowy forest, glaciers, igloos, the outpost, and the aurora. */
 export function buildArctic(ctx: ZoneContext): ZoneContent {
@@ -16,6 +20,9 @@ export function buildArctic(ctx: ZoneContext): ZoneContent {
   const lake = ARCTIC.lake;
   place.avoid({ type: 'circle', x: lake.x, z: lake.z, r: lake.r + 8 });
   place.avoid({ type: 'circle', x: ARCTIC.camp.x, z: ARCTIC.camp.z, r: 44 });
+  // The dog sled trail.
+  const trail = ARCTIC.sledTrail.map(([x, z]) => ({ x, y: 0, z }));
+  place.avoid({ type: 'path', path: [...trail, trail[0]], width: 12 });
 
   // Snow-laden spruce forest.
   const tree = conifer(true);
@@ -82,15 +89,16 @@ export function buildArctic(ctx: ZoneContext): ZoneContent {
   // The outpost: radio mast with a red light, fuel drums and a snowcat shed.
   const ox = ARCTIC.x + 175;
   const oz = ARCTIC.outpostZ - 22;
+  const base = terrain.heightAt(ox, oz) - 0.2;
   for (let k = 0; k < 4; k++) {
-    const y = k * 6;
+    const y = base + k * 6;
     b.add(new THREE.CylinderGeometry(0.06, 0.06, 6, 4).translate(0, 3, 0), m.darkMetal, placement(ox - 0.6, y, oz - 0.6));
     b.add(new THREE.CylinderGeometry(0.06, 0.06, 6, 4).translate(0, 3, 0), m.darkMetal, placement(ox + 0.6, y, oz - 0.6));
     b.add(new THREE.CylinderGeometry(0.06, 0.06, 6, 4).translate(0, 3, 0), m.darkMetal, placement(ox, y, oz + 0.6));
     b.add(box(1.4, 0.08, 1.4), m.darkMetal, placement(ox, y + 6, oz));
   }
-  b.add(new THREE.SphereGeometry(0.35, 10, 8), zm.glow, placement(ox, 24.4, oz), '#ff2a1a');
-  cylinderCollider(physics, ox, 0, oz, 1, 24);
+  b.add(new THREE.SphereGeometry(0.35, 10, 8), zm.glow, placement(ox, base + 24.4, oz), '#ff2a1a');
+  cylinderCollider(physics, ox, base, oz, 1, 24);
   for (let i = 0; i < 6; i++) {
     const x = ARCTIC.x + 40 + (i % 3) * 1.3;
     const z = ARCTIC.outpostZ - 14 - Math.floor(i / 3) * 1.3;
@@ -141,14 +149,195 @@ export function buildArctic(ctx: ZoneContext): ZoneContent {
   const aurora = new Aurora();
   group.add(aurora.mesh);
 
+  const sleds = buildSleds(ctx);
+  group.add(sleds.group);
+  const flare = buildFlare(ctx, b);
+  group.add(flare.group);
+
   return {
     id: 'arctic',
     group,
     update(view) {
-      reindeer.update(view.time, view.camera.position);
-      penguins.update(view.time, view.camera.position);
+      reindeer.update(view.clock, view.camera.position);
+      penguins.update(view.clock, view.camera.position);
       aurora.update(view.time, view.night);
-      observatoryDome.rotation.y = view.time * 0.02;
+      observatoryDome.rotation.y = view.clock * 0.02;
+      sleds.update(view.clock, view.camera.position);
+      flare.update(view.dt);
+    },
+  };
+}
+
+/** Dog sleds: two teams of six huskies pulling a sled round the lake, from the igloo camp. */
+function buildSleds(ctx: ZoneContext): { group: THREE.Group; update(t: number, camera: THREE.Vector3): void } {
+  const { zm, m, terrain } = ctx;
+  const ground = (x: number, z: number) => terrain.heightAt(x, z);
+  // Points every few meters so the sled hugs the snow.
+  const rough = loopCurve(ARCTIC.sledTrail.map(([x, z]) => new THREE.Vector3(x, 0, z)));
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i < 160; i++) {
+    const p = rough.getPointAt(i / 160);
+    pts.push(p.setY(ground(p.x, p.z)));
+  }
+  const curve = loopCurve(pts);
+  const [sx, sz] = ARCTIC.sledTrail[0];
+  const board = new THREE.Vector3(sx + 2.6, ground(sx + 2.6, sz), sz - 1.5);
+  const line = new TransitLine(curve, [{ name: 'Igloo Camp', at: 0, dwell: 12, board, exit: board }], 8, 2);
+  const group = new THREE.Group();
+  const sleds: THREE.Group[] = [];
+  const wood = new THREE.MeshStandardMaterial({ color: '#8a5a32', roughness: 0.8 });
+  const blanket = new THREE.MeshStandardMaterial({ color: '#b8302a', roughness: 1 });
+  for (let v = 0; v < line.vehicles; v++) {
+    const sled = new THREE.Group();
+    const add = (g: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0) => {
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      sled.add(mesh);
+    };
+    for (const x of [-0.45, 0.45]) add(box(0.06, 0.06, 2.9), m.darkMetal, x, 0.05, -0.1);
+    for (const z of [-1.1, -0.2, 0.7]) for (const x of [-0.45, 0.45]) add(box(0.05, 0.35, 0.05), wood, x, 0.22, z);
+    add(box(1, 0.06, 2.2), wood, 0, 0.4, -0.1);
+    add(box(0.9, 0.25, 1.4), blanket, 0, 0.55, 0.1);
+    add(box(0.05, 0.4, 1.6), wood, -0.48, 0.65, 0.1);
+    add(box(0.05, 0.4, 1.6), wood, 0.48, 0.65, 0.1);
+    for (const x of [-0.42, 0.42]) add(box(0.05, 0.9, 0.05), wood, x, 0.85, -1.15);
+    add(box(0.9, 0.05, 0.05), wood, 0, 1.3, -1.15);
+    // The front curls up.
+    add(new THREE.TorusGeometry(0.3, 0.03, 6, 10, Math.PI / 2).rotateY(Math.PI / 2), m.darkMetal, 0.45, 0.35, 1.35);
+    add(new THREE.TorusGeometry(0.3, 0.03, 6, 10, Math.PI / 2).rotateY(Math.PI / 2), m.darkMetal, -0.45, 0.35, 1.35);
+    group.add(sled);
+    sleds.push(sled);
+  }
+  // Six dogs per sled, in pairs ahead of it on a gangline.
+  const state = { position: new THREE.Vector3(), yaw: 0, pitch: 0, stopped: null, next: line.stops[0], wait: 0, vehicle: 0 } as VehicleState;
+  const furs = ['#e8e4dc', '#5a5a5e', '#8a6a4a', '#d8d0c4', '#3a3a3e', '#c8b8a0'];
+  const dogs = new Herd(runner('husky', '#e8e4dc'), 12, (i, t, out) => {
+    const pair = Math.floor((i % 6) / 2);
+    const side = i % 2 ? 1 : -1;
+    line.state(t, Math.floor(i / 6), -(2.4 + pair * 1.4), state);
+    out.x = state.position.x + Math.cos(state.yaw) * side * 0.38;
+    out.z = state.position.z - Math.sin(state.yaw) * side * 0.38;
+    out.y = ground(out.x, out.z);
+    out.yaw = state.yaw;
+    out.pitch = 0;
+    out.roll = 0;
+    return true;
+  });
+  for (let i = 0; i < 12; i++) for (let p = 0; p < 6; p++) dogs.tint(i, p, furs[i % furs.length]);
+  group.add(dogs.group);
+  const lines = sleds.map(() => {
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({ length: 4 }, () => new THREE.Vector3())), new THREE.LineBasicMaterial({ color: '#3a2a1a' }));
+    l.frustumCulled = false;
+    group.add(l);
+    return l;
+  });
+  const matrix = (s: VehicleState) => {
+    const y = ground(s.position.x, s.position.z);
+    return new THREE.Matrix4().makeRotationY(s.yaw).setPosition(s.position.x, y, s.position.z);
+  };
+  game.activities.add(
+    ...lineActivities(
+      line,
+      {
+        name: 'dog sled',
+        verb: 'Ride the dog sled',
+        seats: [new THREE.Vector3(0, 0.72, -0.15)],
+        pose: 'sit',
+        reach: 3.5,
+        hopOff: (s) => {
+          const x = s.position.x + Math.cos(s.yaw) * 1.6;
+          const z = s.position.z - Math.sin(s.yaw) * 1.6;
+          return new THREE.Vector3(x, ground(x, z) + 0.1, z);
+        },
+      },
+      matrix,
+    ),
+  );
+  const p = new THREE.Vector3();
+  return {
+    group,
+    update(t, camera) {
+      sleds.forEach((sled, v) => {
+        line.state(t, v, 0, state);
+        sled.matrixAutoUpdate = false;
+        sled.matrix.copy(matrix(state));
+        sled.matrixWorldNeedsUpdate = true;
+        // The gangline from the sled's nose to the lead dogs.
+        const pos = lines[v].geometry.attributes.position as THREE.BufferAttribute;
+        for (let k = 0; k < 4; k++) {
+          line.state(t, v, k === 0 ? -1.4 : -(2.4 + (k - 1) * 1.4), state);
+          p.set(state.position.x, ground(state.position.x, state.position.z) + 0.45, state.position.z);
+          pos.setXYZ(k, p.x, p.y, p.z);
+        }
+        pos.needsUpdate = true;
+      });
+      dogs.update(t, camera);
+    },
+  };
+}
+
+/** The signal flare by the outpost's mast: it soars up and hangs there, burning red. */
+function buildFlare(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(dt: number): void } {
+  const { zm, m, terrain } = ctx;
+  const f = TRIGGERS_BY_ID.get('arctic/flare')!;
+  const y0 = terrain.heightAt(f.x, f.z);
+  const post = { x: f.x - 1.4, z: f.z - 1.2 };
+  b.add(box(0.5, 1.1, 0.5, 1), zm.paint, placement(post.x, y0 + 0.55, post.z), '#c8302a');
+  b.add(new THREE.CylinderGeometry(0.12, 0.12, 0.9, 10, 1, true).rotateX(0.2).translate(0, 1.4, 0), m.darkMetal, placement(post.x, y0, post.z));
+  const group = new THREE.Group();
+  const glowTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d')!;
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.3, 'rgba(255,120,90,0.6)');
+    grad.addColorStop(1, 'rgba(255,40,20,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  })();
+  const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: '#ff5a3a', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  flare.scale.setScalar(9);
+  const light = new THREE.PointLight('#ff3a1a', 0, 260, 1.1);
+  flare.add(light);
+  flare.visible = false;
+  group.add(flare);
+  const trail = new Float32Array(40 * 3);
+  const trailLine = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(trail, 3)), new THREE.LineBasicMaterial({ color: '#ffd0b0', transparent: true, opacity: 0.5 }));
+  trailLine.frustumCulled = false;
+  trailLine.visible = false;
+  group.add(trailLine);
+  let t = -1;
+  game.activities.add(buttonActivity('arctic/flare'));
+  onTrigger('arctic/flare', () => {
+    t = 0;
+    for (let k = 0; k < 40; k++) trail.set([post.x, y0 + 1.5, post.z], k * 3);
+    game.sounds?.flare(new THREE.Vector3(post.x, y0 + 1.5, post.z));
+  });
+  return {
+    group,
+    update(dt) {
+      if (t < 0) return;
+      t += dt;
+      // Up in 2.5 s, then drifting down slowly while it burns.
+      const h = t < 2.5 ? 75 * (1 - (1 - t / 2.5) ** 2) : 75 - (t - 2.5) * 2.2;
+      flare.position.set(post.x + t * 1.2, y0 + 1.5 + h, post.z + t * 0.6);
+      flare.visible = true;
+      const burn = t < 2.5 ? 0.4 : Math.max(0, 1 - (t - 12) / 2);
+      flare.scale.setScalar(4 + 6 * burn + Math.sin(t * 30) * 0.5);
+      light.intensity = burn * 6000;
+      trailLine.visible = t < 6;
+      for (let k = 39; k > 0; k--) trail.copyWithin(k * 3, (k - 1) * 3, k * 3);
+      trail.set([flare.position.x, flare.position.y, flare.position.z], 0);
+      trailLine.geometry.attributes.position.needsUpdate = true;
+      if (t > 14) {
+        t = -1;
+        flare.visible = false;
+        trailLine.visible = false;
+        trail.fill(0);
+      }
     },
   };
 }

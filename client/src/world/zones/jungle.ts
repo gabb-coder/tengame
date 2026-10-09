@@ -4,6 +4,9 @@ import { boxCollider } from '../town/colliders.ts';
 import { box, IDENTITY, placement } from '../town/meshBuilder.ts';
 import { circleMover, flyer, Herd } from './creatures.ts';
 import { ChunkedBuilder, compose, cylinderCollider, fern, hull, instanced, mulberry32, palms, Placement, Puffs, rockGeometry, type ZoneContent, type ZoneContext } from './kit.ts';
+import type { Mount } from '../../game/activities.ts';
+import { game, onTrigger } from '../../game/link.ts';
+import { buttonActivity, zoneSeats } from './buttons.ts';
 
 const MOSS = '#7a8a62';
 const STONE = '#8a8a78';
@@ -18,6 +21,9 @@ export function buildJungle(ctx: ZoneContext): ZoneContent {
   const place = new Placement('jungle');
   const t = JUNGLE.temple;
   place.avoid({ type: 'rect', minX: t.x - 36, maxX: t.x + 36, minZ: t.z - 30, maxZ: t.z + 32 });
+  // A clear corridor through the canopy for the zipline.
+  const zip = JUNGLE.zipline;
+  place.avoid({ type: 'path', path: [{ x: zip.from.x, y: 0, z: zip.from.z }, { x: zip.to.x, y: 0, z: zip.to.z }], width: 18 });
   const area = { minX: -598, maxX: -205, minZ: -198, maxZ: 198 };
 
   // Giant rainforest trees: tall trunks, buttress roots and broad layered crowns.
@@ -75,6 +81,9 @@ export function buildJungle(ctx: ZoneContext): ZoneContent {
   group.add(instanced(rockGeometry(161, 1, 0.5), zm.mossy, riverRocks.map((s) => ({ matrix: compose(s.x, ground(s.x, s.z), s.z, s.rng() * 6, 0.8 + s.rng() * 1.8), color: '#9aa088' }))));
 
   buildTemple(ctx, b);
+  const gong = buildGong(ctx, b);
+  const zipline = buildZipline(ctx, b);
+  group.add(gong.group, zipline.group);
 
   // A canoe on the lagoon and a ranger's tent by the shore.
   const L = JUNGLE.lagoon;
@@ -114,8 +123,10 @@ export function buildJungle(ctx: ZoneContext): ZoneContent {
     id: 'jungle',
     group,
     update(view) {
-      parrots.update(view.time, view.camera.position);
-      butterflies.update(view.time, view.camera.position);
+      parrots.update(view.clock, view.camera.position);
+      butterflies.update(view.clock, view.camera.position);
+      gong.update(view.dt);
+      zipline.update(view.dt);
       spray.update(view.time);
       fall.update(view.time);
       canoe.position.y = JUNGLE.riverLevel + 0.15 + Math.sin(view.time * 0.9) * 0.05;
@@ -191,6 +202,135 @@ function buildTemple(ctx: ZoneContext, b: ChunkedBuilder): void {
       cylinderCollider(physics, x, 0, z, 1, 6);
     } else b.add(new THREE.CylinderGeometry(0.9, 0.9, 5, 12).rotateZ(Math.PI / 2), zm.mossy, placement(x, 0.8, z, rng() * 3), MOSS);
   }
+}
+
+/** A bronze gong on the temple's top platform: strike it and the whole jungle hears. */
+function buildGong(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(dt: number): void } {
+  const { zm } = ctx;
+  const t = JUNGLE.temple;
+  const x = t.x - 4.4;
+  const z = t.z + 4.4;
+  const y = t.height;
+  // A carved wooden frame.
+  for (const side of [-1, 1]) b.add(box(0.22, 2.8, 0.22, 1), zm.planks, placement(x + side * 1.05, y + 1.4, z), '#5a3a22');
+  b.add(box(2.6, 0.24, 0.26, 1), zm.planks, placement(x, y + 2.8, z), '#5a3a22');
+  const group = new THREE.Group();
+  group.position.set(x, y + 2.7, z);
+  const disc = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.85, 0.85, 0.06, 32).rotateX(Math.PI / 2).translate(0, -1.15, 0),
+    new THREE.MeshStandardMaterial({ color: '#c09040', metalness: 0.95, roughness: 0.3 }),
+  );
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 8).scale(1, 1, 0.4).translate(0, -1.15, 0.03), disc.material);
+  disc.castShadow = true;
+  group.add(disc, boss);
+  game.activities.add(buttonActivity('jungle/gong'));
+  let swing = -1;
+  onTrigger('jungle/gong', () => {
+    swing = 0;
+    game.sounds?.gong(new THREE.Vector3(x, y + 1.6, z));
+  });
+  return {
+    group,
+    update(dt) {
+      if (swing < 0) return;
+      swing += dt;
+      const amp = Math.exp(-swing / 1.6) * 0.25;
+      group.rotation.x = Math.sin(swing * 5) * amp;
+      group.rotation.z = Math.sin(swing * 23) * amp * 0.08;
+      if (amp < 0.005) swing = -1;
+    },
+  };
+}
+
+/**
+ * The zipline: from a post on top of the temple, over the canopy and across the river,
+ * down to a landing deck by the lagoon. Hang on and whizz down.
+ */
+function buildZipline(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(dt: number): void } {
+  const { physics, zm, m, terrain } = ctx;
+  const z = JUNGLE.zipline;
+  const startTop = new THREE.Vector3(z.from.x, z.from.y + 4.2, z.from.z);
+  const groundEnd = terrain.heightAt(z.to.x, z.to.z);
+  const endTop = new THREE.Vector3(z.to.x, groundEnd + 5.2, z.to.z);
+  const length = startTop.distanceTo(endTop);
+  const sag = length * 0.03;
+  /** The cable at fraction u from the top. */
+  const cable = (u: number, out = new THREE.Vector3()) => out.lerpVectors(startTop, endTop, u).setY(startTop.y + (endTop.y - startTop.y) * u - Math.sin(Math.PI * u) * sag);
+  // Posts at both ends, and the landing deck.
+  const post = (p: THREE.Vector3, from: number) => {
+    b.add(new THREE.CylinderGeometry(0.18, 0.24, p.y - from + 0.6, 8).translate(0, (p.y - from + 0.6) / 2, 0), zm.planks, placement(p.x, from, p.z), '#5a3a22');
+    cylinderCollider(physics, p.x, from, p.z, 0.24, p.y - from);
+  };
+  post(startTop, z.from.y);
+  post(endTop, groundEnd - 0.5);
+  const deck = { x: z.to.x + Math.sign(z.to.x - z.from.x) * 2.2, z: z.to.z + Math.sign(z.to.z - z.from.z) * 2.2 };
+  const deckY = groundEnd + 0.4;
+  b.add(box(5, 0.3, 5, 1), zm.planks, placement(deck.x, deckY - 0.15, deck.z), '#8a6440');
+  boxCollider(physics, IDENTITY, { x: deck.x, y: deckY - 0.5, z: deck.z }, { x: 5, y: 1, z: 5 });
+  // The cable itself.
+  const pts = Array.from({ length: 60 }, (_, i) => cable(i / 59));
+  const wire = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 120, 0.025, 4), m.darkMetal);
+  const group = new THREE.Group();
+  group.add(wire);
+  // A trolley and harness seat that carries the rider down.
+  const trolley = new THREE.Group();
+  trolley.add(new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.2, 0.4), m.darkMetal));
+  for (const side of [-0.18, 0.18]) {
+    const strap = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.2, 4).translate(0, -0.6, 0), new THREE.MeshStandardMaterial({ color: '#e8b030' }));
+    strap.position.x = side;
+    trolley.add(strap);
+  }
+  trolley.visible = false;
+  group.add(trolley);
+
+  let riding: Mount | null = null;
+  let u = 0;
+  let speed = 0;
+  const top = new THREE.Vector3(z.from.x + 0.9, z.from.y, z.from.z + 0.9);
+  const yaw = Math.atan2(endTop.x - startTop.x, endTop.z - startTop.z);
+  game.activities.add({
+    position: top,
+    reach: 2.2,
+    prompt: () => (riding || !game.player.onFoot ? null : { action: 'Ride the zipline', detail: 'down to the lagoon' }),
+    use: () => {
+      u = 0.002;
+      speed = 0;
+      const mount: Mount = {
+        position: new THREE.Vector3(),
+        yaw,
+        pose: 'sit',
+        label: 'zipline',
+        ride: true,
+        update: () => mount.position.copy(cable(u)).y -= 1.25,
+        blocked: () => (u < 0.995 ? 'Wheee!' : null),
+        done: () => u >= 1,
+        exit: () => new THREE.Vector3(deck.x, deckY + 0.05, deck.z),
+        left: () => {
+          riding = null;
+          trolley.visible = false;
+        },
+      };
+      riding = mount;
+      trolley.visible = true;
+      game.ride(mount);
+      game.sounds?.whoosh(top, 1.5);
+    },
+  });
+  // Something to sit on while you get your breath back at the bottom.
+  zoneSeats.push({ id: 'jungle/zipline-log', position: new THREE.Vector3(deck.x, deckY + 0.45, deck.z - 1.8), yaw: 0, floorY: deckY, label: 'bench' });
+  b.add(box(2, 0.42, 0.5, 1), zm.planks, placement(deck.x, deckY + 0.2, deck.z - 2), '#6a4a2a');
+  return {
+    group,
+    update(dt) {
+      if (!riding) return;
+      // Pick up speed down the cable, braking near the bottom.
+      const brake = u > 0.9 ? (1 - u) / 0.1 : 1;
+      speed = Math.min(speed + 6 * dt, 16 * brake + 2);
+      u = Math.min(1, u + (speed * dt) / length);
+      trolley.position.copy(cable(u));
+      trolley.rotation.y = yaw;
+    },
+  };
 }
 
 /** A curtain of falling water, its texture streaming downward. */

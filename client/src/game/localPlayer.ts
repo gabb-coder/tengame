@@ -1,15 +1,17 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { APPLIANCE_REACH, type ApplianceKind, TV_REMOTE_REACH } from '../../../shared/appliances.ts';
-import { type AvatarState, DOOR_REACH } from '../../../shared/protocol.ts';
+import { type Act, type AvatarState, DOOR_REACH } from '../../../shared/protocol.ts';
+import { zoneAt } from '../../../shared/world.ts';
 import { doorPosition } from '../../../shared/town.ts';
 import type { Sounds } from '../audio/sounds.ts';
 import { ChaseCamera } from '../camera/chaseCamera.ts';
 import { OrbitCamera } from '../camera/orbitCamera.ts';
 import type { Input } from '../input.ts';
 import { CAMERA_RAY_GROUPS } from '../net/remotePlayers.ts';
+import { rodTip, showAct } from '../player/acts.ts';
 import { AvatarModel } from '../player/avatarModel.ts';
-import { CharacterPhysics } from '../player/character.ts';
+import { AVATAR, CharacterPhysics } from '../player/character.ts';
 import { Car } from '../vehicles/car.ts';
 import { CAR, type CarControls } from '../vehicles/carPhysics.ts';
 import type { Appliances } from '../world/appliances.ts';
@@ -17,6 +19,7 @@ import type { Doors } from '../world/doors.ts';
 import { nearestSeat, type Seat } from '../world/seats.ts';
 import type { World } from '../world/world.ts';
 import { placeEffects } from '../world/zones/index.ts';
+import type { Activities, Activity, Mount, Prompt } from './activities.ts';
 
 /** How close (meters from the car's center) you must be to get in. */
 const CAR_REACH = 3.2;
@@ -24,6 +27,14 @@ const CAR_REACH = 3.2;
 const MAX_EXIT_SPEED = 3; // m/s
 const PARKED: CarControls = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 const HIDDEN_FEET = new THREE.Vector3(0, -50, 0);
+const STILL = new THREE.Vector3();
+/** A jetpack's tank lasts this long at full thrust, and refills this fast on the ground. */
+const JET_SECONDS = 7;
+const REFUEL_SECONDS = 3;
+/** Jetpack thrust, as a multiple of the local gravity. */
+const JET_THRUST = 2.2;
+/** How long one-shot moves take to play. */
+const ONE_SHOT_SECONDS: Partial<Record<Act, number>> = { interact: 1.4, pickup: 1.8, hit: 1.1 };
 
 export type Mode = 'car' | 'foot';
 
@@ -35,7 +46,9 @@ export type Interaction =
   | { kind: 'door'; houseId: string; address: string; open: boolean }
   | { kind: 'sit'; seat: Seat }
   | { kind: 'stand' }
+  | { kind: 'leave'; label: string; blocked: string | null }
   | { kind: 'switch'; id: string; appliance: ApplianceKind; on: boolean }
+  | { kind: 'activity'; activity: Activity; prompt: Prompt }
   | null;
 
 /** The player's own car and character, and switching between them. */
@@ -53,15 +66,30 @@ export class LocalPlayer {
   requestDoor: (houseId: string, open: boolean) => void = () => {};
   /** Called when the player asks to switch a TV, lamp or stove; the server decides. */
   requestSwitch: (id: string, on: boolean) => void = () => {};
-  /** Things to sit on and switch; set once the world is built. */
+  /** Things to sit on and switch, and things to do out in the world; set once the world is built. */
   seats: Seat[] = [];
   appliances: Appliances | null = null;
+  activities: Activities | null = null;
   /** Where other players are sitting, so we don't sit on them. */
   takenSeats: () => THREE.Vector3[] = () => [];
-  /** The seat we're sitting on, if any. */
-  private seat: Seat | null = null;
+  /** What we're sitting or riding on, if anything. */
+  private mount: Mount | null = null;
   /** Walking speed as a fraction of normal (slowed when freezing). */
   speedScale = 1;
+  /** Dancing (G): until you move. */
+  dancing = false;
+  /** Typing in chat: shown to others as talking. */
+  chatting = false;
+  /** In the water. */
+  swimming = false;
+  /** A borrowed jetpack: fuel left (0..1), and whether it's firing. */
+  jetpack: { fuel: number; thrusting: boolean } | null = null;
+  /** Something done standing in one place (fishing): any move key stops it. */
+  private task: { act: Act; yaw: number; stop: () => void } | null = null;
+  /** A quick move playing (pressing a button, picking something up), and time left. */
+  private oneShot: { act: Act; left: number } | null = null;
+  private shownAct: Act | null = null;
+  private time = 0;
 
   constructor(
     private world: World,
@@ -95,28 +123,49 @@ export class LocalPlayer {
       return;
     }
     this.car.step(PARKED, dt, carPlace);
+    // On a ride the body is out of the physics world; on a seat it waits where it stood.
+    if (this.mount?.ride) return;
     const feet = this.character.feet;
     const place = placeEffects(feet.x, feet.y + 1.2, feet.z);
-    if (this.seat) {
-      this.character.step(new THREE.Vector3(), false, false, dt, place);
+    this.swimming = place.underwater;
+    const c = input.foot;
+    if (this.task && (c.forward || c.strafe || c.jump)) this.stopTask();
+    if (this.mount || this.task) {
+      if (this.task) this.character.yaw = this.task.yaw;
+      this.character.step(STILL, false, false, dt, place);
       return;
     }
-    const c = input.foot;
     const { forward, right } = this.orbit.basis;
     const move = forward.multiplyScalar(c.forward).addScaledVector(right, c.strafe);
     if (move.lengthSq() > 1) move.normalize();
     move.multiplyScalar(this.speedScale);
-    this.character.step(move, c.run, c.jump, dt, place);
+    // The jetpack only works on the alien world (its fuel beacons don't reach further).
+    let thrust = 0;
+    const jet = this.jetpack;
+    if (jet) {
+      jet.thrusting = c.jump && jet.fuel > 0 && !place.underwater && zoneAt(feet.x, feet.z) === 'space';
+      if (jet.thrusting) {
+        thrust = AVATAR.gravity * place.gravity * JET_THRUST;
+        jet.fuel = Math.max(0, jet.fuel - dt / JET_SECONDS);
+      } else if (this.character.grounded) jet.fuel = Math.min(1, jet.fuel + dt / REFUEL_SECONDS);
+    }
+    this.character.step(move, c.run, c.jump, dt, place, thrust);
   }
 
   /** Per-frame update after physics: interactions, models and camera. */
   update(input: Input, dt: number): void {
-    // Any move key gets you up from a seat.
+    this.time += dt;
+    // Any move key gets you up from a seat (rides only let you off with E).
     const c = input.foot;
-    if (this.seat && (c.forward || c.strafe || c.jump)) this.stand();
+    const moving = c.forward || c.strafe || c.jump;
+    if (this.mount && !this.mount.ride && moving) this.leave();
+    if (this.mount?.done?.()) this.leave(true);
+    if (this.mode === 'foot' && input.wasPressed('KeyG') && !this.mount && !this.task) this.dancing = !this.dancing;
+    if (moving || this.mode !== 'foot' || this.mount || this.task) this.dancing = false;
+    if (this.oneShot && (this.oneShot.left -= dt) <= 0) this.oneShot = null;
     this.interaction = this.findInteraction();
     if (input.wasPressed('KeyE')) this.interact();
-    if (this.seat && input.wasPressed('KeyR')) this.useRemote();
+    if (this.mount && !this.mount.ride && input.wasPressed('KeyR')) this.useRemote();
     if (this.mode === 'car' && !this.frozen) {
       if (input.wasPressed('KeyR')) this.car.reset();
       if (input.wasPressed('KeyT')) this.car.respawn();
@@ -129,10 +178,19 @@ export class LocalPlayer {
     } else {
       const look = input.takeLook(dt);
       this.orbit.turn(look.yaw, look.pitch);
-      if (this.seat) {
-        this.avatar.seated = true;
+      const act = this.act;
+      showAct(this.avatar, act, this.jetpack ? 'jetpack' : null, this.swimming && !this.mount, this.shownAct, this.time);
+      this.shownAct = act;
+      if (this.mount) {
+        const m = this.mount;
+        m.update?.();
+        this.avatar.seated = m.pose === 'sit';
         this.avatar.animate(0, dt);
-        this.avatar.placeSeated(this.seat.position, this.seat.yaw);
+        if (m.pose === 'sit') this.avatar.placeSeated(m.position, m.yaw);
+        else {
+          this.avatar.root.position.copy(m.position);
+          this.avatar.root.rotation.y = m.yaw;
+        }
         this.orbit.update(this.avatar.root.position);
         return;
       }
@@ -140,9 +198,100 @@ export class LocalPlayer {
       const feet = this.character.feet;
       this.avatar.root.position.copy(feet);
       this.avatar.root.rotation.y = this.character.yaw;
-      this.avatar.animate(this.character.speed, dt, !this.character.grounded);
+      this.avatar.animate(this.character.speed, dt, !this.character.grounded && !this.swimming);
       this.orbit.update(feet);
     }
+  }
+
+  /** What the character is doing, for its animation and for the other players. */
+  get act(): Act | null {
+    if (this.mode !== 'foot') return null;
+    if (this.oneShot) return this.oneShot.act;
+    if (this.task) return this.task.act;
+    if (this.jetpack?.thrusting) return 'jet';
+    if (this.dancing) return 'dance';
+    if (this.chatting && !this.mount?.ride) return 'talk';
+    return null;
+  }
+
+  /** Plays a quick move: pressing a button, picking something up, being knocked back. */
+  playOnce(act: Act): void {
+    if (this.mode !== 'foot' || this.mount?.ride) return;
+    this.oneShot = { act, left: ONE_SHOT_SECONDS[act] ?? 1.2 };
+  }
+
+  /** Gets on a ride (or a seat that isn't furniture). */
+  ride(mount: Mount): void {
+    if (this.mode !== 'foot') return;
+    this.stopTask();
+    this.dancing = false;
+    if (this.mount) this.leave(true);
+    this.mount = mount;
+    if (mount.ride) this.character.setEnabled(false);
+  }
+
+  /** Whether we're on `mount` right now. */
+  riding(mount?: Mount): boolean {
+    return mount ? this.mount === mount : !!this.mount?.ride;
+  }
+
+  /** Gets off whatever we're on (unless it won't let us, or `force`). */
+  leave(force = false): void {
+    const m = this.mount;
+    if (!m) return;
+    if (!force && m.blocked?.()) return;
+    this.mount = null;
+    this.avatar.seated = false;
+    if (m.ride) {
+      const exit = m.exit?.() ?? this.avatar.root.position.clone();
+      this.character.setEnabled(true);
+      this.character.teleport(exit, m.yaw);
+      const push = m.release?.();
+      if (push) this.character.launch(push);
+    }
+    m.left?.();
+  }
+
+  /** Starts something done standing still, facing `yaw` (fishing); `stop` is called when it ends. */
+  startTask(act: Act, yaw: number, stop: () => void): void {
+    this.dancing = false;
+    this.task = { act, yaw, stop };
+  }
+
+  stopTask(): void {
+    const task = this.task;
+    this.task = null;
+    task?.stop();
+  }
+
+  /** Throws the walking character through the air (m/s), e.g. from a trebuchet. */
+  launch(v: THREE.Vector3Like): void {
+    if (this.mode !== 'foot') return;
+    if (this.mount) this.leave(true);
+    this.stopTask();
+    this.dancing = false;
+    this.character.launch(v);
+  }
+
+  /** Teleports the walking character (feet at `p`). */
+  placeAt(p: THREE.Vector3Like, yaw: number): void {
+    if (this.mode !== 'foot') return;
+    this.character.teleport(p, yaw);
+  }
+
+  /** Straps a jetpack on, or gives it back. */
+  wearJetpack(on: boolean): void {
+    this.jetpack = on ? { fuel: 1, thrusting: false } : null;
+  }
+
+  /** Where the tip of the fishing rod is, while fishing. */
+  rodTip(out: THREE.Vector3): THREE.Vector3 | null {
+    return this.mode === 'foot' ? rodTip(this.avatar, out) : null;
+  }
+
+  /** Whether the character is standing on something (not flying, falling or swimming). */
+  get grounded(): boolean {
+    return this.character.grounded;
   }
 
   /** Where the camera's attention is, for the sun's shadow area. */
@@ -157,17 +306,24 @@ export class LocalPlayer {
 
   get avatarState(): AvatarState | null {
     if (this.mode === 'car') return null;
-    if (this.seat) {
+    const extra: Partial<AvatarState> = {};
+    const act = this.act;
+    if (act) extra.act = act;
+    if (this.jetpack) extra.gear = 'jetpack';
+    if (this.swimming && !this.mount) extra.swim = true;
+    if (this.mount) {
       const p = this.avatar.root.position;
-      return { p: [round(p.x), round(p.y), round(p.z)], yaw: round(this.seat.yaw), speed: 0, seated: true };
+      const seated = this.mount.pose === 'sit' ? { seated: true } : {};
+      return { p: [round(p.x), round(p.y), round(p.z)], yaw: round(this.mount.yaw), speed: 0, ...seated, ...extra };
     }
     const f = this.character.feet;
-    return { p: [round(f.x), round(f.y), round(f.z)], yaw: round(this.character.yaw), speed: round(this.character.speed) };
+    return { p: [round(f.x), round(f.y), round(f.z)], yaw: round(this.character.yaw), speed: round(this.character.speed), ...extra };
   }
 
   /** Puts the player in their car at a race grid slot. */
   lineUp(position: THREE.Vector3, yaw: number): void {
-    this.stand();
+    this.leave(true);
+    this.stopTask();
     if (this.mode === 'foot') this.enterCar();
     this.car.teleport(position, yaw);
     this.chase.snap();
@@ -178,7 +334,8 @@ export class LocalPlayer {
     if (this.mode === 'car') {
       return Math.abs(this.car.physics.speed) <= MAX_EXIT_SPEED ? { kind: 'exit-car' } : { kind: 'too-fast' };
     }
-    if (this.seat) return { kind: 'stand' };
+    if (this.mount?.ride) return { kind: 'leave', label: this.mount.label, blocked: this.mount.blocked?.() ?? null };
+    if (this.mount) return { kind: 'stand' };
     // What we look at (with the camera) wins, then what's closest: a door, the car, a seat
     // or an appliance. So beside a sofa with a lamp, look at the lamp to switch it.
     const feet = this.character.feet;
@@ -202,27 +359,21 @@ export class LocalPlayer {
       const { id, kind, world } = appliance.appliance;
       add(appliance.distance, world, { kind: 'switch', id, appliance: kind, on: this.appliances!.isOn(id) });
     }
+    for (const a of this.activities?.within(feet) ?? []) add(a.distance, a.activity.position, { kind: 'activity', activity: a.activity, prompt: a.prompt });
     options.sort((a, b) => a.score - b.score);
     return options[0]?.interaction ?? null;
   }
 
   /** The TV a seated player can reach with the remote, if any. */
   get remoteTv(): { id: string; on: boolean } | null {
-    if (!this.seat || !this.appliances) return null;
-    const tv = this.appliances.nearest(this.seat.position, TV_REMOTE_REACH, 'tv');
+    if (!this.mount || this.mount.ride || !this.appliances) return null;
+    const tv = this.appliances.nearest(this.mount.position, TV_REMOTE_REACH, 'tv');
     return tv && { id: tv.appliance.id, on: this.appliances.isOn(tv.appliance.id) };
   }
 
   private sit(seat: Seat): void {
-    this.seat = seat;
+    this.ride({ position: seat.position, yaw: seat.yaw, pose: 'sit', label: seat.label });
     this.sounds.sit(seat.position);
-  }
-
-  /** Gets up from a seat, back where we stood before sitting. */
-  private stand(): void {
-    if (!this.seat) return;
-    this.seat = null;
-    this.avatar.seated = false;
   }
 
   private interact(): void {
@@ -231,8 +382,11 @@ export class LocalPlayer {
     else if (i?.kind === 'enter-car') this.enterCar();
     else if (i?.kind === 'door') this.requestDoor(i.houseId, !i.open);
     else if (i?.kind === 'sit') this.sit(i.seat);
-    else if (i?.kind === 'stand') this.stand();
-    else if (i?.kind === 'switch') this.requestSwitch(i.id, !i.on);
+    else if (i?.kind === 'stand' || i?.kind === 'leave') this.leave();
+    else if (i?.kind === 'switch') {
+      this.requestSwitch(i.id, !i.on);
+      this.playOnce('interact');
+    } else if (i?.kind === 'activity' && !i.prompt.waiting) i.activity.use();
   }
 
   /** R while seated: the TV remote. */
@@ -256,6 +410,9 @@ export class LocalPlayer {
   }
 
   private enterCar(): void {
+    this.stopTask();
+    this.dancing = false;
+    this.oneShot = null;
     this.mode = 'car';
     this.car.engineOn = true;
     this.character.teleport(HIDDEN_FEET);

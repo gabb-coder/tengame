@@ -2,13 +2,17 @@ import * as THREE from 'three';
 import { PREHISTORIC } from '../../../../shared/zones/prehistoric.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, placement } from '../town/meshBuilder.ts';
-import { ceratopsian, circleMover, flyer, Herd, loopMover, mammoth, sauropod, theropod } from './creatures.ts';
+import { zoneAt } from '../../../../shared/world.ts';
+import type { Mount } from '../../game/activities.ts';
+import { worldSeconds } from '../../game/clock.ts';
+import { game } from '../../game/link.ts';
+import { ceratopsian, circleMover, flyer, Herd, loopMover, mammoth, type Mover, type Placement as Pose, sauropod, theropod } from './creatures.ts';
 import { ChunkedBuilder, compose, cylinderCollider, fern, instanced, mergeAll, mulberry32, palms, Placement, Puffs, rockGeometry, type ZoneContent, type ZoneContext } from './kit.ts';
 import { ribbon } from './roads.ts';
 
 /** One eruption every this many seconds, at the same moment for everyone. */
-const ERUPT_EVERY = 180;
-const ERUPTION = 14;
+export const ERUPT_EVERY = 180;
+export const ERUPTION = 14;
 
 /** The Primeval Valley: volcano, cave, springs, fossils, and the creatures of the past. */
 export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
@@ -20,6 +24,8 @@ export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
   const place = new Placement('prehistoric');
   const v = PREHISTORIC.volcano;
   place.avoid({ type: 'circle', x: PREHISTORIC.cave.x, z: PREHISTORIC.cave.z, r: PREHISTORIC.cave.r + 6 });
+  for (const g of PREHISTORIC.geysers) place.avoid({ type: 'circle', x: g.x, z: g.z, r: 4 });
+  place.avoid({ type: 'circle', x: -404, z: 392, r: 4 });
   const area = { minX: -598, maxX: -205, minZ: 205, maxZ: 598 };
 
   // Lava flows: glowing rivers running down the volcano's outer flanks.
@@ -83,10 +89,17 @@ export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
   glow.position.set(v.x, v.lava + 12, v.z);
   group.add(glow);
 
-  // The beasts.
+  // The beasts. The long-necks carry riders; the big hunter chases anyone who comes too near.
+  const sauropods = new Herd(sauropod(), 4, loopMover([[-420, 330], [-452, 382], [-422, 432], [-382, 420], [-392, 352]], 1.4, terrain, { spacing: 16, spread: 6 }), [1, 0.9, 1.1, 0.7]);
+  const saddles = buildSaddles(ctx, sauropods);
+  group.add(saddles.group);
+  const rex = new Rex(loopMover([[-240, 380], [-220, 452], [-262, 484], [-302, 440], [-282, 382]], 3.4, terrain), ground);
+  const geysers = buildGeysers(ctx, b);
+  group.add(geysers.group);
+  buildNest(ctx, b);
   const herds = [
-    new Herd(sauropod(), 4, loopMover([[-420, 330], [-452, 382], [-422, 432], [-382, 420], [-392, 352]], 1.4, terrain, { spacing: 16, spread: 6 }), [1, 0.9, 1.1, 0.7]),
-    new Herd(theropod(), 1, loopMover([[-240, 380], [-220, 452], [-262, 484], [-302, 440], [-282, 382]], 3.4, terrain), [1.15]),
+    sauropods,
+    new Herd(theropod(), 1, rex.mover, [1.15]),
     new Herd(theropod('#4a6a52', '#9aa080'), 4, loopMover([[-230, 300], [-262, 352], [-322, 352], [-302, 290]], 7, terrain, { spacing: 3, spread: 2 }), [0.32, 0.3, 0.34, 0.31], 260),
     new Herd(ceratopsian(), 3, loopMover([[-470, 250], [-502, 302], [-462, 332], [-430, 282]], 1.2, terrain, { spacing: 10, spread: 4 })),
     new Herd(mammoth(), 4, loopMover([[-560, 230], [-582, 300], [-542, 342], [-520, 262]], 1.1, terrain, { spacing: 9, spread: 5 }), [1, 1.1, 0.8, 0.6]),
@@ -99,7 +112,10 @@ export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
     group,
     update(view) {
       const t = view.time;
-      for (const h of herds) h.update(t, view.camera.position);
+      rex.update(view.dt, view.clock);
+      for (const h of herds) h.update(view.clock, view.camera.position);
+      saddles.update(view.clock);
+      geysers.update(view.clock, view.dt);
       const phase = view.clock % ERUPT_EVERY;
       const erupting = phase < ERUPTION;
       smoke.update(t, erupting ? 1.6 : 1);
@@ -109,6 +125,206 @@ export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
       glowMat.opacity = (0.12 + view.night * 0.45) * (erupting ? 1.6 : 1) * (0.9 + 0.1 * Math.sin(t * 2.1));
     },
   };
+}
+
+/**
+ * The T. rex: it roams its loop, but if you come close it roars and gives chase. Catch
+ * someone on foot and it sends them flying. (Each player sees their own chase.)
+ */
+class Rex {
+  readonly mover: Mover;
+  private mode: 'roam' | 'chase' | 'return' = 'roam';
+  private pos = new THREE.Vector3();
+  private yaw = 0;
+  private timer = 0;
+  private cooldown = 0;
+  private roam: Pose = { x: 0, y: 0, z: 0, yaw: 0 };
+
+  constructor(
+    private loop: Mover,
+    private ground: (x: number, z: number) => number,
+  ) {
+    this.mover = (i, t, out) => {
+      if (this.mode === 'roam') return loop(i, t, out);
+      out.x = this.pos.x;
+      out.z = this.pos.z;
+      out.y = ground(out.x, out.z);
+      out.yaw = this.yaw;
+      out.pitch = 0;
+      out.roll = 0;
+      return true;
+    };
+  }
+
+  update(dt: number, clock: number): void {
+    this.cooldown -= dt;
+    const me = game.player.position;
+    this.loop(0, clock, this.roam);
+    if (this.mode === 'roam') {
+      this.pos.set(this.roam.x, this.roam.y, this.roam.z);
+      this.yaw = this.roam.yaw;
+      const near = Math.hypot(me.x - this.pos.x, me.z - this.pos.z) < 42;
+      if (near && this.cooldown <= 0 && zoneAt(me.x, me.z) === 'prehistoric' && me.y < this.pos.y + 6) {
+        this.mode = 'chase';
+        this.timer = 16;
+        game.sounds?.roar(this.pos);
+        game.notice('The T. rex has seen you. RUN!');
+      }
+      return;
+    }
+    // Chase the player, or head back to where it should be on its loop.
+    const target = this.mode === 'chase' ? me : new THREE.Vector3(this.roam.x, 0, this.roam.z);
+    const dx = target.x - this.pos.x;
+    const dz = target.z - this.pos.z;
+    const d = Math.hypot(dx, dz);
+    const want = Math.atan2(dx, dz);
+    this.yaw += Math.atan2(Math.sin(want - this.yaw), Math.cos(want - this.yaw)) * Math.min(1, dt * 3);
+    const speed = this.mode === 'chase' ? 8.2 : 5;
+    const step = Math.min(d, speed * dt);
+    this.pos.x += Math.sin(this.yaw) * step;
+    this.pos.z += Math.cos(this.yaw) * step;
+    this.timer -= dt;
+    if (this.mode === 'chase') {
+      if (d < 3.4 && game.player.onFoot) {
+        game.launch({ x: (dx / d) * 9, y: 8, z: (dz / d) * 9 });
+        game.playOnce('hit');
+        game.sounds?.roar(this.pos);
+        game.notice('CHOMP! The T. rex sent you flying. It’s lost interest… for now.');
+        this.mode = 'return';
+        this.cooldown = 45;
+      } else if (this.timer <= 0 || d > 90 || zoneAt(me.x, me.z) !== 'prehistoric') {
+        this.mode = 'return';
+        this.cooldown = 30;
+      }
+    } else if (d < 1) this.mode = 'roam';
+  }
+}
+
+/** Saddles on the long-necks' backs, and the "climb on" spot beside each. */
+function buildSaddles(ctx: ZoneContext, herd: Herd): { group: THREE.Group; update(clock: number): void } {
+  const { zm, terrain } = ctx;
+  const group = new THREE.Group();
+  const saddles: THREE.Group[] = [];
+  const blanket = new THREE.MeshStandardMaterial({ color: '#a83a2a', roughness: 1 });
+  const pose: Pose = { x: 0, y: 0, z: 0, yaw: 0 };
+  const where = (i: number, t: number) => {
+    const { scale } = herd.placementOf(i, t, pose);
+    return { x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw, scale };
+  };
+  for (let i = 0; i < 4; i++) {
+    const saddle = new THREE.Group();
+    const cloth = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.12, 16, 1, true, -Math.PI / 2, Math.PI).rotateZ(Math.PI / 2).rotateY(Math.PI / 2).scale(1.2, 1, 1), blanket);
+    cloth.material = new THREE.MeshStandardMaterial({ color: '#a83a2a', roughness: 1, side: THREE.DoubleSide });
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.25, 1), zm.planks);
+    seat.position.y = 0.1;
+    const rail = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.04, 6, 12, Math.PI).rotateY(Math.PI / 2), zm.planks);
+    rail.position.set(0, 0.25, 0.45);
+    saddle.add(cloth, seat, rail);
+    group.add(saddle);
+    saddles.push(saddle);
+    // Climb up from beside it.
+    const at = new THREE.Vector3();
+    game.activities.add({
+      get position() {
+        const p = where(i, worldSeconds());
+        return at.set(p.x, p.y, p.z);
+      },
+      reach: 5,
+      prompt: () => (game.player.onFoot && !game.riding() ? { action: 'Climb onto the Brachiosaurus' } : null),
+      use: () => {
+        const mount: Mount = {
+          position: new THREE.Vector3(),
+          yaw: 0,
+          pose: 'sit',
+          label: 'Brachiosaurus',
+          ride: true,
+          update: () => {
+            const p = where(i, worldSeconds());
+            mount.position.set(p.x + Math.sin(p.yaw) * 0.4 * p.scale, p.y + 7.55 * p.scale, p.z + Math.cos(p.yaw) * 0.4 * p.scale);
+            mount.yaw = p.yaw;
+          },
+          exit: () => {
+            const p = where(i, worldSeconds());
+            const x = p.x + Math.cos(p.yaw) * 3.4 * p.scale;
+            const z = p.z - Math.sin(p.yaw) * 3.4 * p.scale;
+            return new THREE.Vector3(x, terrain.heightAt(x, z) + 0.1, z);
+          },
+        };
+        game.ride(mount);
+      },
+    });
+  }
+  return {
+    group,
+    update(clock) {
+      saddles.forEach((saddle, i) => {
+        const p = where(i, clock);
+        saddle.position.set(p.x + Math.sin(p.yaw) * 0.4 * p.scale, p.y + 7.25 * p.scale, p.z + Math.cos(p.yaw) * 0.4 * p.scale);
+        saddle.rotation.y = p.yaw;
+        saddle.scale.setScalar(Math.max(0.8, p.scale));
+      });
+    },
+  };
+}
+
+/** Geysers by the hot springs: every so often they blast a column of steam into the sky. */
+function buildGeysers(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(clock: number, dt: number): void } {
+  const { zm, terrain } = ctx;
+  const EVERY = 24;
+  const BLOW = 4.5;
+  const group = new THREE.Group();
+  const columnMat = new THREE.MeshStandardMaterial({ color: '#f4f8fa', transparent: true, opacity: 0.55, roughness: 0.3, depthWrite: false });
+  const geysers = PREHISTORIC.geysers.map((g, i) => {
+    const y = terrain.heightAt(g.x, g.z);
+    // A low mound of mineral crust round the vent.
+    b.add(new THREE.CylinderGeometry(0.6, 2.6, 0.7, 18).translate(0, 0.35, 0), zm.sand, placement(g.x, y - 0.2, g.z), '#d8c8a0');
+    b.add(new THREE.CircleGeometry(0.5, 14).rotateX(-Math.PI / 2), zm.water, placement(g.x, y + 0.52, g.z));
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.1, 1, 14, 1, true).translate(0, 0.5, 0), columnMat);
+    column.position.set(g.x, y + 0.5, g.z);
+    column.visible = false;
+    const steam = new Puffs(18, '#f6f8fa', 0.5, { x: g.x, y: y + 1, z: g.z, spread: 0.8, rise: 7, grow: 1.4, life: 3, size: 1.2, wind: [0.3, 0.1] }, 140 + i);
+    group.add(column, steam.mesh);
+    return { x: g.x, y, z: g.z, column, steam, offset: i * 8, blew: -Infinity };
+  });
+  let launchedAt = -Infinity;
+  return {
+    group,
+    update(clock) {
+      const me = game.player.position;
+      for (const g of geysers) {
+        const phase = (clock + g.offset) % EVERY;
+        const blowing = phase < BLOW;
+        const k = blowing ? Math.sin((phase / BLOW) * Math.PI) : 0;
+        g.column.visible = blowing;
+        g.column.scale.set(0.6 + k * 0.5, 0.1 + k * 16, 0.6 + k * 0.5);
+        g.steam.mesh.visible = phase < BLOW + 3;
+        if (g.steam.mesh.visible) g.steam.update(clock, 0.4 + k);
+        if (blowing && clock - g.blew > EVERY / 2) {
+          g.blew = clock;
+          if (Math.hypot(me.x - g.x, me.z - g.z) < 120) game.sounds?.flare(new THREE.Vector3(g.x, g.y + 2, g.z));
+        }
+        // Standing on the vent as it blows: up you go.
+        if (blowing && phase < BLOW - 1 && game.player.onFoot && clock - launchedAt > 2 && Math.hypot(me.x - g.x, me.z - g.z) < 1.8 && me.y < g.y + 1.5) {
+          launchedAt = clock;
+          game.launch({ x: (Math.random() - 0.5) * 3, y: 25, z: (Math.random() - 0.5) * 3 });
+        }
+      }
+    },
+  };
+}
+
+/** A nest of sticks with eggs in it, where the long-necks graze. */
+function buildNest(ctx: ZoneContext, b: ChunkedBuilder): void {
+  const { m, terrain } = ctx;
+  const x = -404;
+  const z = 392;
+  const y = terrain.heightAt(x, z);
+  const rng = mulberry32(131);
+  for (let k = 0; k < 26; k++) {
+    const a = (k / 26) * Math.PI * 2;
+    b.add(new THREE.CylinderGeometry(0.05, 0.06, 1.4, 5).rotateZ(Math.PI / 2 - 0.3), m.bark, placement(x + Math.cos(a) * 1.3, y + 0.15 + (k % 3) * 0.08, z + Math.sin(a) * 1.3, -a + rng() * 0.6));
+  }
+  for (const [ex, ez] of [[-0.4, 0.3], [0.35, 0.2], [0, -0.4]]) b.add(new THREE.SphereGeometry(0.22, 12, 10).scale(0.85, 1.15, 0.85), m.porcelain, placement(x + ex, y + 0.28, z + ez), '#e8dcc0');
 }
 
 /** A soft round glow, bright in the middle and fading to nothing. */

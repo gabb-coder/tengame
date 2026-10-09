@@ -85,6 +85,14 @@ export class Herd {
     this.last = Array.from({ length: count }, () => ({ x: NaN, z: NaN }));
   }
 
+  /**
+   * Where animal `i` is at time `t`, and how big: for riding one. Returns false if it's
+   * hidden. `scale` is the size it's drawn at.
+   */
+  placementOf(i: number, t: number, out: Placement): { visible: boolean; scale: number } {
+    return { visible: this.mover(i, t, out), scale: this.scales[i] ?? 1 };
+  }
+
   /** Tints one animal's part (e.g. a parrot's wings). */
   tint(animal: number, part: number, color: THREE.ColorRepresentation): void {
     this.meshes[part].setColorAt(animal, new THREE.Color(color));
@@ -435,6 +443,37 @@ export function grazer(kind: 'reindeer' | 'camel', color: string): Species {
       out[1] = [camel ? -0.7 + graze * 1.2 : -0.6 + graze * 1.5, 0, 0];
       out[2] = [camel ? 0.75 : 0.5, sin(t * 0.6 + i) * 0.1, 0];
       [0, Math.PI, Math.PI, 0].forEach((off, k) => (out[legs + k] = [sin(a + off) * 0.4, 0, 0]));
+    },
+  };
+}
+
+/** A sled dog (husky) or a horse: four legs, a long head, a wagging tail, at a run. */
+export function runner(kind: 'husky' | 'horse', color: string, mane = '#2a2220'): Species {
+  const horse = kind === 'horse';
+  const s = horse ? 1 : 0.42;
+  const parts: Part[] = [
+    { parent: -1, offset: [0, 1.25 * s, 0], geometry: blob(0.36 * s, 0.4 * s, 0.95 * s), color }, // 0 body
+    { parent: 0, offset: [0, 0.3 * s, 0.8 * s], geometry: tube(0.2 * s, 0.14 * s, 0.75 * s), color }, // 1 neck
+    { parent: 1, offset: [0, 0, 0.72 * s], geometry: blob(0.13 * s, 0.15 * s, 0.34 * s, 0, 0, 0.16 * s), color }, // 2 head
+    { parent: 0, offset: [0, 0.1 * s, -0.9 * s], geometry: tube(0.07 * s, 0.03 * s, horse ? -0.8 : -0.5 * s * 2.2), color: horse ? mane : color }, // 3 tail
+  ];
+  // Ears (husky) or a mane (horse).
+  if (horse) parts.push({ parent: 1, offset: [0, 0.12, 0.2], geometry: blob(0.04, 0.12, 0.45, 0, 0, 0.1), color: mane });
+  else for (const x of [-0.05, 0.05]) parts.push({ parent: 2, offset: [x, 0.08, 0.02], geometry: spike(0.03, 0.09).rotateX(-Math.PI / 2), color });
+  const legs = parts.length;
+  for (const [x, z] of [[0.18, 0.62], [-0.18, 0.62], [0.18, -0.62], [-0.18, -0.62]]) parts.push({ parent: 0, offset: [x * s, -0.2 * s, z * s], geometry: leg(0.08 * s, 0.05 * s, 1.08 * s), color });
+  return {
+    parts,
+    stride: horse ? 3.2 : 1.4,
+    pose(phase, t, i, out) {
+      const a = phase * Math.PI * 2;
+      // A gallop: front legs together, back legs together, half a beat apart.
+      const swing = phase === 0 ? 0 : 0.55;
+      [0, 0.3, Math.PI, Math.PI + 0.3].forEach((off, k) => (out[legs + k] = [sin(a + off) * swing, 0, 0]));
+      out[0] = [sin(a * 2) * 0.04, 0, 0];
+      out[1] = [horse ? -0.75 + sin(a * 2) * 0.06 : -0.35, 0, 0];
+      out[2] = [horse ? 0.95 : 0.3, sin(t * 0.7 + i) * 0.08, 0];
+      out[3] = [horse ? 0.6 : -0.5, sin(t * (horse ? 2 : 8) + i) * 0.4, 0];
     },
   };
 }

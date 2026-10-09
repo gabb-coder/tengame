@@ -45,6 +45,8 @@ export class Room {
   readonly scores = new Map<string, number>();
   readonly missions: MissionManager | null;
   private chatTimes = new Map<string, number[]>();
+  /** When each shared button (bell, cannon...) was last used, in ms. */
+  private fired = new Map<string, number>();
   /** Hours on the clock at `clockSetAt` (real ms). */
   private clockHours = START_HOUR;
   private clockSetAt: number;
@@ -117,6 +119,14 @@ export class Room {
     recent.push(now);
     this.chatTimes.set(player.id, recent);
     this.broadcast({ type: 'chat', id: player.id, name: player.name, text });
+  }
+
+  /** Uses a shared button unless it was used less than `cooldown` seconds ago. */
+  fire(id: string, cooldown: number): boolean {
+    const now = this.now();
+    if (now - (this.fired.get(id) ?? -Infinity) < cooldown * 1000) return false;
+    this.fired.set(id, now);
+    return true;
   }
 
   clock(): Clock {

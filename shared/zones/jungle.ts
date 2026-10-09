@@ -15,6 +15,8 @@ export const JUNGLE = {
   lagoon: { x: -360, z: 72, r: 32 },
   temple: { x: -505, z: -156, base: 30, tiers: 5, height: 18 },
   bridge: { from: { x: -462, z: -26 }, to: { x: -455, z: -74 } },
+  /** A zipline from the top of the temple, over the canopy, down to the lagoon. */
+  zipline: { from: { x: -500.5, y: 18, z: -151.5 }, to: { x: -399, z: 58 } },
 } as const;
 
 /** The river's course, from the foot of the falls to the lagoon. */
@@ -98,6 +100,7 @@ export function jungleLayout(): ZoneLayout {
       { name: 'Thunder Falls', x: J.falls.x, z: J.falls.z, r: 30 },
       { name: 'Emerald Lagoon', x: J.lagoon.x, z: J.lagoon.z, r: J.lagoon.r + 8 },
       { name: 'Rope Bridge', x: (b.from.x + b.to.x) / 2, z: (b.from.z + b.to.z) / 2, r: 18 },
+      { name: 'Zipline Landing', x: J.zipline.to.x, z: J.zipline.to.z, r: 10 },
     ],
     fires,
     ground(x, z) {

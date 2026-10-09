@@ -369,6 +369,9 @@
       "Sprint_Loop": {
         "speed": 8.25
       },
+      "Swim_Fwd_Loop": {
+        "speed": 2.175
+      },
       "Walk_Loop": {
         "speed": 0.975
       }

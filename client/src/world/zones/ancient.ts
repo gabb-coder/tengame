@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { ANCIENT } from '../../../../shared/zones/ancient.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, IDENTITY, placement } from '../town/meshBuilder.ts';
-import { grazer, Herd, loopMover } from './creatures.ts';
+import type { Mount } from '../../game/activities.ts';
+import { worldSeconds } from '../../game/clock.ts';
+import { game } from '../../game/link.ts';
+import { grazer, Herd, loopMover, type Placement as Pose, runner } from './creatures.ts';
+import { lineActivities, TransitLine, type VehicleState } from './transit.ts';
 import { ChunkedBuilder, compose, cylinderCollider, hullOf, instanced, mulberry32, palms, Placement, rockGeometry, withWorldUv, type ZoneContent, type ZoneContext } from './kit.ts';
 
 const TRAVERTINE = '#e6d9bc';
@@ -78,11 +82,145 @@ export function buildAncient(ctx: ZoneContext): ZoneContent {
     ),
   );
   group.add(camels.group);
+  addCamelRides(ctx, camels);
+  const chariots = buildChariots(ctx);
+  group.add(chariots.group);
   return {
     id: 'ancient',
     group,
     update(view) {
-      camels.update(view.time, view.camera.position);
+      camels.update(view.clock, view.camera.position);
+      chariots.update(view.clock, view.camera.position);
+    },
+  };
+}
+
+/** Hop up onto one of the caravan's camels and ride along. */
+function addCamelRides(ctx: ZoneContext, camels: Herd): void {
+  const { terrain } = ctx;
+  const pose: Pose = { x: 0, y: 0, z: 0, yaw: 0 };
+  for (let i = 0; i < 5; i++) {
+    const at = new THREE.Vector3();
+    const where = () => {
+      camels.placementOf(i, worldSeconds(), pose);
+      return pose;
+    };
+    game.activities.add({
+      get position() {
+        const p = where();
+        return at.set(p.x, p.y, p.z);
+      },
+      reach: 2.6,
+      prompt: () => (game.player.onFoot && !game.riding() ? { action: 'Ride the camel' } : null),
+      use: () => {
+        const mount: Mount = {
+          position: new THREE.Vector3(),
+          yaw: 0,
+          pose: 'sit',
+          label: 'camel',
+          ride: true,
+          update: () => {
+            const p = where();
+            mount.position.set(p.x - Math.sin(p.yaw) * 0.25, p.y + 2.55, p.z - Math.cos(p.yaw) * 0.25);
+            mount.yaw = p.yaw;
+          },
+          exit: () => {
+            const p = where();
+            const x = p.x + Math.cos(p.yaw) * 1.4;
+            const z = p.z - Math.sin(p.yaw) * 1.4;
+            return new THREE.Vector3(x, terrain.heightAt(x, z) + 0.1, z);
+          },
+        };
+        game.ride(mount);
+      },
+    });
+  }
+}
+
+/**
+ * Chariots racing round the Colosseum's arena: two of them, three laps a race, pulled by a
+ * pair of horses each. Climb aboard at the west end between races.
+ */
+function buildChariots(ctx: ZoneContext): { group: THREE.Group; update(t: number, camera: THREE.Vector3): void } {
+  const { zm } = ctx;
+  const c = ANCIENT.colosseum;
+  const rx = c.arenaRx - 5;
+  const rz = c.arenaRz - 4;
+  const LAPS = 3;
+  // Three laps of the oval, as one long track that ends where it began.
+  class Laps extends THREE.Curve<THREE.Vector3> {
+    constructor() {
+      super();
+    }
+
+    override getPoint(u: number, out = new THREE.Vector3()): THREE.Vector3 {
+      const a = Math.PI + u * LAPS * Math.PI * 2;
+      return out.set(c.x + Math.cos(a) * rx, 0.05, c.z - Math.sin(a) * rz);
+    }
+  }
+  const track = new Laps();
+  track.arcLengthDivisions = 600;
+  const gate = new THREE.Vector3(c.x - rx - 2.2, 0.05, c.z + 1.2);
+  const line = new TransitLine(track, [{ name: 'West gate', at: 0, dwell: 10, board: gate, exit: gate }], 11, 2);
+  const group = new THREE.Group();
+  const bronze = new THREE.MeshStandardMaterial({ color: '#c08a3e', metalness: 0.85, roughness: 0.35 });
+  const wheelMat = new THREE.MeshStandardMaterial({ color: '#5a3a22', roughness: 0.8 });
+  const chariots: { body: THREE.Group; wheels: THREE.Mesh[] }[] = [];
+  for (let v = 0; v < line.vehicles; v++) {
+    const body = new THREE.Group();
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.1, 1.1), zm.planks);
+    floor.position.y = 0.55;
+    const front = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.9, 16, 1, true, -Math.PI / 2, Math.PI).translate(0, 1.0, 0), bronze);
+    front.material = new THREE.MeshStandardMaterial({ color: v ? '#a8201a' : '#1d3c8a', metalness: 0.4, roughness: 0.5, side: THREE.DoubleSide });
+    const trim = new THREE.Mesh(new THREE.TorusGeometry(0.65, 0.04, 6, 16, Math.PI).rotateX(Math.PI / 2).rotateY(Math.PI / 2), bronze);
+    trim.position.y = 1.45;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.6, 6).rotateX(Math.PI / 2 - 0.15), wheelMat);
+    pole.position.set(0, 0.75, 1.6);
+    body.add(floor, front, trim, pole);
+    const wheels: THREE.Mesh[] = [];
+    for (const side of [-1, 1]) {
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.05, 6, 16), wheelMat);
+      wheel.add(new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.95, 0.04), wheelMat), new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.04, 0.04), wheelMat));
+      wheel.rotation.y = Math.PI / 2;
+      wheel.position.set(side * 0.75, 0.52, -0.1);
+      body.add(wheel);
+      wheels.push(wheel);
+    }
+    body.traverse((o) => (o.castShadow = true));
+    group.add(body);
+    chariots.push({ body, wheels });
+  }
+  // The horses: two abreast in front of each chariot.
+  const state = { position: new THREE.Vector3(), yaw: 0, pitch: 0, stopped: null, next: line.stops[0], wait: 0, vehicle: 0 } as VehicleState;
+  const horses = new Herd(runner('horse', '#f2efe8'), 4, (i, t, out) => {
+    line.state(t, Math.floor(i / 2), -2.6, state);
+    const side = i % 2 ? 1 : -1;
+    out.x = state.position.x + Math.cos(state.yaw) * side * 0.55;
+    out.z = state.position.z - Math.sin(state.yaw) * side * 0.55;
+    out.y = 0.03;
+    out.yaw = state.yaw;
+    out.pitch = 0;
+    out.roll = 0;
+    return true;
+  });
+  const coats = ['#f2efe8', '#2a2220', '#8a5a32', '#f2efe8'];
+  for (let i = 0; i < 4; i++) for (let p = 0; p < 4; p++) horses.tint(i, p, coats[i]);
+  group.add(horses.group);
+  const matrix = (s: VehicleState) => new THREE.Matrix4().makeRotationY(s.yaw).setPosition(s.position.x, 0.03, s.position.z);
+  game.activities.add(
+    ...lineActivities(line, { name: 'chariot', verb: 'Ride in the chariot race', seats: [new THREE.Vector3(0, 0.6, -0.1)], pose: 'stand', reach: 3, hopOff: (s) => new THREE.Vector3(s.position.x + Math.cos(s.yaw) * 1.6, 0.05, s.position.z - Math.sin(s.yaw) * 1.6) }, matrix),
+  );
+  return {
+    group,
+    update(t, camera) {
+      chariots.forEach(({ body, wheels }, v) => {
+        line.state(t, v, 0, state);
+        body.position.set(state.position.x, 0.03, state.position.z);
+        body.rotation.y = state.yaw;
+        const spin = state.stopped ? 0 : t * 22;
+        for (const w of wheels) w.rotation.x = spin;
+      });
+      horses.update(t, camera);
     },
   };
 }

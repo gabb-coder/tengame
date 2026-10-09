@@ -25,6 +25,8 @@ export const SPACE = {
     { x: 520, z: -535, r: 24, depth: 6 },
   ],
   belt: { radius: 190, height: 150 },
+  /** Where to borrow a jetpack: a rack by the habitat's entrance. */
+  jetpacks: { x: 421, z: -489 },
 } as const;
 
 export function spaceLayout(): ZoneLayout {

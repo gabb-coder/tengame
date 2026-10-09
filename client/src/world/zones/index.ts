@@ -17,6 +17,9 @@ import { buildOcean } from './ocean.ts';
 import { buildPrehistoric } from './prehistoric.ts';
 import { buildSpace } from './space.ts';
 import { Npcs } from './npcs.ts';
+import { buildPark } from './park.ts';
+import { fireworks } from './fireworks.ts';
+import { worldSeconds } from '../../game/clock.ts';
 import { Weather } from './weather.ts';
 
 /** Zones are only animated while the camera is this close to their middle. */
@@ -66,13 +69,13 @@ export class Zones {
     this.group.name = 'zones';
     this.lights = new LightPool(scene);
     const ctx: ZoneContext = { scene, physics, m, zm, terrain, media, lights: this.lights };
-    for (const build of [buildArctic, buildMedieval, buildSpace, buildJungle, buildCyberpunk, buildPrehistoric, buildAncient, buildOcean]) {
+    for (const build of [buildPark, buildArctic, buildMedieval, buildSpace, buildJungle, buildCyberpunk, buildPrehistoric, buildAncient, buildOcean]) {
       const content = build(ctx);
       this.contents.push(content);
       this.group.add(content.group);
     }
     this.npcs = new Npcs(terrain);
-    this.group.add(this.weather.group, this.npcs.group);
+    this.group.add(this.weather.group, this.npcs.group, fireworks.points);
     scene.add(this.group);
     this.group.traverse((o) => {
       if ((o as THREE.Mesh).isMesh && o.userData.maxDistance) this.details.push(o as THREE.Mesh);
@@ -86,7 +89,7 @@ export class Zones {
   update(dt: number, camera: THREE.Camera, focus: THREE.Vector3, night: number, sheltered = false): Ambience {
     this.time += dt;
     const cam = camera.position;
-    const view = { dt, time: this.time, clock: Date.now() / 1000, camera, focus, night };
+    const view = { dt, time: this.time, clock: worldSeconds(), camera, focus, night };
     for (const c of this.contents) {
       const z = ZONES[c.id];
       const near = Math.max(Math.abs(cam.x - z.x), Math.abs(cam.z - z.z)) < ACTIVE_RANGE;
@@ -95,6 +98,7 @@ export class Zones {
     }
     this.lights.update(dt, cam);
     this.npcs.update(dt, cam);
+    fireworks.update(dt);
     this.sinceDetail += dt;
     if (this.sinceDetail > 0.3) {
       this.sinceDetail = 0;

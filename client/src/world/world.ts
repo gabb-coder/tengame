@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { generateWorld, WORLD_HALF } from '../../../shared/world.ts';
 import { DayNight } from './dayNight.ts';
+import { Grass } from './grass.ts';
 import { Terrain } from './terrain.ts';
 import { boxCollider } from './town/colliders.ts';
 import { createTownMaterials, type TownMaterials } from './town/materials.ts';
@@ -27,6 +28,7 @@ export class World {
   readonly terrain: Terrain;
   readonly water: WaterBodies;
   readonly zones: Zones;
+  readonly grass: Grass;
 
   constructor(container: HTMLElement, media: Media) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -51,6 +53,8 @@ export class World {
     this.water = new WaterBodies(layout.waters, this.zoneMaterials);
     this.scene.add(this.water.group);
     this.zones = new Zones(this.scene, this.physics, this.materials, this.zoneMaterials, this.terrain, media);
+    this.grass = new Grass(this.terrain);
+    this.scene.add(this.grass.mesh);
     addBoundary(this.physics);
   }
 

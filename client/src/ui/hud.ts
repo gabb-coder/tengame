@@ -93,7 +93,7 @@ export function renderMode(mode: Mode, pointerLocked: boolean): void {
   foot.hidden = !settings.showHelp || mode !== 'foot';
   const look = pointerLocked ? 'Mouse or arrows look' : 'Click to look with the mouse';
   setHelp(car, [...CAR_HELP, ...COMMON_HELP]);
-  setHelp(foot, ['WASD walk', 'Shift run', 'Space jump', look, 'E interact', ...COMMON_HELP]);
+  setHelp(foot, ['WASD walk', 'Shift run', 'Space jump', look, 'E interact', 'G dance', 'J journal', ...COMMON_HELP]);
   document.querySelector<HTMLElement>('.hud-speed')!.hidden = mode !== 'car';
 }
 
@@ -122,6 +122,12 @@ export function renderPrompt(i: Interaction, remote: { on: boolean } | null = nu
   else if (i?.kind === 'stand') html = `<kbd>E</kbd>Stand up${remote ? `<kbd class="second">R</kbd>TV ${remote.on ? 'off' : 'on'}` : '<small>or move</small>'}`;
   else if (i?.kind === 'switch' && i.appliance === 'fire') html = `<kbd>E</kbd>${i.on ? 'Put out' : 'Light'} the fire`;
   else if (i?.kind === 'switch') html = `<kbd>E</kbd>Turn ${i.on ? 'off' : 'on'} the ${i.appliance === 'tv' ? 'TV' : i.appliance}`;
+  else if (i?.kind === 'leave') html = i.blocked ? `<span class="waiting">${escapeHtml(i.blocked)}</span>` : `<kbd>E</kbd>Get off<small>${escapeHtml(i.label)}</small>`;
+  else if (i?.kind === 'activity') {
+    const { action, detail, waiting } = i.prompt;
+    const small = detail ? `<small>${escapeHtml(detail)}</small>` : '';
+    html = waiting ? `<span class="waiting">${escapeHtml(action)}</span>${small}` : `<kbd>E</kbd>${escapeHtml(action)}${small}`;
+  }
   if (html === lastPrompt) return;
   lastPrompt = html;
   const el = $('hud-prompt');
@@ -179,6 +185,16 @@ export function renderUnderwater(submerged: boolean): void {
 }
 
 /** The Arctic warmth bar (shown while it matters) and frost on the screen's edges. */
+/** The jetpack's fuel gauge (null: no jetpack). */
+export function renderFuel(fuel: number | null): void {
+  const panel = $('hud-fuel');
+  if (panel.hidden !== (fuel === null)) panel.hidden = fuel === null;
+  if (fuel === null) return;
+  const bar = $('hud-fuel-bar');
+  bar.style.width = `${Math.round(fuel * 100)}%`;
+  bar.classList.toggle('low', fuel < 0.2);
+}
+
 export function renderWarmth(value: number, cold: boolean): void {
   const panel = $('hud-warmth');
   const show = cold || value < 100;

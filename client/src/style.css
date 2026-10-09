@@ -1059,3 +1059,163 @@ body.hide-names .name-tag {
   pointer-events: none;
   background: radial-gradient(ellipse at center, rgba(220, 240, 255, 0) 45%, rgba(220, 240, 255, 0.85) 100%);
 }
+
+/* Prompts you can see but not use yet ("The monorail arrives in 12 s"). */
+.hud-prompt .waiting {
+  color: var(--muted);
+}
+
+/* The explorer's journal: relics and fish. */
+.menu-card:has(#menu-journal:not([hidden])) {
+  width: min(560px, 100%);
+}
+
+.journal-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.menu .journal-tabs button {
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.menu .journal-tabs button.active {
+  background: rgba(255, 210, 74, 0.18);
+  color: #ffd24a;
+}
+
+.journal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.journal-zone h3 {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.journal-zone .count {
+  font-variant-numeric: tabular-nums;
+}
+
+.journal-zone .count.complete {
+  color: #ffd24a;
+}
+
+.journal-zone ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.journal-zone li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 14px;
+}
+
+.journal-zone li.found strong {
+  color: #ffe08a;
+}
+
+.journal-zone li.found strong::before {
+  content: '★ ';
+}
+
+.journal-zone li.missing strong {
+  color: var(--muted);
+}
+
+.journal-zone li span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.journal-zone li em {
+  font-style: normal;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+.journal-zone li em.rarity-uncommon {
+  color: #7ad8ff;
+}
+
+.journal-zone li em.rarity-rare {
+  color: #c99aff;
+}
+
+.journal-zone li em.rarity-legendary {
+  color: #ffd24a;
+}
+
+/* People's speech, over their heads. */
+.speech {
+  max-width: 260px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(250, 248, 240, 0.95);
+  color: #1c1e22;
+  font-size: 14px;
+  line-height: 1.35;
+  white-space: normal;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transform: translateY(-50%);
+}
+
+.speech strong {
+  display: block;
+  font-size: 12px;
+  color: #8a5a1a;
+}
+
+/* Jetpack fuel, like the warmth bar. */
+.hud-fuel {
+  position: absolute;
+  right: 16px;
+  bottom: 120px;
+  min-width: 160px;
+}
+
+.fuel-row {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.fuel {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+#hud-fuel-bar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff7a2a, #ffd24a);
+}
+
+#hud-fuel-bar.low {
+  background: #ff5a4a;
+}

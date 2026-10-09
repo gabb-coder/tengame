@@ -10,7 +10,13 @@ import { Input } from './input.ts';
 import { MissionClient } from './game/missions.ts';
 import { Connection } from './net/connection.ts';
 import { RemotePlayers } from './net/remotePlayers.ts';
-import { applyHudSettings, renderClock, renderFps, renderGauges, renderMode, renderPlayerList, renderPrompt, renderUnderwater, renderWarmth, renderZone, showDisconnected, showHud, toggleHelp } from './ui/hud.ts';
+import { applyHudSettings, renderClock, renderFps, renderFuel, renderGauges, renderMode, renderPlayerList, renderPrompt, renderUnderwater, renderWarmth, renderZone, showDisconnected, showHud, toggleHelp } from './ui/hud.ts';
+import { Fishing } from './game/fishing.ts';
+import { AmbientSound } from './audio/ambience.ts';
+import { zoneWeights } from './world/zones/ambience.ts';
+import { ERUPT_EVERY, ERUPTION } from './world/zones/prehistoric.ts';
+import { Relics } from './game/relics.ts';
+import { Journal } from './ui/journal.ts';
 import { FIRE_WARMTH_RANGE, Warmth } from './game/warmth.ts';
 import { Menu } from './ui/menu.ts';
 import { onSettings, settings } from './settings.ts';
@@ -33,6 +39,9 @@ import { CarModel } from './vehicles/carModel.ts';
 import { AvatarModel } from './player/avatarModel.ts';
 import { World } from './world/world.ts';
 import { generateWorld, zoneAt, ZONES } from '../../shared/world.ts';
+import { syncClock, worldSeconds } from './game/clock.ts';
+import { game, playTrigger } from './game/link.ts';
+import { markFired, zoneSeats } from './world/zones/buttons.ts';
 
 const SEND_INTERVAL_MS = 1000 / TICK_RATE;
 const PHYSICS_STEP = 1 / 60;
@@ -76,6 +85,7 @@ runLobby(async ({ name, room, mode }) => {
 });
 
 function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.AudioListener, world: World): void {
+  syncClock(welcome.now);
   // Real furniture replaces the generated stand-ins as the models arrive.
   const furniture = new FurnitureModels(world.town.furniture, media);
 
@@ -104,11 +114,14 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   const applyVolume = () => listener.setMasterVolume(muted ? 0 : settings.volume);
   onSettings((s) => {
     postfx.setQuality(s.quality);
+    world.grass.setQuality(s.quality);
     applyVolume();
     applyHudSettings(s);
   });
 
   const sounds = new Sounds(listener);
+  const ambientSound = new AmbientSound(listener);
+  onSettings((s) => ambientSound.setVolume(s.ambience));
   const doors = new Doors(world.scene, world.town.houses, world.materials, world.physics);
   doors.onSwing = (position, opening) => sounds.door(position, opening);
   for (const id of welcome.openDoors) doors.setOpen(id, true, true);
@@ -125,8 +138,35 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
   player.requestDoor = (id, open) => conn.send({ type: 'door', id, open });
   player.requestSwitch = (id, on) => conn.send({ type: 'switch', id, on });
   player.appliances = appliances;
-  player.seats = world.town.houses.flatMap((h) => seatsOf(h, world.town.interiors.get(h.id)!));
+  player.activities = game.activities;
+  player.seats = [...world.town.houses.flatMap((h) => seatsOf(h, world.town.interiors.get(h.id)!)), ...zoneSeats];
   const car = player.car;
+  // Let the rides, buttons and treasures out in the world reach the player and the server.
+  Object.assign(game, {
+    ride: (mount: Parameters<typeof player.ride>[0]) => player.ride(mount),
+    riding: (mount?: Parameters<typeof player.ride>[0]) => player.riding(mount),
+    launch: (v: THREE.Vector3Like) => player.launch(v),
+    placeAt: (p: THREE.Vector3Like, yaw: number) => player.placeAt(p, yaw),
+    playOnce: (act: Parameters<typeof player.playOnce>[0]) => player.playOnce(act),
+    startTask: (act: Parameters<typeof player.playOnce>[0], yaw: number, stop: () => void) => player.startTask(act, yaw, stop),
+    stopTask: () => player.stopTask(),
+    wearJetpack: (on: boolean) => player.wearJetpack(on),
+    hasJetpack: () => player.jetpack !== null,
+    trigger: (id: string) => conn.send({ type: 'trigger', id }),
+    notice: showNotice,
+    sounds,
+  });
+  game.player.id = me.id;
+
+  // Treasures to find and fish to catch, both written up in the journal.
+  const relics = new Relics();
+  const fishing = new Fishing();
+  fishing.rodTip = (out) => player.rodTip(out);
+  game.activities.add(...fishing.activities());
+  world.scene.add(relics.group, fishing.group);
+  const journal = new Journal(relics.found, fishing.records);
+  relics.onFound = () => journal.render();
+  fishing.onCatch = () => journal.render();
 
   const remotes = new RemotePlayers(world.scene, world.physics, welcome.id, listener);
   welcome.players.forEach((p) => remotes.add(p));
@@ -218,6 +258,10 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
       case 'door':
         doors.setOpen(msg.id, msg.open);
         break;
+      case 'trigger':
+        markFired(msg.id);
+        playTrigger(msg.id, msg.by);
+        break;
       case 'switch': {
         appliances.setOn(msg.id, msg.on);
         const a = appliances.get(msg.id);
@@ -244,6 +288,7 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
       applyVolume();
     }
     if (input.wasPressed('KeyH')) toggleHelp();
+    if (input.wasPressed('KeyJ')) menu.open('journal');
     if (input.wasPressed('KeyF')) {
       if (document.fullscreenElement) void document.exitFullscreen();
       else void document.documentElement.requestFullscreen?.().catch(() => {});
@@ -257,8 +302,20 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     }
     doors.update(dt);
     world.water.update(dt);
+    player.chatting = chat.isOpen;
     player.update(input, dt);
     input.endFrame();
+    game.player.position.copy(player.focus);
+    game.player.onFoot = player.mode === 'foot';
+    game.player.grounded = player.mode === 'foot' && player.grounded;
+    relics.update(dt, world.camera.position);
+    fishing.update(dt);
+    // Jetpacks belong to Outpost Nova: wander off (or drive off) and it goes back.
+    if (player.jetpack && (player.mode === 'car' || zoneAt(player.focus.x, player.focus.z) !== 'space')) {
+      player.wearJetpack(false);
+      showNotice('You left the jetpack at Outpost Nova');
+    }
+    renderFuel(player.jetpack?.fuel ?? null);
 
     if (now - lastSend >= SEND_INTERVAL_MS) {
       conn.send({ type: 'state', ...car.transform, car: car.state, avatar: player.avatarState });
@@ -269,6 +326,19 @@ function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.Au
     missions.update(now, world.camera);
     interiorLights.update(player.focus);
     const ambience = world.zones.update(dt, world.camera, player.focus, world.dayNight.night, interiorLights.inside);
+    const cam = world.camera.position;
+    world.grass.update(dt, cam, player.mode === 'foot' ? player.focus : null);
+    ambientSound.update(dt, {
+      weights: zoneWeights(cam.x, cam.z),
+      night: world.dayNight.night,
+      rain: ambience.weather.rain ?? 0,
+      submerged: world.zones.submerged,
+      sheltered: interiorLights.inside,
+      camera: cam,
+      fire: appliances.nearestFire(cam),
+      erupting: worldSeconds() % ERUPT_EVERY < ERUPTION,
+      jetting: !!player.jetpack?.thrusting,
+    });
     world.dayNight.update(now, dt, player.focus, interiorLights.inside, ambience);
     const zone = ZONES[zoneAt(player.focus.x, player.focus.z)];
     renderZone(zone.name, zone.theme, dt);

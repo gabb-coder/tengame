@@ -66,7 +66,7 @@
 
       <footer class="lobby-footer">
         <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive</span>
-        <span><kbd>E</kbd> get in &amp; out</span>
+        <span><kbd>E</kbd> get in &amp; out, use things</span>
         <span><kbd>Enter</kbd> chat</span>
         <span class="credit">Car model by Eric Chadwick (CC BY 4.0) · people by Quaternius, textures &amp; furniture from Poly Haven and ambientCG (CC0)</span>
       </footer>
@@ -89,6 +89,10 @@
       <div id="hud-warmth" class="panel hud-warmth" hidden>
         <div class="warmth-row"><span>❄</span><span>Warmth</span></div>
         <div class="warmth"><div id="hud-warmth-bar"></div></div>
+      </div>
+      <div id="hud-fuel" class="panel hud-fuel" hidden>
+        <div class="fuel-row"><span>🚀</span><span>Jetpack fuel · hold Space to fly</span></div>
+        <div class="fuel"><div id="hud-fuel-bar"></div></div>
       </div>
       <div id="mission" class="panel hud-mission" hidden>
         <div class="mission-head"><strong id="mission-title"></strong><span id="mission-timer"></span></div>
@@ -129,6 +133,7 @@
           <h2 id="menu-heading">Menu</h2>
           <p class="menu-note">The game keeps going for everyone else while this is open.</p>
           <button type="button" id="menu-resume" class="primary">Resume</button>
+          <button type="button" id="menu-open-journal" class="secondary">Journal <small>(J)</small></button>
           <button type="button" id="menu-open-settings" class="secondary">Settings</button>
           <button type="button" id="menu-leave" class="danger">Leave room</button>
         </section>
@@ -137,6 +142,7 @@
           <h2>Settings</h2>
           <h3>Sound</h3>
           <label class="setting">Volume <input type="range" id="set-volume" min="0" max="1" step="0.05" /><output></output></label>
+          <label class="setting">Background sounds <input type="range" id="set-ambience" min="0" max="1" step="0.05" /><output></output></label>
           <h3>Controls</h3>
           <label class="setting">Mouse sensitivity <input type="range" id="set-mouseSensitivity" min="0.25" max="3" step="0.05" /><output></output></label>
           <label class="setting toggle">Invert mouse up/down <input type="checkbox" id="set-invertY" /></label>
@@ -162,6 +168,20 @@
           <div class="menu-row">
             <button type="button" id="settings-reset" class="secondary">Reset to defaults</button>
             <button type="button" id="settings-back" class="primary">Done</button>
+          </div>
+        </section>
+
+        <section id="menu-journal" class="journal" hidden>
+          <h2>Explorer’s journal</h2>
+          <p class="menu-note" id="journal-summary"></p>
+          <div class="journal-tabs" role="tablist">
+            <button type="button" data-tab="relics" class="active">Relics</button>
+            <button type="button" data-tab="fish">Fish</button>
+          </div>
+          <div id="journal-relics" class="journal-list"></div>
+          <div id="journal-fish" class="journal-list" hidden></div>
+          <div class="menu-row">
+            <button type="button" id="journal-back" class="primary">Done</button>
           </div>
         </section>
 

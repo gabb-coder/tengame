@@ -7,6 +7,7 @@ import { houseMatrix } from './town/houses.ts';
 import { MeshBuilder, placement } from './town/meshBuilder.ts';
 import type { TownMaterials } from './town/materials.ts';
 import type { LightPool } from './zones/kit.ts';
+import { zoneSeats } from './zones/buttons.ts';
 
 /** Lamps close to the camera that also light the room around them (lights are costly). */
 const LAMP_LIGHTS = 2;
@@ -111,6 +112,16 @@ export class Appliances {
     this.shown.set(id, group);
   }
 
+  /** Distance to the nearest lit fire (outdoors), or Infinity. */
+  nearestFire(p: THREE.Vector3Like): number {
+    let best = Infinity;
+    for (const id of this.shown.keys()) {
+      const a = this.byId.get(id)!;
+      if (a.kind === 'fire') best = Math.min(best, Math.hypot(p.x - a.world.x, p.y - a.world.y, p.z - a.world.z));
+    }
+    return best;
+  }
+
   /** Whether a lit fire is within `range` of `p`. */
   litFireNear(p: THREE.Vector3Like, range: number): boolean {
     for (const id of this.shown.keys()) {
@@ -173,6 +184,7 @@ function firePits(fires: Fire[], m: TownMaterials): THREE.Group {
   const b = new MeshBuilder();
   const stone = new THREE.DodecahedronGeometry(0.22, 0);
   const log = new THREE.CylinderGeometry(0.08, 0.09, 0.9, 6).rotateZ(Math.PI / 2);
+  const seatLog = new THREE.CylinderGeometry(0.22, 0.24, 1.8, 9).rotateX(Math.PI / 2);
   for (const f of fires) {
     if (isBrazier(f.id)) {
       b.add(new THREE.CylinderGeometry(0.45, 0.25, 0.35, 12, 1, true).translate(0, 0.95, 0), m.darkMetal, placement(f.x, f.y, f.z));
@@ -186,6 +198,14 @@ function firePits(fires: Fire[], m: TownMaterials): THREE.Group {
       b.add(stone, m.concrete, placement(f.x + Math.cos(a) * 0.65, f.y + 0.08, f.z + Math.sin(a) * 0.65, a), '#8a8680');
     }
     for (let k = 0; k < 3; k++) b.add(log, m.bark, placement(f.x, f.y + 0.12 + k * 0.05, f.z, k * 1.05, 0, 0.15));
+    // Two logs to sit on, either side of the fire.
+    for (const side of [-1, 1]) {
+      const x = f.x + side * 2.3;
+      b.add(seatLog, m.bark, placement(x, f.y + 0.2, f.z));
+      for (const dz of [-0.45, 0.45]) {
+        zoneSeats.push({ id: `${f.id}/log${side}${dz}`, position: new THREE.Vector3(x, f.y + 0.42, f.z + dz), yaw: side > 0 ? -Math.PI / 2 : Math.PI / 2, floorY: f.y, label: 'log by the fire' });
+      }
+    }
   }
   return b.build('fire-pits');
 }

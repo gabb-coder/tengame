@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { brotliCompressSync } from 'node:zlib';
 import { WebSocket } from 'ws';
+import { TRIGGERS } from '../../shared/activities.ts';
 import { appliancesOf } from '../../shared/appliances.ts';
 import { generateInterior } from '../../shared/interior.ts';
 import { MAX_PLAYERS, type ServerMessage } from '../../shared/protocol.ts';
@@ -379,5 +380,53 @@ test('players out in the zones can light a campfire, and everyone sees it burnin
   await a.next('snapshot');
   a.send({ type: 'switch', id: fire.id, on: true });
   assert.deepEqual(await b.next('switch'), { type: 'switch', id: fire.id, on: true });
+  for (const client of [a, b]) client.close();
+});
+
+test('a shared button (the castle bell) rings for everyone, once it has had time to reset', async () => {
+  const bell = TRIGGERS.find((t) => t.id === 'medieval/bell')!;
+  const car = { steer: 0, rpm: 0, load: 0, speed: 0, braking: false };
+  const standAt = (x: number, y: number, z: number, extra = {}) => ({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car, avatar: { p: [x, y, z], yaw: 0, speed: 0, ...extra } });
+
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const welcome = await a.next('welcome');
+  assert.ok(Math.abs(welcome.now - Date.now()) < 5000, 'the welcome carries the server clock');
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room: welcome.room });
+  await b.next('welcome');
+
+  // From across the square: ignored. At the rope: everyone hears it, and who rang it.
+  a.send(standAt(bell.x + 15, bell.y, bell.z));
+  await a.next('snapshot');
+  a.send({ type: 'trigger', id: bell.id });
+  a.send(standAt(bell.x, bell.y, bell.z + 0.5, { act: 'interact' }));
+  let act: string | undefined;
+  for (let i = 0; i < 10 && !act; i++) act = (await b.next('snapshot')).players.find((p) => p.avatar)?.avatar?.act;
+  assert.equal(act, 'interact', 'what players are doing is passed on');
+  a.send({ type: 'trigger', id: bell.id });
+  assert.deepEqual(await b.next('trigger'), { type: 'trigger', id: bell.id, by: welcome.id });
+  // Rung again straight away: still swinging, so nothing happens.
+  a.send({ type: 'trigger', id: bell.id });
+  a.send({ type: 'trigger', id: 'no/such-thing' });
+  a.send({ type: 'chat', text: 'done' });
+  assert.equal((await b.next('chat')).text, 'done');
+  assert.equal(b.inbox.filter((m) => m.type === 'trigger').length, 0);
+  for (const client of [a, b]) client.close();
+});
+
+test('made-up acts and gear are refused', async () => {
+  const car = { steer: 0, rpm: 0, load: 0, speed: 0, braking: false };
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const { room } = await a.next('welcome');
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room });
+  await b.next('welcome');
+  a.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car, avatar: { p: [1, 0, 1], yaw: 0, speed: 0, act: 'explode', gear: 'rocket' } });
+  a.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car, avatar: { p: [2, 0, 2], yaw: 0, speed: 0, swim: true, act: 'dance', gear: 'jetpack' } });
+  let avatar;
+  for (let i = 0; i < 10 && !avatar; i++) avatar = (await b.next('snapshot')).players.find((p) => p.avatar)?.avatar;
+  assert.deepEqual(avatar, { p: [2, 0, 2], yaw: 0, speed: 0, swim: true, act: 'dance', gear: 'jetpack' });
   for (const client of [a, b]) client.close();
 });

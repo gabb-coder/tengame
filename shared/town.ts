@@ -16,6 +16,8 @@ export const PITCH = BLOCK_SIZE + ROAD_WIDTH;
 export const CURB_HEIGHT = 0.15;
 /** Distance from the town center to the outer edge of the perimeter sidewalks. */
 export const TOWN_HALF_EXTENT = (BLOCKS_PER_SIDE / 2) * PITCH + ROAD_WIDTH / 2;
+/** The fountain in the north half of Town Park (the park is the middle block). */
+export const PARK_FOUNTAIN = { x: 0, z: -34, r: 3.4 };
 
 const LOTS_PER_ROW = 3;
 const LOT_WIDTH = BLOCK_SIZE / LOTS_PER_ROW;
@@ -208,7 +210,10 @@ export function generateTown(seed = TOWN_SEED): TownLayout {
     const inset = range(4, 9);
     const x = edge < 2 ? p.minX + t * BLOCK_SIZE : edge === 2 ? p.minX + inset : p.maxX - inset;
     const z = edge === 0 ? p.minZ + inset : edge === 1 ? p.maxZ - inset : p.minZ + t * BLOCK_SIZE;
-    trees.push({ x, z, height: range(7, 12) });
+    const height = range(7, 12);
+    // Leave room round the fountain.
+    if (Math.hypot(x - PARK_FOUNTAIN.x, z - PARK_FOUNTAIN.z) < PARK_FOUNTAIN.r + 4) continue;
+    trees.push({ x, z, height });
   }
 
   // Spawn in the eastbound lane of Oak Street, spaced along the road.

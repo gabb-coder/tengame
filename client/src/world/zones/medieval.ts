@@ -3,6 +3,10 @@ import { MEDIEVAL } from '../../../../shared/zones/medieval.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, IDENTITY, placement } from '../town/meshBuilder.ts';
 import { buildTrees } from '../town/props.ts';
+import type { Mount } from '../../game/activities.ts';
+import { game, onTrigger } from '../../game/link.ts';
+import { AVATAR } from '../../player/character.ts';
+import { ballistic, benchSeats, buttonActivity, zoneSeats } from './buttons.ts';
 import { banner, Banners } from './cloth.ts';
 import { circleMover, flyer, Herd } from './creatures.ts';
 import { ChunkedBuilder, cylinderCollider, Placement, type ZoneContent, type ZoneContext } from './kit.ts';
@@ -85,14 +89,19 @@ export function buildMedieval(ctx: ZoneContext): ZoneContent {
   buildKeep(ctx, b, banners);
   buildCourtyard(ctx, b);
   const sails = buildVillage(ctx, b, banners);
+  const bell = buildBellTower(ctx, b);
+  const trebuchet = buildTrebuchet(ctx, b);
 
-  group.add(b.build('medieval'), sails);
+  group.add(b.build('medieval'), sails, bell.group, trebuchet.group);
   group.add(banners.mesh());
 
   // Trees in the countryside, clear of everything built.
   const place = new Placement('medieval');
   place.avoid({ type: 'rect', minX: x0 - 30, maxX: x1 + 30, minZ: z0 - 30, maxZ: z1 + 30 });
   place.avoid({ type: 'circle', x: MEDIEVAL.windmill.x, z: MEDIEVAL.windmill.z, r: 16 });
+  place.avoid({ type: 'circle', x: MEDIEVAL.trebuchet.x, z: MEDIEVAL.trebuchet.z, r: 16 });
+  // Keep the trebuchet's line of fire clear.
+  place.avoid({ type: 'path', path: [{ x: MEDIEVAL.trebuchet.x, y: 0, z: MEDIEVAL.trebuchet.z }, { x: c.x - c.moatOuter, y: 0, z: MEDIEVAL.trebuchet.target.z }], width: 30 });
   const t = MEDIEVAL.tournament;
   place.avoid({ type: 'rect', minX: t.x - t.w / 2 - 8, maxX: t.x + t.w / 2 + 8, minZ: t.z - t.d / 2 - 16, maxZ: t.z + t.d / 2 + 8 });
   const spots = place.scatter(170, { minX: -190, maxX: 190, minZ: -590, maxZ: -215 }, 3, 41, (x, z) => terrain.heightAt(x, z) < 14);
@@ -108,9 +117,11 @@ export function buildMedieval(ctx: ZoneContext): ZoneContent {
     group,
     update(view) {
       banners.update(view.time);
-      dragon.update(view.time, view.camera.position);
-      crows.update(view.time, view.camera.position);
-      sails.rotation.z = view.time * 0.6;
+      dragon.update(view.clock, view.camera.position);
+      crows.update(view.clock, view.camera.position);
+      sails.rotation.z = view.clock * 0.6;
+      bell.update(view.dt);
+      trebuchet.update(view.dt);
     },
   };
 }
@@ -161,6 +172,7 @@ function buildKeep(ctx: ZoneContext, b: ChunkedBuilder, banners: Banners): void 
   b.add(box(7, 0.6, 3.2, 2), zm.castle, placement(k.x, 0.3, back + 1.6), DARK_STONE);
   boxCollider(physics, IDENTITY, { x: k.x, y: 0.3, z: back + 1.6 }, { x: 7, y: 0.6, z: 3.2 });
   // Throne.
+  zoneSeats.push({ id: 'medieval/throne', position: new THREE.Vector3(k.x, 1.12, back + 1.45), yaw: 0, floorY: 0.6, label: 'throne' });
   b.add(box(1.4, 0.5, 1.1), m.furnitureWood, placement(k.x, 0.85, back + 1.4), '#5a3a1e');
   b.add(box(1.4, 2.6, 0.25), m.furnitureWood, placement(k.x, 1.9, back + 0.9), '#5a3a1e');
   b.add(box(1.0, 0.1, 0.9), m.fabric, placement(k.x, 1.12, back + 1.45), '#8e1b1b');
@@ -169,7 +181,12 @@ function buildKeep(ctx: ZoneContext, b: ChunkedBuilder, banners: Banners): void 
     const tableZ = (front + back) / 2 + 1;
     b.add(box(1.4, 0.1, 10, 2), m.furnitureWood, placement(k.x + tx, 0.8, tableZ), WOOD);
     for (const lz of [-4.5, 4.5]) for (const lx of [-0.55, 0.55]) b.add(box(0.12, 0.76, 0.12), m.furnitureWood, placement(k.x + tx + lx, 0.38, tableZ + lz), WOOD);
-    for (const bx of [-1.1, 1.1]) b.add(box(0.4, 0.45, 9.5, 2), m.furnitureWood, placement(k.x + tx + bx, 0.25, tableZ), '#6a4a2a');
+    for (const bx of [-1.1, 1.1]) {
+      b.add(box(0.4, 0.45, 9.5, 2), m.furnitureWood, placement(k.x + tx + bx, 0.25, tableZ), '#6a4a2a');
+      // Places at the feast: facing the table.
+      const x = k.x + tx + bx * 1.08;
+      zoneSeats.push(...benchSeats(`medieval/feast${tx}${bx}`, { x, z: tableZ - 4 }, { x, z: tableZ + 4 }, 0.5, 0, bx > 0 ? -Math.PI / 2 : Math.PI / 2, 'feast bench', 1.3));
+    }
     boxCollider(physics, IDENTITY, { x: k.x + tx, y: 0.45, z: tableZ }, { x: 3, y: 0.9, z: 10 });
     for (let g = -4; g <= 4; g += 2) b.add(new THREE.CylinderGeometry(0.06, 0.05, 0.16, 8), m.brass, placement(k.x + tx + 0.3, 0.93, tableZ + g));
   }
@@ -335,14 +352,16 @@ function buildVillage(ctx: ZoneContext, b: ChunkedBuilder, banners: Banners): TH
   b.add(box(t.w * 0.7, 1.3, 0.25, 1), zm.paint, placement(t.x, 0.65, t.z), '#e8e2d0');
   for (let k = 0; k < 14; k++) b.add(box(2.2, 1.32, 0.27), zm.paint, placement(t.x - t.w * 0.35 + 1.25 + k * 5, 0.65, t.z), '#8e1b1b');
   boxCollider(physics, IDENTITY, { x: t.x, y: 0.65, z: t.z }, { x: t.w * 0.7, y: 1.3, z: 0.3 });
-  // Stands on the north side.
+  // Stands on the north side: rows low enough to step up, with seats along each.
   for (let row = 0; row < 4; row++) {
     const z = tz0 - 3 - row * 1.2;
-    b.add(box(t.w * 0.5, 0.5 + row * 0.6, 1.2, 2), zm.planks, placement(t.x, (0.5 + row * 0.6) / 2, z), '#8a6440');
+    const top = 0.45 * (row + 1);
+    b.add(box(t.w * 0.5, top, 1.2, 2), zm.planks, placement(t.x, top / 2, z), '#8a6440');
+    boxCollider(physics, IDENTITY, { x: t.x, y: top / 2, z }, { x: t.w * 0.5, y: top, z: 1.2 });
+    zoneSeats.push(...benchSeats(`medieval/stands${row}`, { x: t.x - t.w * 0.23, z: z + 0.25 }, { x: t.x + t.w * 0.23, z: z + 0.25 }, top + 0.02, top, 0, 'stands', 2.4));
   }
-  boxCollider(physics, IDENTITY, { x: t.x, y: 1.2, z: tz0 - 4.8 }, { x: t.w * 0.5, y: 2.4, z: 4.8 });
-  b.add(box(t.w * 0.5, 0.15, 5.6, 2), zm.paint, placement(t.x, 5.2, tz0 - 4.8, 0, -0.08), '#1d3c8a');
-  for (const px of [-1, 1]) for (const pz of [0, 1]) b.add(box(0.2, 5.2, 0.2), zm.planks, placement(t.x + px * t.w * 0.24, 2.6, tz0 - 2.4 - pz * 4.6), WOOD);
+  b.add(box(t.w * 0.5, 0.15, 5.6, 2), zm.paint, placement(t.x, 4.6, tz0 - 4.8, 0, -0.08), '#1d3c8a');
+  for (const px of [-1, 1]) for (const pz of [0, 1]) b.add(box(0.2, 4.6, 0.2), zm.planks, placement(t.x + px * t.w * 0.24, 2.3, tz0 - 2.4 - pz * 4.6), WOOD);
   // Pavilions at both ends of the lists.
   for (const [px, color] of [
     [tx0 - 9, '#8e1b1b'],
@@ -369,4 +388,162 @@ function buildVillage(ctx: ZoneContext, b: ChunkedBuilder, banners: Banners): TH
     cylinderCollider(physics, x, y, z, 0.75, 1.4);
   }
   return sails;
+}
+
+/** The bell tower on the market square: pull the rope and the bell swings and rings out. */
+function buildBellTower(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(dt: number): void } {
+  const { physics, zm, m } = ctx;
+  const { x, z } = MEDIEVAL.bellTower;
+  const shaft = 9;
+  b.add(box(4, shaft, 4, 3), zm.castle, placement(x, shaft / 2, z), STONE);
+  boxCollider(physics, IDENTITY, { x, y: shaft / 2, z }, { x: 4, y: shaft, z: 4 });
+  b.add(box(4.4, 0.4, 4.4, 3), zm.castle, placement(x, shaft + 0.2, z), DARK_STONE);
+  // An open belfry: four pillars under a slate spire.
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) b.add(box(0.7, 3.4, 0.7, 3), zm.castle, placement(x + dx * 1.75, shaft + 2.1, z + dz * 1.75), STONE);
+  b.add(box(4.4, 0.5, 4.4, 3), zm.castle, placement(x, shaft + 4, z), DARK_STONE);
+  b.add(new THREE.ConeGeometry(3.3, 5, 4).rotateY(Math.PI / 4).translate(0, shaft + 6.75, 0), m.roofs.shingles, placement(x, 0, z), SLATE);
+  b.add(box(0.25, 0.25, 4.2), zm.planks, placement(x, shaft + 3.4, z), WOOD);
+  // A little arched door, and the rope's end hanging by it.
+  b.add(box(1.3, 2.3, 0.1), m.door, placement(x, 1.15, z + 2.02), '#5a3a22');
+  const group = new THREE.Group();
+  const bronze = new THREE.MeshStandardMaterial({ color: '#a8782e', metalness: 0.9, roughness: 0.35 });
+  const yoke = new THREE.Group();
+  yoke.position.set(x, shaft + 3.3, z);
+  const bellShape = new THREE.LatheGeometry(
+    [[0, 0], [0.45, -0.05], [0.55, -0.4], [0.62, -0.9], [0.82, -1.3], [0.85, -1.4], [0.7, -1.38], [0.6, -1.0], [0.5, -0.45], [0, -0.3]].map(([r, y]) => new THREE.Vector2(r, y)),
+    24,
+  );
+  const bellMesh = new THREE.Mesh(bellShape, bronze);
+  bellMesh.castShadow = true;
+  yoke.add(bellMesh);
+  const clapper = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), m.darkMetal);
+  clapper.position.y = -1.15;
+  yoke.add(clapper);
+  // The rope runs down the outside of the tower to where you pull it.
+  const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, shaft + 2, 5).translate(0, -(shaft + 2) / 2, 0), m.fabric);
+  rope.material = new THREE.MeshStandardMaterial({ color: '#c8a870', roughness: 1 });
+  rope.position.set(0.9, 0, 2.3);
+  yoke.add(rope);
+  group.add(yoke);
+  game.activities.add(buttonActivity('medieval/bell'));
+  let swing = -1;
+  onTrigger('medieval/bell', () => {
+    swing = 0;
+    const at = new THREE.Vector3(x, shaft + 3, z);
+    for (let k = 0; k < 4; k++) game.sounds?.bell(at, k * 1.25);
+  });
+  return {
+    group,
+    update(dt) {
+      if (swing < 0) return;
+      swing += dt;
+      const amp = Math.exp(-swing / 2.4) * 0.65;
+      yoke.rotation.x = Math.sin((swing / 2.5) * Math.PI * 2) * amp;
+      if (amp < 0.01) {
+        swing = -1;
+        yoke.rotation.x = 0;
+      }
+    },
+  };
+}
+
+/**
+ * A trebuchet aimed over the castle walls. Climb into the sling, and it hurls you into
+ * the courtyard (everyone sees its arm swing).
+ */
+function buildTrebuchet(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(dt: number): void } {
+  const { physics, zm, m } = ctx;
+  const T = MEDIEVAL.trebuchet;
+  const yaw = Math.atan2(T.target.x - T.x, T.target.z - T.z);
+  const M = placement(T.x, T.y, T.z, yaw);
+  const pivotY = 6.5;
+  const long = 9;
+  const short = 2.6;
+  // The frame: two A-frames on a base, joined by the axle.
+  b.add(box(5, 0.5, 10, 1), zm.planks, M.clone().multiply(placement(0, 0.25, 0)), WOOD);
+  for (const side of [-1, 1]) {
+    for (const dz of [-1, 1]) b.add(box(0.4, 7.6, 0.4, 1), zm.planks, M.clone().multiply(placement(side * 1.6, 3.6, dz * 1.6, 0, dz * 0.42)), WOOD);
+    b.add(box(0.4, 0.4, 4.4, 1), zm.planks, M.clone().multiply(placement(side * 1.6, 2.6, 0)), WOOD);
+  }
+  b.add(new THREE.CylinderGeometry(0.18, 0.18, 3.8, 10).rotateZ(Math.PI / 2), m.darkMetal, M.clone().multiply(placement(0, pivotY, 0)));
+  for (const side of [-1, 1]) boxCollider(physics, M, { x: side * 1.6, y: 3.4, z: 0 }, { x: 0.5, y: 6.8, z: 5 });
+  boxCollider(physics, M, { x: 0, y: 0.25, z: 0 }, { x: 5, y: 0.5, z: 10 });
+  // A wheeled ladder, and stones piled ready.
+  for (let i = 0; i < 5; i++) b.add(new THREE.SphereGeometry(0.45, 8, 6), zm.castle, M.clone().multiply(placement(2.8 + (i % 2) * 0.6, 0.45 + Math.floor(i / 3) * 0.6, -3 + i * 0.5)), '#8a8478');
+
+  const group = new THREE.Group();
+  group.position.set(T.x, T.y + pivotY, T.z);
+  group.rotation.y = yaw;
+  const arm = new THREE.Group();
+  group.add(arm);
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, long + short), zm.planks);
+  beam.position.z = (long - short) / 2;
+  const weight = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2, 2), zm.planks);
+  weight.position.set(0, -1, -short);
+  const pouch = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#7a5a3a', roughness: 1, side: THREE.DoubleSide }));
+  pouch.position.z = long;
+  arm.add(beam, weight, pouch);
+  arm.traverse((o) => (o.castShadow = true));
+  // The long end rests down behind the frame; firing whips it up and over. The arm's angle
+  // is its long end's elevation: 0 points at the target, PI/2 straight up.
+  const REST = Math.PI + 0.62;
+  const RELEASE = Math.PI / 2 - 0.25;
+  const END = 0.35;
+  const FIRE_TIME = 0.95;
+  const armAngle = (a: number) => (arm.rotation.x = -a);
+  armAngle(REST);
+  let t = -1;
+  let angle = REST;
+  const sling = new THREE.Vector3();
+  const slingPoint = () => {
+    group.updateMatrixWorld(true);
+    return pouch.getWorldPosition(sling);
+  };
+  const target = new THREE.Vector3(T.target.x, 0.2, T.target.z);
+  const fire = () => {
+    if (t >= 0 && t < FIRE_TIME) return;
+    t = 0;
+    game.sounds?.whoosh(slingPoint(), 1.2);
+  };
+  game.activities.add(
+    buttonActivity('medieval/trebuchet', () => {
+      if (t >= 0) return false;
+      const rider: Mount = {
+        position: new THREE.Vector3(),
+        yaw,
+        pose: 'sit',
+        label: 'trebuchet',
+        ride: true,
+        update() {
+          rider.position.copy(slingPoint()).y += 0.1;
+        },
+        blocked: () => 'Hold on tight!',
+        done: () => angle <= RELEASE,
+        exit: () => slingPoint().clone(),
+        release: () => ballistic(slingPoint(), target, 0.62, AVATAR.gravity),
+      };
+      game.ride(rider);
+      fire();
+      return true;
+    }),
+  );
+  // Our own shot started the moment we climbed in.
+  onTrigger('medieval/trebuchet', (_by, mine) => {
+    if (!mine) fire();
+  });
+  return {
+    group,
+    update(dt) {
+      if (t < 0) return;
+      t += dt;
+      if (t < FIRE_TIME) angle = REST - (REST - END) * (t / FIRE_TIME) ** 2;
+      else angle = END + (REST - END) * Math.min(1, (t - FIRE_TIME) / 5) ** 2;
+      armAngle(angle);
+      if (t > FIRE_TIME + 5) {
+        t = -1;
+        angle = REST;
+        armAngle(REST);
+      }
+    },
+  };
 }

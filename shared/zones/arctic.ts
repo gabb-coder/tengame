@@ -18,6 +18,20 @@ export const ARCTIC = {
   observatory: { x: -290, z: -532 },
   /** Outpost Road runs east-west along this z. */
   outpostZ: -400,
+  /** A signal flare launcher by the outpost's radio mast. */
+  flare: { x: -230, z: -416 },
+  /** The dog sled trail: from the camp, round the frozen lake and back. */
+  sledTrail: [
+    [-466, -282],
+    [-430, -300],
+    [-418, -350],
+    [-440, -410],
+    [-500, -425],
+    [-560, -395],
+    [-575, -340],
+    [-550, -290],
+    [-505, -280],
+  ] as [number, number][],
 } as const;
 
 const LOG_WALLS = ['#8a6248', '#7a5640', '#9a7052'];

@@ -15,6 +15,12 @@ export const PREHISTORIC = {
   ],
   fossils: { x: -420, z: 262 },
   springLevel: -0.3,
+  /** Geysers by the springs: they blow every so often, and throw whoever's standing on them. */
+  geysers: [
+    { x: -226, z: 266 },
+    { x: -255, z: 238 },
+    { x: -263, z: 280 },
+  ],
 } as const;
 
 /** Volcano height at (x, z), crater included. */

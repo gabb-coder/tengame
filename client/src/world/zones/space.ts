@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { SPACE } from '../../../../shared/zones/space.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, IDENTITY, placement } from '../town/meshBuilder.ts';
+import { game } from '../../game/link.ts';
+import { jetpack } from '../../player/acts.ts';
 import { circleMover, Herd, jellyfish } from './creatures.ts';
 import { ChunkedBuilder, compose, cylinderCollider, instanced, mulberry32, Placement, rockGeometry, type ZoneContent, type ZoneContext } from './kit.ts';
 
@@ -99,11 +101,38 @@ export function buildSpace(ctx: ZoneContext): ZoneContent {
   for (let i = 0; i < 8; i++) for (let p = 0; p < 2; p++) floaters.tint(i, p, ['#7affff', '#ff8af0'][i % 2]);
   group.add(floaters.group);
 
+  // The jetpack rack by the habitat's door.
+  const rack = SPACE.jetpacks;
+  b.add(box(3.2, 0.12, 0.5), m.steel, placement(rack.x, 2.1, rack.z));
+  for (const x of [-1.5, 1.5]) b.add(box(0.12, 2.2, 0.12), m.steel, placement(rack.x + x, 1.1, rack.z));
+  b.add(box(3.4, 0.08, 1.2), zm.glow, placement(rack.x, 0.04, rack.z + 0.4), '#ffb02a', { castShadow: false });
+  for (let k = 0; k < 4; k++) {
+    const pack = jetpack().object;
+    pack.position.set(rack.x - 1.05 + k * 0.7, 1.65, rack.z + 0.25);
+    pack.rotation.y = Math.PI;
+    group.add(pack);
+  }
+  boxCollider(physics, IDENTITY, { x: rack.x, y: 1.1, z: rack.z }, { x: 3.4, y: 2.2, z: 0.5 });
+  game.activities.add({
+    position: new THREE.Vector3(rack.x, 0, rack.z + 1.2),
+    reach: 2.4,
+    prompt: () => {
+      if (!game.player.onFoot) return null;
+      return game.hasJetpack() ? { action: 'Give back the jetpack' } : { action: 'Borrow a jetpack', detail: 'hold Space to fly' };
+    },
+    use: () => {
+      const on = !game.hasJetpack();
+      game.wearJetpack(on);
+      game.playOnce('pickup');
+      if (on) game.notice('Jetpack on! Hold Space to fly. It refuels when you land.');
+    },
+  });
+
   return {
     id: 'space',
     group,
     update(view) {
-      floaters.update(view.time, view.camera.position);
+      floaters.update(view.clock, view.camera.position);
       belt.rotation.y = view.time * 0.004;
       sky.update(view.camera.position, view.time);
       rocket.update(view.clock, view.dt);

@@ -1,11 +1,12 @@
 import { DEFAULT_SETTINGS, onSettings, type Settings, updateSettings } from '../settings.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-type Section = 'main' | 'settings' | 'confirm';
+type Section = 'main' | 'settings' | 'journal' | 'confirm';
 
 /** How each slider's value reads next to it. */
 const FORMAT: Partial<Record<keyof Settings, (v: number) => string>> = {
   volume: (v) => `${Math.round(v * 100)}%`,
+  ambience: (v) => `${Math.round(v * 100)}%`,
   mouseSensitivity: (v) => `${v.toFixed(2)}×`,
   fov: (v) => `${v}°`,
 };
@@ -16,6 +17,8 @@ const FORMAT: Partial<Record<keyof Settings, (v: number) => string>> = {
  */
 export class Menu {
   private root = $('menu');
+  /** Which page of the menu is showing. */
+  section: Section = 'main';
   /** Called when the menu opens or closes. */
   onToggle: (open: boolean) => void = () => {};
 
@@ -24,6 +27,8 @@ export class Menu {
     $('menu-button').addEventListener('click', () => this.open());
     $('menu-resume').addEventListener('click', () => this.close());
     $('menu-open-settings').addEventListener('click', () => this.show('settings'));
+    $('menu-open-journal').addEventListener('click', () => this.show('journal'));
+    $('journal-back').addEventListener('click', () => this.close());
     $('settings-back').addEventListener('click', () => this.show('main'));
     $('settings-reset').addEventListener('click', () => updateSettings({ ...DEFAULT_SETTINGS }));
     $('menu-leave').addEventListener('click', () => this.show('confirm'));
@@ -62,8 +67,9 @@ export class Menu {
   }
 
   private show(section: Section): void {
-    for (const s of ['main', 'settings', 'confirm'] as const) $(`menu-${s}`).hidden = s !== section;
-    const focus = { main: 'menu-resume', settings: 'set-volume', confirm: 'leave-cancel' }[section];
+    for (const s of ['main', 'settings', 'journal', 'confirm'] as const) $(`menu-${s}`).hidden = s !== section;
+    this.section = section;
+    const focus = { main: 'menu-resume', settings: 'set-volume', journal: 'journal-back', confirm: 'leave-cancel' }[section];
     $(focus).focus();
   }
 

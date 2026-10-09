@@ -36,6 +36,7 @@ export class TitleScene {
       camera.lookAt(0, 0, 0);
       const focus = camera.position.clone().multiplyScalar(0.5).setY(0);
       world.dayNight.update(now, dt, focus, false, world.zones.update(dt, camera, focus, 0));
+      world.grass.update(dt, camera.position, null);
       world.town.updateInteriors(camera.position);
       world.renderer.render(world.scene, camera);
     });

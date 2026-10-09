@@ -16,6 +16,10 @@ export const MEDIEVAL = {
   windmill: { x: 138, z: -382, y: 4 },
   smithy: { x: 34, z: -270 },
   well: { x: -24, z: -322 },
+  /** A bell tower on the market square, its rope hanging to the ground. */
+  bellTower: { x: 22, z: -321 },
+  /** A siege engine aimed over the castle walls, and where it throws you. */
+  trebuchet: { x: -140, z: -470, y: 1, target: { x: 0, z: -444 } },
   dragonHeight: 70,
 } as const;
 
@@ -87,6 +91,7 @@ export function medievalLayout(): ZoneLayout {
     { shape: rect(t.x, t.z, t.w / 2 + 6, t.d / 2 + 14), y: 0, margin: 12 },
     { shape: circle(MEDIEVAL.smithy.x, MEDIEVAL.smithy.z, 9), y: 0, margin: 6 },
     { shape: circle(w.x, w.z, 8), y: w.y, margin: 14 },
+    { shape: circle(MEDIEVAL.trebuchet.x, MEDIEVAL.trebuchet.z, 10), y: MEDIEVAL.trebuchet.y, margin: 12 },
     ...houses.map((h) => housePad(h, CURB_HEIGHT)),
   ];
   const fires: Fire[] = [
@@ -106,6 +111,8 @@ export function medievalLayout(): ZoneLayout {
       { name: 'Tournament Grounds', x: t.x, z: t.z, r: 60 },
       { name: 'Old Windmill', x: MEDIEVAL.windmill.x, z: MEDIEVAL.windmill.z, r: 22 },
       { name: 'Blacksmith', x: MEDIEVAL.smithy.x, z: MEDIEVAL.smithy.z, r: 12 },
+      { name: 'Bell Tower', x: MEDIEVAL.bellTower.x, z: MEDIEVAL.bellTower.z, r: 6 },
+      { name: 'Trebuchet', x: MEDIEVAL.trebuchet.x, z: MEDIEVAL.trebuchet.z, r: 14 },
     ],
     fires,
     ground(x, z) {

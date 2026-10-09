@@ -5,7 +5,13 @@ import { generateWorld } from '../../../../shared/world.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, IDENTITY, placement } from '../town/meshBuilder.ts';
 import { circleMover, flyer, Herd, jellyfish, type Mover, swimmer } from './creatures.ts';
-import { ChunkedBuilder, compose, cylinderCollider, hull, instanced, mergeAll, mulberry32, palms, Placement, rockGeometry, type ZoneContent, type ZoneContext } from './kit.ts';
+import { ChunkedBuilder, compose, cylinderCollider, hull, instanced, mergeAll, mulberry32, palms, Placement, Puffs, rockGeometry, type ZoneContent, type ZoneContext } from './kit.ts';
+import type { Mount } from '../../game/activities.ts';
+import { worldSeconds } from '../../game/clock.ts';
+import { game, onTrigger } from '../../game/link.ts';
+import { AVATAR } from '../../player/character.ts';
+import { ballistic, buttonActivity } from './buttons.ts';
+import { lineActivities, loopCurve, TransitLine, type VehicleState } from './transit.ts';
 
 const CORAL = ['#e8604a', '#f2a03a', '#d84a8a', '#9a5ad8', '#3ac8b0', '#f0e060', '#ff7a8a'];
 const GLOW = ['#38f0ff', '#7a5cff', '#3aff9a', '#ff4ad8'];
@@ -194,20 +200,45 @@ export function buildOcean(ctx: ZoneContext): ZoneContent {
   const sharks = new Herd(swimmer('shark', '#6a7880'), 2, circleMover(470, 470, 60, -10, 4, null, { absolute: true }), [], 260);
   const mantas = new Herd(swimmer('manta', '#3a4048'), 3, circleMover(420, 380, 45, -8, 3, null, { absolute: true }), [], 260);
   const turtles = new Herd(swimmer('turtle', '#5a6a3a'), 4, circleMover(340, 380, 30, -4, 1.4, null, { absolute: true }), [], 220);
-  const whale = new Herd(swimmer('whale', '#3e4c5a'), 1, circleMover(540, 540, 80, -14, 3, null, { absolute: true }), [], 400);
+  const whaleSwim = breaching(circleMover(540, 540, 80, -14, 3, null, { absolute: true }));
+  const whale = new Herd(swimmer('whale', '#3e4c5a'), 1, whaleSwim, [], 400);
+  const whaleSplash = new Puffs(16, '#f4f8fa', 0.6, { x: 0, y: SEA_LEVEL, z: 0, spread: 3, rise: 3, grow: 1.2, life: 2.2, size: 1.4, wind: [0, 0] }, 95);
+  group.add(whaleSplash.mesh);
+  let splashedAt = -Infinity;
   const jellies = new Herd(jellyfish('#ffffff'), 36, jellyMover(OCEAN.ruins.x + 60, OCEAN.ruins.z - 10, 70), [], 220);
   for (let i = 0; i < 36; i++) for (let pp = 0; pp < 2; pp++) jellies.tint(i, pp, GLOW[i % GLOW.length]);
   const gulls = new Herd(flyer({ size: 0.45, body: '#f2f2ee', wing: '#c8ccd0', beat: 2.2 }), 8, circleMover(330, 280, 45, 22, 8, terrain), [], 400);
   group.add(fish.group, sharks.group, mantas.group, turtles.group, whale.group, jellies.group, gulls.group);
+
+  const ferries = buildFerries(ctx);
+  group.add(ferries.group);
+  const cannon = buildCannon(ctx, b);
+  group.add(cannon.group);
+  // The foghorn on the lighthouse.
+  game.activities.add(buttonActivity('ocean/horn'));
+  onTrigger('ocean/horn', () => game.sounds?.horn(new THREE.Vector3(lh.x, lh.y + towerH, lh.z)));
 
   return {
     id: 'ocean',
     group,
     update(view) {
       night = view.night;
-      const t = view.time;
+      const t = view.clock;
       const cam = view.camera.position;
       for (const herd of [fish, sharks, mantas, turtles, whale, jellies, gulls]) herd.update(t, cam);
+      ferries.update(t);
+      cannon.update(view.dt);
+      // The whale breaks the surface now and then, with a great splash.
+      const breach = t % BREACH_EVERY;
+      if (breach > 2.2 && breach < 2.6 && t - splashedAt > 5) {
+        splashedAt = t;
+        const at = new THREE.Vector3();
+        whaleSwim.last(at);
+        whaleSplash.mesh.position.set(at.x, 0, at.z);
+        if (cam.distanceTo(at) < 300) game.sounds?.splash(at, 3);
+      }
+      whaleSplash.mesh.visible = t - splashedAt < 4;
+      if (whaleSplash.mesh.visible) whaleSplash.update(t - splashedAt + 0.01);
       for (const boat of boats) {
         boat.object.position.y = boat.y + Math.sin(t * 0.9 + boat.phase) * 0.12;
         boat.object.rotation.z = Math.sin(t * 0.7 + boat.phase) * 0.03;
@@ -221,6 +252,180 @@ export function buildOcean(ctx: ZoneContext): ZoneContent {
       (beam.material as THREE.MeshBasicMaterial).opacity = 0.16 * Math.max(0, (night - 0.3) / 0.7);
       beam.visible = night > 0.3;
       kelp.time.value = t;
+    },
+  };
+}
+
+/** How often the whale leaps out of the sea (seconds on the shared clock). */
+const BREACH_EVERY = 75;
+
+/** Wraps a whale's swimming so every so often it surges up and leaps clear of the water. */
+function breaching(swim: Mover): Mover & { last(out: THREE.Vector3): void } {
+  const last = new THREE.Vector3();
+  const mover = ((i, t, out) => {
+    swim(i, t, out);
+    const phase = t % BREACH_EVERY;
+    if (phase < 6) {
+      // Up from the deep, out into the air nose first, and back down.
+      const k = phase / 6;
+      const rise = Math.sin(k * Math.PI);
+      out.y = -14 + rise * 22;
+      out.pitch = -Math.cos(k * Math.PI) * 0.9;
+    }
+    last.set(out.x, out.y, out.z);
+    return true;
+  }) as Mover & { last(out: THREE.Vector3): void };
+  mover.last = (out) => out.copy(last);
+  return mover;
+}
+
+/** The glass-bottom boats: round the bay from the end of the pier, past the reef and the lighthouse. */
+function buildFerries(ctx: ZoneContext): { group: THREE.Group; update(t: number): void } {
+  const { zm, m } = ctx;
+  const p = OCEAN.pier;
+  const y = SEA_LEVEL + 0.2;
+  const curve = loopCurve(OCEAN.ferry.map(([x, z]) => new THREE.Vector3(x, y, z)));
+  const dock = new THREE.Vector3(p.x, p.y + 0.15, p.z1 - 0.6);
+  const line = new TransitLine(curve, [{ name: 'The Pier', at: 0, dwell: 14, board: dock, exit: dock }], 7, 2);
+  const group = new THREE.Group();
+  const boats: THREE.Group[] = [];
+  for (let v = 0; v < line.vehicles; v++) {
+    const boat = new THREE.Group();
+    const add = (g: THREE.BufferGeometry, mat: THREE.Material, x = 0, yy = 0, z = 0) => {
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.position.set(x, yy, z);
+      mesh.castShadow = true;
+      boat.add(mesh);
+      return mesh;
+    };
+    add(hull(13, 4.6, 1.5), new THREE.MeshStandardMaterial({ color: v ? '#2e7ab8' : '#e8b030', roughness: 0.5 }));
+    add(box(4, 0.1, 11), zm.planks, 0, -0.05, 0);
+    // The glass floor: you can see the fish below.
+    const glass = add(box(1.6, 0.06, 6), zm.glass, 0, 0, 0);
+    glass.castShadow = false;
+    for (const [x, z] of [[-1.8, -4], [1.8, -4], [-1.8, 4], [1.8, 4]]) add(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 6).translate(0, 1.2, 0), m.steel, x, 0, z);
+    add(box(4.2, 0.12, 9.4), new THREE.MeshStandardMaterial({ color: '#f4f0e8', roughness: 0.7 }), 0, 2.45, 0);
+    for (const x of [-1.5, 1.5]) add(box(0.5, 0.42, 9), zm.planks, x, 0.2, 0);
+    add(box(1, 1.2, 1.2), new THREE.MeshStandardMaterial({ color: '#f4f0e8', roughness: 0.7 }), 0, 0.6, 5);
+    group.add(boat);
+    boats.push(boat);
+  }
+  const seats: THREE.Vector3[] = [];
+  const facing: number[] = [];
+  for (const x of [-1.5, 1.5]) {
+    for (const z of [-3.6, -1.8, 0, 1.8, 3.6]) {
+      seats.push(new THREE.Vector3(x, 0.5, z));
+      facing.push(x < 0 ? -Math.PI / 2 : Math.PI / 2);
+    }
+  }
+  const bob = (t: number, v: number) => Math.sin(t * 0.9 + v * 2) * 0.12;
+  const matrix = (s: VehicleState, t: number, v: number) =>
+    new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(Math.sin(t * 0.5 + v) * 0.015, s.yaw, Math.sin(t * 0.7 + v) * 0.03, 'YXZ')).setPosition(s.position.x, s.position.y + bob(t, v), s.position.z);
+  game.activities.add(
+    ...lineActivities(
+      line,
+      {
+        name: 'glass-bottom boat',
+        verb: 'Board the glass-bottom boat',
+        seats,
+        facing,
+        pose: 'sit',
+        reach: 4,
+        // Jump overboard whenever you like: into the sea beside the boat.
+        hopOff: (s) => new THREE.Vector3(s.position.x + Math.cos(s.yaw) * 3.4, SEA_LEVEL - 0.6, s.position.z - Math.sin(s.yaw) * 3.4),
+        sound: (at) => game.sounds?.ding(at),
+      },
+      (s) => matrix(s, worldSeconds(), s.vehicle),
+    ),
+  );
+  const state = { position: new THREE.Vector3(), yaw: 0, pitch: 0, stopped: null, next: line.stops[0], wait: 0, vehicle: 0 } as VehicleState;
+  return {
+    group,
+    update(t) {
+      boats.forEach((boat, v) => {
+        line.state(t, v, 0, state);
+        boat.matrixAutoUpdate = false;
+        boat.matrix.copy(matrix(state, t, v));
+        boat.matrixWorldNeedsUpdate = true;
+      });
+    },
+  };
+}
+
+/** A harbor cannon on the cape: climb into the barrel and it fires you out over the reef. */
+function buildCannon(ctx: ZoneContext, b: ChunkedBuilder): { group: THREE.Group; update(dt: number): void } {
+  const { physics, zm, m } = ctx;
+  const C = OCEAN.cannon;
+  const y = OCEAN.lighthouse.y;
+  const yaw = Math.atan2(C.target.x - C.x, C.target.z - C.z);
+  const lift = 0.45;
+  const M = placement(C.x, y, C.z, yaw);
+  // The carriage and its wheels.
+  for (const side of [-1, 1]) {
+    b.add(box(0.25, 0.9, 2.2, 1), zm.planks, M.clone().multiply(placement(side * 0.55, 0.65, 0)), '#5a3a22');
+    for (const wz of [-0.7, 0.8]) b.add(new THREE.CylinderGeometry(0.45, 0.45, 0.16, 14).rotateZ(Math.PI / 2), zm.planks, M.clone().multiply(placement(side * 0.78, 0.45, wz)), '#3a2614');
+  }
+  boxCollider(physics, M, { x: 0, y: 0.6, z: 0 }, { x: 1.6, y: 1.2, z: 2.4 });
+  for (let i = 0; i < 6; i++) b.add(new THREE.SphereGeometry(0.2, 10, 8), m.darkMetal, M.clone().multiply(placement(-1.3 + (i % 3) * 0.42, 0.2 + Math.floor(i / 3) * 0.32, -1.6)));
+  const group = new THREE.Group();
+  group.position.set(C.x, y + 1.25, C.z);
+  group.rotation.set(-lift, yaw, 0, 'YXZ');
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.48, 3.4, 18, 1, true).rotateX(Math.PI / 2).translate(0, 0, 0.9), new THREE.MeshStandardMaterial({ color: '#2a2a2e', metalness: 0.8, roughness: 0.45, side: THREE.DoubleSide }));
+  const breech = new THREE.Mesh(new THREE.SphereGeometry(0.5, 14, 10), barrel.material);
+  breech.position.z = -0.8;
+  barrel.castShadow = breech.castShadow = true;
+  group.add(barrel, breech);
+  const smoke = new Puffs(14, '#d8d8d4', 0.7, { x: 0, y: 0, z: 0, spread: 1, rise: 1.2, grow: 1.6, life: 2.5, size: 0.8, wind: [0.4, 0.2] }, 96);
+  smoke.mesh.visible = false;
+  const muzzle = new THREE.Vector3();
+  const muzzlePoint = () => {
+    group.updateMatrixWorld(true);
+    return muzzle.set(0, 0, 2.6).applyMatrix4(group.matrixWorld);
+  };
+  let since = Infinity;
+  let fuse = -1;
+  const target = new THREE.Vector3(C.target.x, SEA_LEVEL, C.target.z);
+  const boom = () => {
+    since = 0;
+    const at = muzzlePoint();
+    smoke.mesh.position.copy(at);
+    smoke.mesh.visible = true;
+    game.sounds?.cannon(at);
+  };
+  game.activities.add(
+    buttonActivity('ocean/cannon', () => {
+      if (fuse >= 0) return false;
+      fuse = 0;
+      const rider: Mount = {
+        position: new THREE.Vector3(),
+        yaw,
+        pose: 'sit',
+        label: 'cannon',
+        ride: true,
+        update: () => rider.position.copy(muzzlePoint()).y -= 0.5,
+        blocked: () => 'Three… two… one…',
+        done: () => fuse > 1.2,
+        exit: () => muzzlePoint().clone(),
+        release: () => ballistic(muzzlePoint(), target, 0.5, AVATAR.gravity),
+      };
+      game.ride(rider);
+      return true;
+    }),
+  );
+  onTrigger('ocean/cannon', (_by, mine) => {
+    if (!mine) boom();
+  });
+  return {
+    group,
+    update(dt) {
+      if (fuse >= 0) {
+        fuse += dt;
+        if (fuse > 1.2 && since > 1) boom();
+        if (fuse > 4) fuse = -1;
+      }
+      since += dt;
+      smoke.mesh.visible = since < 2.5;
+      if (smoke.mesh.visible) smoke.update(since + 0.01);
     },
   };
 }
