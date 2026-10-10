@@ -16,10 +16,12 @@ export class StreetLights {
     lights: LightPool,
     lamps: { x: number; z: number; yaw: number }[],
     private glow: THREE.MeshStandardMaterial,
+    /** Whether lamp `i` has been knocked down (and gives no light). */
+    broken: (i: number) => boolean = () => false,
   ) {
     const self = this;
     // The bulb hangs at the end of the arm, which points along the lamp's local +Z.
-    for (const l of lamps) {
+    lamps.forEach((l, i) => {
       lights.add({
         position: new THREE.Vector3(l.x + Math.sin(l.yaw) * ARM_LENGTH, CURB_HEIGHT + LAMP_HEIGHT - 0.35, l.z + Math.cos(l.yaw) * ARM_LENGTH),
         color: '#ffd7a0',
@@ -27,8 +29,9 @@ export class StreetLights {
           return self.intensity;
         },
         range: 30,
+        active: () => !broken(i),
       });
-    }
+    });
   }
 
   update(night: number): void {

@@ -1,5 +1,7 @@
+import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { Label } from '../../render/labels.ts';
+import { knockFlight, Thrown } from '../../game/thrown.ts';
 import { generateTown, PARK_FOUNTAIN } from '../../../../shared/town.ts';
 import { ANCIENT } from '../../../../shared/zones/ancient.ts';
 import { ARCTIC } from '../../../../shared/zones/arctic.ts';
@@ -9,7 +11,7 @@ import { MEDIEVAL } from '../../../../shared/zones/medieval.ts';
 import { SPACE } from '../../../../shared/zones/space.ts';
 import { game } from '../../game/link.ts';
 import { AvatarModel } from '../../player/avatarModel.ts';
-import type { Human, Outfit } from '../../player/humanModel.ts';
+import { GET_UP, type Human, type Outfit, SPRAWL } from '../../player/humanModel.ts';
 import type { Terrain } from '../terrain.ts';
 
 /** People are only animated (and drawn) this close to the camera. */
@@ -18,6 +20,29 @@ const RANGE = 110;
 const CURB = 0.15;
 /** How long someone stops to talk, after your last word. */
 const TALK_SECONDS = 7;
+/** Knocked over by a car: how long they lie there, how long they limp afterwards, and how fast. */
+const DOWN_SECONDS = 3.5;
+const HURT_SECONDS = 40;
+const LIMP_SPEED = 0.9;
+/** What people say, getting up after being knocked over. */
+const OUCH = [
+  'Ow! Watch where you’re driving!',
+  'Hey! I was walking here!',
+  'My back… my poor back…',
+  'Learn to drive!',
+  'Ouch! You could have just said hello.',
+  'I’m okay! I’m okay… I think.',
+  'Somebody take that driver’s license away!',
+];
+
+/** Knocked flying by a car: the flight, then lying there, getting up and limping back. */
+interface Knock {
+  body: Thrown;
+  phase: 'fly' | 'down' | 'up' | 'back';
+  /** Seconds in this phase. */
+  t: number;
+  yaw: number;
+}
 
 type Gear = (human: Human) => void;
 
@@ -30,6 +55,7 @@ interface Role {
 }
 
 interface Npc {
+  id: string;
   avatar: AvatarModel;
   role: Role;
   /** A loop to walk round, or a spot to stand on. */
@@ -44,6 +70,11 @@ interface Npc {
   talking: number;
   line: number;
   bubble: Label | null;
+  /** Seconds left of something said in passing (not a chat), shown in the bubble. */
+  saying: number;
+  knock: Knock | null;
+  /** Seconds left of limping after being knocked over. */
+  hurt: number;
 }
 
 const metal = new THREE.MeshStandardMaterial({ color: '#b8bcc4', metalness: 0.9, roughness: 0.3 });
@@ -145,7 +176,10 @@ export class Npcs {
   private npcs: Npc[] = [];
   private time = 0;
 
-  constructor(private terrain: Terrain) {
+  constructor(
+    private terrain: Terrain,
+    private physics: RAPIER.World,
+  ) {
     const c = MEDIEVAL.castle;
     const tabards = [red, new THREE.MeshStandardMaterial({ color: '#1d3c8a', roughness: 0.8 })];
     const knightOutfit: Outfit = { pants: '#6a6e76', shoes: '#2a2a2e', noHair: true, body: 'male' };
@@ -308,7 +342,7 @@ export class Npcs {
     avatar.onHuman = gear;
     const path = loop ? new THREE.CatmullRomCurve3(loop.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'catmullrom', 0.1) : null;
     this.group.add(avatar.root);
-    const npc: Npc = { avatar, role, path, spot, speed, walked: offset, floor, talking: 0, line: 0, bubble: null };
+    const npc: Npc = { id: seed, avatar, role, path, spot, speed, walked: offset, floor, talking: 0, line: 0, bubble: null, saying: 0, knock: null, hurt: 0 };
     this.npcs.push(npc);
     // Walk up and press E to chat.
     game.activities.add({
@@ -316,9 +350,111 @@ export class Npcs {
         return avatar.root.position;
       },
       reach: 2.6,
-      prompt: () => (avatar.root.visible && game.player.onFoot ? { action: `Talk to ${role.name}` } : null),
+      prompt: () => (avatar.root.visible && game.player.onFoot && !npc.knock ? { action: `Talk to ${role.name}` } : null),
       use: () => this.talk(npc),
     });
+    // Drive into them and they go flying.
+    game.impacts.addMoving({
+      at: (out) => (avatar.root.visible && !npc.knock ? out.copy(avatar.root.position) : null),
+      radius: 0.35,
+      height: 1.8,
+      minSpeed: 1.2,
+      mass: 80,
+      harm: 0.03,
+      hit: (car) => this.knockOver(npc, knockFlight(car), true),
+    });
+    // Another player's car knocking them over reaches them here.
+    game.knockables.set(`npc:${seed}`, (v) => {
+      if (!npc.knock) this.knockOver(npc, v, false);
+    });
+  }
+
+  /** Sends someone flying at `v` (m/s); if it was our car, the other players are told. */
+  private knockOver(n: Npc, v: THREE.Vector3Like, mine: boolean): void {
+    const at = n.avatar.root.position;
+    n.knock = { body: new Thrown(this.physics, at, v, (x, z) => n.floor ?? this.terrain.heightAt(x, z)), phase: 'fly', t: 0, yaw: Math.atan2(-v.x, -v.z) };
+    n.talking = n.saying = 0;
+    this.hideBubble(n);
+    n.avatar.action = 'Roll';
+    if (mine) game.knock(`npc:${n.id}`, v);
+    game.sounds?.thud(at, Math.min(1, Math.hypot(v.x, v.y, v.z) / 15));
+  }
+
+  /** Where someone belongs: their spot, or the point on their walk they'd got to. */
+  private home(n: Npc, out: THREE.Vector3): THREE.Vector3 {
+    if (!n.path) return out.set(n.spot.x, 0, n.spot.z);
+    const length = n.path.getLength();
+    return n.path.getPointAt((((n.walked % length) + length) % length) / length, out);
+  }
+
+  /** Flying, lying there, getting up, and limping back to where they were. */
+  private recover(n: Npc, dt: number, camera: THREE.Vector3): void {
+    const k = n.knock!;
+    const body = k.body;
+    const p = body.position;
+    k.t += dt;
+    let speed = 0;
+    let yaw = k.yaw;
+    if (k.phase === 'fly') {
+      if (body.landed) {
+        k.phase = 'down';
+        k.t = 0;
+        n.avatar.action = SPRAWL;
+        game.sounds?.thud(p, 0.35);
+      }
+      body.update(dt);
+    } else if (k.phase === 'down') {
+      body.update(dt);
+      if (k.t > DOWN_SECONDS) {
+        k.phase = 'up';
+        k.t = 0;
+        n.avatar.action = GET_UP;
+      }
+    } else if (k.phase === 'up') {
+      // Up once the getting-up move has played (it clears itself).
+      if (n.avatar.action === null) {
+        k.phase = 'back';
+        k.t = 0;
+        this.say(n, OUCH[Math.floor(Math.random() * OUCH.length)]);
+      }
+    } else {
+      const home = this.home(n, new THREE.Vector3());
+      const dx = home.x - p.x;
+      const dz = home.z - p.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.3 || k.t > 60) {
+        n.knock = null;
+        n.hurt = HURT_SECONDS;
+        return;
+      }
+      speed = LIMP_SPEED;
+      yaw = Math.atan2(dx, dz);
+      const step = Math.min(d, speed * dt);
+      p.x += (dx / d) * step;
+      p.z += (dz / d) * step;
+      p.y = body.ground(p);
+    }
+    const near = (p.x - camera.x) ** 2 + (p.z - camera.z) ** 2 < RANGE * RANGE;
+    n.avatar.root.visible = n.avatar.root.matrixWorldAutoUpdate = near;
+    if (!near) return;
+    n.avatar.root.position.copy(p);
+    const cur = n.avatar.root.rotation.y;
+    n.avatar.root.rotation.y = k.phase === 'back' ? cur + Math.atan2(Math.sin(yaw - cur), Math.cos(yaw - cur)) * Math.min(1, dt * 6) : yaw;
+    n.avatar.limp = k.phase === 'back' ? 1 : 0;
+    n.avatar.tumble = k.phase === 'fly' ? k.t * 7 : 0;
+    n.avatar.animate(speed, dt);
+  }
+
+  /** Shows something said in passing over their head for a few seconds. */
+  private say(n: Npc, text: string): void {
+    this.showBubble(n, text);
+    n.saying = 5;
+  }
+
+  private hideBubble(n: Npc): void {
+    if (!n.bubble) return;
+    n.bubble.visible = false;
+    n.bubble.element.replaceChildren();
   }
 
   /** Says the next line, turning to face the player. */
@@ -326,6 +462,10 @@ export class Npcs {
     const line = n.role.lines[n.line % n.role.lines.length];
     n.line++;
     n.talking = TALK_SECONDS;
+    this.showBubble(n, line);
+  }
+
+  private showBubble(n: Npc, line: string): void {
     if (!n.bubble) {
       const el = document.createElement('div');
       el.className = 'speech';
@@ -347,6 +487,11 @@ export class Npcs {
     const ahead = new THREE.Vector3();
     const me = game.player.position;
     for (const n of this.npcs) {
+      if (n.saying > 0 && (n.saying -= dt) <= 0 && n.talking <= 0) this.hideBubble(n);
+      if (n.knock) {
+        this.recover(n, dt, camera);
+        continue;
+      }
       let x = n.spot.x;
       let z = n.spot.z;
       let yaw = n.spot.yaw;
@@ -355,20 +500,20 @@ export class Npcs {
         n.talking -= dt;
         // Walked off: stop talking.
         if (Math.hypot(me.x - n.avatar.root.position.x, me.z - n.avatar.root.position.z) > 6) n.talking = Math.min(n.talking, 0.5);
-        if (n.talking <= 0 && n.bubble) {
-          n.bubble.visible = false;
-          n.bubble.element.replaceChildren();
-        }
+        if (n.talking <= 0 && n.saying <= 0) this.hideBubble(n);
       }
+      // Still sore after being knocked over: slower, limping.
+      if (n.hurt > 0) n.hurt -= dt;
+      const pace = n.hurt > 0 ? Math.min(n.speed, LIMP_SPEED) : n.speed;
       if (n.path) {
-        if (n.talking <= 0) n.walked += n.speed * dt;
+        if (n.talking <= 0) n.walked += pace * dt;
         const length = n.path.getLength();
         const u = ((n.walked % length) + length) % length / length;
         n.path.getPointAt(u, p);
         n.path.getPointAt((u + 0.5 / length) % 1, ahead);
         [x, z] = [p.x, p.z];
         yaw = Math.atan2(ahead.x - p.x, ahead.z - p.z);
-        speed = n.talking > 0 ? 0 : n.speed;
+        speed = n.talking > 0 ? 0 : pace;
       }
       if (n.talking > 0) yaw = Math.atan2(me.x - x, me.z - z);
       const near = (x - camera.x) ** 2 + (z - camera.z) ** 2 < RANGE * RANGE;
@@ -381,6 +526,7 @@ export class Npcs {
       const cur = n.avatar.root.rotation.y;
       n.avatar.root.rotation.y = cur + Math.atan2(Math.sin(yaw - cur), Math.cos(yaw - cur)) * Math.min(1, dt * 6);
       n.avatar.action = n.talking > 0 ? 'Idle_Talking_Loop' : speed > 0 ? null : (n.role.idle ?? null);
+      n.avatar.limp = n.hurt > 0 ? Math.min(1, n.hurt / 5) : 0;
       n.avatar.animate(speed, dt);
     }
   }

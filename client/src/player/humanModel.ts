@@ -30,6 +30,22 @@ const SWIM_IDLE = 'Swim_Idle_Loop';
 const SWIM = 'Swim_Fwd_Loop';
 /** Clips that play once and then hand back to walking or standing. */
 const ONCE = new Set(['Interact', 'PickUp_Table', 'Sword_Attack', 'Spell_Simple_Shoot', 'Hit_Chest']);
+/** Falling flat (knocked down): played once, then held, lying on the ground. */
+const FALL = 'Death01';
+/**
+ * Actions made from the fall clip: landing flat after flying through the air (the end of
+ * the fall), and getting back up (the fall, played backwards).
+ */
+export const SPRAWL = 'Sprawl';
+export const GET_UP = 'GetUp';
+/** Where in the fall a sprawl starts (already on the way down), and how fast getting up goes. */
+const SPRAWL_FROM = 0.55;
+const GET_UP_RATE = 1.2;
+
+/** The clip an action plays: its own, or the fall for sprawling and getting up. */
+function clipOf(action: string | null): string | null {
+  return action === SPRAWL || action === GET_UP ? FALL : action;
+}
 
 /** A clip to blend in at a speed (m/s): standing still, walking, jogging, sprinting, swimming. */
 interface Gait {
@@ -255,15 +271,19 @@ export class Human {
     const target = this.target;
     for (const name of this.actions.keys()) target.set(name, 0);
     let stride = 1;
-    // A new action starts from its beginning; a finished one-shot clears itself.
+    // A new action starts from its beginning; a finished one-shot (or getting up) clears itself.
     if (this.action !== this.playing) {
       this.playing = this.action;
       this.actionClock = 0;
     }
-    const act = this.action && this.actions.get(this.action);
-    if (act && ONCE.has(this.action!) && this.actionClock >= act.getClip().duration - 0.15) this.action = this.playing = null;
-    if (this.action && this.actions.has(this.action) && !this.seated) {
-      target.set(this.action, 1);
+    const clip = clipOf(this.action);
+    const act = clip && this.actions.get(clip);
+    if (act) {
+      const length = act.getClip().duration;
+      if ((ONCE.has(clip!) && this.actionClock >= length - 0.15) || (this.action === GET_UP && this.actionClock * GET_UP_RATE >= length)) this.action = this.playing = null;
+    }
+    if (this.action && act && !this.seated) {
+      target.set(clip!, 1);
     } else if (this.seated && this.actions.has(SIT)) {
       target.set(this.action === 'Sitting_Talking_Loop' ? this.action : SIT, 1);
     } else if (airborne && !this.swimming && this.actions.has(JUMP)) {
@@ -286,6 +306,7 @@ export class Human {
     this.actionClock += dt;
 
     const k = 1 - Math.exp(-dt * 10);
+    const playing = clipOf(this.playing);
     for (const [name, action] of this.actions) {
       const weight = this.weights.get(name)! + (target.get(name)! - this.weights.get(name)!) * k;
       // Skip clips that have faded out entirely (most of the library, most of the time).
@@ -298,10 +319,24 @@ export class Human {
       action.setEffectiveWeight(weight);
       const duration = action.getClip().duration;
       if (GAITS.includes(name) || name === SWIM) action.time = this.phase * duration;
-      else if (name === this.playing) action.time = ONCE.has(name) ? Math.min(this.actionClock, duration - 0.01) : this.actionClock % duration;
-      else action.time = (action.time + dt) % duration;
+      else if (name === playing) action.time = this.actionTime(duration);
+      else if (name !== FALL) action.time = (action.time + dt) % duration;
     }
     this.mixer.update(0);
+  }
+
+  /** Where the playing action's clip is up to, `length` seconds long. */
+  private actionTime(length: number): number {
+    const t = this.actionClock;
+    const end = length - 0.01;
+    if (this.playing === GET_UP) return Math.max(0.01, end - t * GET_UP_RATE);
+    if (this.playing === SPRAWL) return Math.min(length * SPRAWL_FROM + t, end);
+    return ONCE.has(this.playing!) || this.playing === FALL ? Math.min(t, end) : t % length;
+  }
+
+  /** How far through its stride the walk is, 0..1. */
+  get stride(): number {
+    return this.phase;
   }
 
   /**

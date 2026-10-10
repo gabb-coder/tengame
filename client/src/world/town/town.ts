@@ -8,7 +8,7 @@ import { buildHouse, houseMatrix } from './houses.ts';
 import type { TownMaterials } from './materials.ts';
 import { box, flatRect, IDENTITY, MeshBuilder, placement } from './meshBuilder.ts';
 import { buildBlock, buildPerimeterSidewalk, buildRoads, lampPositions } from './roads.ts';
-import { buildLamps, buildTrees } from './props.ts';
+import { buildTrees, placeLamps } from './props.ts';
 import { TEXTURE_TILE } from './textures.ts';
 
 /** Interiors further than this from the camera are hidden; they're only seen up close. */
@@ -100,7 +100,7 @@ export function buildTown(scene: THREE.Scene, physics: RAPIER.World, m: TownMate
   });
 
   group.add(buildTrees([...layout.trees, ...outskirtTrees()], m, physics, 11));
-  group.add(buildLamps(lampPositions(layout), m, physics));
+  placeLamps(lampPositions(layout));
 
   scene.add(group);
   return {

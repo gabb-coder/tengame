@@ -13,6 +13,7 @@
     <div id="app"></div>
     <div id="underwater" hidden></div>
     <div id="frost" hidden></div>
+    <div id="hurt" hidden></div>
     <div id="zone-banner" hidden><div class="zone-theme"></div><div class="zone-name"></div></div>
 
     <div id="lobby" class="lobby">
@@ -85,14 +86,21 @@
       <div class="panel hud-speed" aria-live="off">
         <div class="speed-row"><span id="hud-speed">0</span><small id="hud-speed-unit">km/h</small></div>
         <div class="gear-row"><span id="hud-gear">N</span><div class="rpm"><div id="hud-rpm"></div></div></div>
+        <div id="hud-car" class="car-row" hidden><span id="hud-car-label">Car</span><div class="car-bar"><div id="hud-car-bar"></div></div></div>
       </div>
-      <div id="hud-warmth" class="panel hud-warmth" hidden>
-        <div class="warmth-row"><span>❄</span><span>Warmth</span></div>
-        <div class="warmth"><div id="hud-warmth-bar"></div></div>
-      </div>
-      <div id="hud-fuel" class="panel hud-fuel" hidden>
-        <div class="fuel-row"><span>🚀</span><span>Jetpack fuel · hold Space to fly</span></div>
-        <div class="fuel"><div id="hud-fuel-bar"></div></div>
+      <div class="hud-meters">
+        <div id="hud-warmth" class="panel hud-warmth" hidden>
+          <div class="warmth-row"><span>❄</span><span>Warmth</span></div>
+          <div class="warmth"><div id="hud-warmth-bar"></div></div>
+        </div>
+        <div id="hud-fuel" class="panel hud-fuel" hidden>
+          <div class="fuel-row"><span>🚀</span><span>Jetpack fuel · hold Space to fly</span></div>
+          <div class="fuel"><div id="hud-fuel-bar"></div></div>
+        </div>
+        <div id="hud-health" class="panel hud-health" hidden>
+          <div class="health-row"><span>❤</span><span id="hud-health-label">Health</span></div>
+          <div class="health"><div id="hud-health-bar"></div></div>
+        </div>
       </div>
       <div id="mission" class="panel hud-mission" hidden>
         <div class="mission-head"><strong id="mission-title"></strong><span id="mission-timer"></span></div>

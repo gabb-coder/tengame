@@ -14,6 +14,7 @@ import {
   type PlayerInfo,
   type Quat,
   type ServerMessage,
+  SMASH_REPAIR_SECONDS,
   type Vec3,
 } from '../../shared/protocol.ts';
 import { MissionManager } from './missions.ts';
@@ -21,6 +22,8 @@ import { MissionManager } from './missions.ts';
 /** Chat flood control: at most this many messages per window. */
 const CHAT_BURST = 5;
 const CHAT_WINDOW_MS = 5000;
+/** At most this many street things lie smashed in a room at once. */
+const MAX_SMASHED = 800;
 
 // Distinct, readable colors assigned by join slot.
 const PLAYER_COLORS = ['#e4572e', '#29a3e0', '#f2c14e', '#6cbf54'];
@@ -47,6 +50,10 @@ export class Room {
   private chatTimes = new Map<string, number[]>();
   /** When each shared button (bell, cannon...) was last used, in ms. */
   private fired = new Map<string, number>();
+  /** Street things lying smashed, and when each was hit (ms). */
+  private smashedAt = new Map<string, number>();
+  /** Recent times of things each player did that could flood the room (by key). */
+  private recent = new Map<string, number[]>();
   /** Hours on the clock at `clockSetAt` (real ms). */
   private clockHours = START_HOUR;
   private clockSetAt: number;
@@ -99,6 +106,7 @@ export class Room {
     if (this.players.delete(id)) {
       this.scores.delete(id);
       this.chatTimes.delete(id);
+      for (const key of this.recent.keys()) if (key.startsWith(`${id}:`)) this.recent.delete(key);
       this.missions?.playerLeft(id, this.now());
       this.broadcast({ type: 'player_left', id });
     }
@@ -127,6 +135,37 @@ export class Room {
     if (now - (this.fired.get(id) ?? -Infinity) < cooldown * 1000) return false;
     this.fired.set(id, now);
     return true;
+  }
+
+  /** Whether `key` (a player and a kind of thing) has done it fewer than `burst` times in the last `windowMs`; counts this one if so. */
+  allow(key: string, burst: number, windowMs: number): boolean {
+    const now = this.now();
+    const times = (this.recent.get(key) ?? []).filter((t) => now - t < windowMs);
+    if (times.length >= burst) return false;
+    times.push(now);
+    this.recent.set(key, times);
+    return true;
+  }
+
+  /** Marks a street thing smashed, unless it already is (or too many are). */
+  smash(id: string): boolean {
+    this.mendSmashed();
+    if (this.smashedAt.has(id) || this.smashedAt.size >= MAX_SMASHED) return false;
+    this.smashedAt.set(id, this.now());
+    return true;
+  }
+
+  /** What lies smashed, with how many seconds ago each was hit. */
+  smashed(): [string, number][] {
+    this.mendSmashed();
+    const now = this.now();
+    return [...this.smashedAt].map(([id, at]) => [id, Math.round((now - at) / 100) / 10]);
+  }
+
+  /** Forgets things smashed long enough ago to have been put back. */
+  private mendSmashed(): void {
+    const now = this.now();
+    for (const [id, at] of this.smashedAt) if (now - at >= SMASH_REPAIR_SECONDS * 1000) this.smashedAt.delete(id);
   }
 
   clock(): Clock {
@@ -163,10 +202,11 @@ export class Room {
     });
   }
 
-  broadcast(msg: ServerMessage): void {
+  /** Sends `msg` to everyone in the room, except the player `except` if given. */
+  broadcast(msg: ServerMessage, except?: string): void {
     const data = JSON.stringify(msg);
     for (const pl of this.players.values()) {
-      if (pl.socket.readyState === pl.socket.OPEN) pl.socket.send(data);
+      if (pl.id !== except && pl.socket.readyState === pl.socket.OPEN) pl.socket.send(data);
     }
   }
 }

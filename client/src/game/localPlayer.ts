@@ -20,6 +20,8 @@ import { nearestSeat, type Seat } from '../world/seats.ts';
 import type { World } from '../world/world.ts';
 import { placeEffects } from '../world/zones/index.ts';
 import type { Activities, Activity, Mount, Prompt } from './activities.ts';
+import { carHits, type CarShape } from './impacts.ts';
+import { game } from './link.ts';
 
 /** How close (meters from the car's center) you must be to get in. */
 const CAR_REACH = 3.2;
@@ -33,6 +35,19 @@ const JET_SECONDS = 7;
 const REFUEL_SECONDS = 3;
 /** Jetpack thrust, as a multiple of the local gravity. */
 const JET_THRUST = 2.2;
+/** The car's body, for running into people and things (see game/impacts.ts). */
+const CAR_SHAPE: CarShape = { halfWidth: 0.98, halfLength: 2.25, below: 0.7, above: 0.9 };
+/** Knocked down by a car: lying there (longer if knocked out), then getting up (the clip's length). */
+const DOWN_SECONDS = 2.2;
+const KNOCKED_OUT_SECONDS = 5;
+const GET_UP_SECONDS = 2;
+/** Health lost to a car hit at no speed, and per m/s more; how soon and fast it comes back. */
+const HIT_HARM = 12;
+const HARM_PER_MS = 2.6;
+const HEAL_AFTER = 6;
+const HEAL_RATE = 4;
+/** Below this much health you limp. */
+const LIMPING_BELOW = 60;
 /** How long one-shot moves take to play. */
 const ONE_SHOT_SECONDS: Partial<Record<Act, number>> = { interact: 1.4, pickup: 1.8, hit: 1.1 };
 
@@ -90,6 +105,15 @@ export class LocalPlayer {
   private oneShot: { act: Act; left: number } | null = null;
   private shownAct: Act | null = null;
   private time = 0;
+  /** 0..100: a car knocks some off, and it slowly comes back. */
+  health = 100;
+  private sinceHurt = Infinity;
+  /** The red flash of being hit, fading (0..1). */
+  flash = 0;
+  /** Knocked over by a car: flying, lying there, getting up; and seconds left of it. */
+  private knockdown: { phase: 'fly' | 'down' | 'up'; left: number; out: boolean } | null = null;
+  /** Called when knocked out cold, and when coming round. */
+  onKnockedOut: (out: boolean) => void = () => {};
 
   constructor(
     private world: World,
@@ -119,6 +143,7 @@ export class LocalPlayer {
     const at = this.car.physics.body.translation();
     const carPlace = placeEffects(at.x, at.y, at.z);
     if (this.mode === 'car') {
+      this.runInto(dt);
       this.car.step(this.frozen ? PARKED : input.car, dt, carPlace);
       return;
     }
@@ -130,7 +155,7 @@ export class LocalPlayer {
     this.swimming = place.underwater;
     const c = input.foot;
     if (this.task && (c.forward || c.strafe || c.jump)) this.stopTask();
-    if (this.mount || this.task) {
+    if (this.mount || this.task || this.knockdown) {
       if (this.task) this.character.yaw = this.task.yaw;
       this.character.step(STILL, false, false, dt, place);
       return;
@@ -138,7 +163,8 @@ export class LocalPlayer {
     const { forward, right } = this.orbit.basis;
     const move = forward.multiplyScalar(c.forward).addScaledVector(right, c.strafe);
     if (move.lengthSq() > 1) move.normalize();
-    move.multiplyScalar(this.speedScale);
+    // Hurt: a slow limp, no running.
+    move.multiplyScalar(this.speedScale * (this.hurt ? 0.6 : 1));
     // The jetpack only works on the alien world (its fuel beacons don't reach further).
     let thrust = 0;
     const jet = this.jetpack;
@@ -149,7 +175,76 @@ export class LocalPlayer {
         jet.fuel = Math.max(0, jet.fuel - dt / JET_SECONDS);
       } else if (this.character.grounded) jet.fuel = Math.min(1, jet.fuel + dt / REFUEL_SECONDS);
     }
-    this.character.step(move, c.run, c.jump, dt, place, thrust);
+    this.character.step(move, c.run && !this.hurt, c.jump, dt, place, thrust);
+  }
+
+  /** Limping after being hit by a car, until health comes back. */
+  get hurt(): boolean {
+    return this.health < LIMPING_BELOW;
+  }
+
+  /** Hit by a car: thrown at `v` (m/s) and hurt by how hard; down for a moment, then up. */
+  knockedBy(v: THREE.Vector3Like): void {
+    // Already flying or lying there: one knock at a time.
+    if (this.mode !== 'foot' || this.knockdown) return;
+    if (this.mount) this.leave(true);
+    this.stopTask();
+    this.dancing = false;
+    this.oneShot = null;
+    this.character.launch(v);
+    const speed = Math.hypot(v.x, v.y, v.z);
+    this.health = Math.max(0, this.health - (HIT_HARM + speed * HARM_PER_MS));
+    this.sinceHurt = 0;
+    this.flash = 1;
+    this.knockdown = { phase: 'fly', left: 0, out: this.health <= 0 };
+    this.sounds.thud(this.character.feet, Math.min(1, speed / 15));
+  }
+
+  /** Healing over time, and the knockdown: flying, lying there, getting up. */
+  private recover(dt: number): void {
+    this.sinceHurt += dt;
+    this.flash = Math.max(0, this.flash - dt * 1.5);
+    if (this.sinceHurt > HEAL_AFTER && !this.knockdown) this.health = Math.min(100, this.health + HEAL_RATE * dt);
+    const k = this.knockdown;
+    if (!k) return;
+    k.left -= dt;
+    if (k.phase === 'fly') {
+      // Landed (or ended up on something else: in water, on a ride).
+      if (this.mode !== 'foot' || this.mount || ((this.character.grounded || this.swimming) && this.character.motion.y <= 0)) {
+        k.phase = 'down';
+        k.left = k.out ? KNOCKED_OUT_SECONDS : DOWN_SECONDS;
+        if (k.out) this.onKnockedOut(true);
+      }
+    } else if (k.phase === 'down' && k.left <= 0) {
+      k.phase = 'up';
+      k.left = GET_UP_SECONDS;
+      if (k.out) {
+        this.health = 30;
+        this.onKnockedOut(false);
+      }
+    } else if (k.phase === 'up' && k.left <= 0) this.knockdown = null;
+  }
+
+  /**
+   * Knocks over whatever the car is about to run into (people, animals, lamp posts, bins),
+   * slowing the car by what each takes off it and denting it.
+   */
+  private runInto(dt: number): void {
+    const body = this.car.physics.body;
+    const rotation = body.rotation();
+    const q = new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
+    for (const hit of carHits(game.impacts, CAR_SHAPE, body.translation(), rotation, body.linvel(), dt)) {
+      const v = body.linvel();
+      const velocity = new THREE.Vector3(v.x, v.y, v.z);
+      hit.target.hit(velocity.clone());
+      // Like billiard balls: what's hit takes some of the car's speed toward it. Off
+      // something that won't budge, the car bounces back.
+      const toward = new THREE.Vector3(hit.dir.x, 0, hit.dir.z).applyQuaternion(q);
+      const bounce = hit.target.solid ? 1.3 : 1;
+      velocity.addScaledVector(toward, (-hit.speed * hit.target.mass * bounce) / (CAR.mass + hit.target.mass));
+      body.setLinvel(velocity, true);
+      this.car.hit(hit.dir, hit.target.harm * (hit.speed / 20) ** 2);
+    }
   }
 
   /** Per-frame update after physics: interactions, models and camera. */
@@ -163,6 +258,7 @@ export class LocalPlayer {
     if (this.mode === 'foot' && input.wasPressed('KeyG') && !this.mount && !this.task) this.dancing = !this.dancing;
     if (moving || this.mode !== 'foot' || this.mount || this.task) this.dancing = false;
     if (this.oneShot && (this.oneShot.left -= dt) <= 0) this.oneShot = null;
+    this.recover(dt);
     this.interaction = this.findInteraction();
     if (input.wasPressed('KeyE')) this.interact();
     if (this.mount && !this.mount.ride && input.wasPressed('KeyR')) this.useRemote();
@@ -198,7 +294,8 @@ export class LocalPlayer {
       const feet = this.character.feet;
       this.avatar.root.position.copy(feet);
       this.avatar.root.rotation.y = this.character.yaw;
-      this.avatar.animate(this.character.speed, dt, !this.character.grounded && !this.swimming);
+      this.avatar.limp = this.hurt ? 1 : 0;
+      this.avatar.animate(this.knockdown ? 0 : this.character.speed, dt, !this.character.grounded && !this.swimming && !this.knockdown);
       this.orbit.update(feet);
     }
   }
@@ -206,6 +303,7 @@ export class LocalPlayer {
   /** What the character is doing, for its animation and for the other players. */
   get act(): Act | null {
     if (this.mode !== 'foot') return null;
+    if (this.knockdown) return this.knockdown.phase === 'fly' ? 'tumble' : this.knockdown.phase === 'down' ? 'down' : 'getup';
     if (this.oneShot) return this.oneShot.act;
     if (this.task) return this.task.act;
     if (this.jetpack?.thrusting) return 'jet';
@@ -311,6 +409,7 @@ export class LocalPlayer {
     if (act) extra.act = act;
     if (this.jetpack) extra.gear = 'jetpack';
     if (this.swimming && !this.mount) extra.swim = true;
+    if (this.hurt) extra.hurt = true;
     if (this.mount) {
       const p = this.avatar.root.position;
       const seated = this.mount.pose === 'sit' ? { seated: true } : {};
@@ -330,7 +429,7 @@ export class LocalPlayer {
   }
 
   private findInteraction(): Interaction {
-    if (this.frozen) return null;
+    if (this.frozen || this.knockdown) return null;
     if (this.mode === 'car') {
       return Math.abs(this.car.physics.speed) <= MAX_EXIT_SPEED ? { kind: 'exit-car' } : { kind: 'too-fast' };
     }

@@ -41,10 +41,19 @@ export interface CarState {
   /** Forward speed in m/s. */
   speed: number;
   braking: boolean;
+  /** Crash damage to the front, back, left and right, each 0..1 (absent when undamaged). */
+  dmg?: CarDamage;
 }
 
+export type CarDamage = [front: number, rear: number, left: number, right: number];
+
+/** Smashed street things (lamps, hydrants, bins...) are put back this long after, in seconds. */
+export const SMASH_REPAIR_SECONDS = 180;
+/** Nobody hit by a car flies off faster than this (m/s). */
+export const MAX_KNOCK_SPEED = 45;
+
 /** Something a player's character is doing, shown to everyone. */
-export const ACTS = ['dance', 'talk', 'interact', 'pickup', 'fish', 'hit', 'jet'] as const;
+export const ACTS = ['dance', 'talk', 'interact', 'pickup', 'fish', 'hit', 'jet', 'tumble', 'down', 'getup'] as const;
 export type Act = (typeof ACTS)[number];
 /** Things a player can carry or wear. */
 export const GEARS = ['jetpack'] as const;
@@ -62,9 +71,11 @@ export interface AvatarState {
   seated?: boolean;
   /** Swimming. */
   swim?: boolean;
-  /** Dancing, chatting, fishing, flying a jetpack... */
+  /** Dancing, chatting, fishing, flying a jetpack, knocked flying by a car... */
   act?: Act;
   gear?: Gear;
+  /** Hurt (hit by a car): limping until they heal. */
+  hurt?: boolean;
 }
 
 export interface PlayerTransform {
@@ -126,7 +137,33 @@ export interface TriggerRequestMessage {
   id: string;
 }
 
-export type ClientMessage = JoinMessage | StateMessage | DoorRequestMessage | SwitchRequestMessage | TriggerRequestMessage | ChatRequestMessage | TimeRequestMessage;
+/**
+ * Our car hit someone, sending them flying at `v` (m/s). `target` is a player's id, or
+ * `npc:<id>` for one of the people walking about the world (everyone sees them fly).
+ */
+export interface KnockRequestMessage {
+  type: 'knock';
+  target: string;
+  v: Vec3;
+}
+
+/** Our car smashed a street thing (`lamp:12`, `bin:<house>:1`...), knocking it off at `v` (m/s). */
+export interface SmashRequestMessage {
+  type: 'smash';
+  id: string;
+  v: Vec3;
+}
+
+export type ClientMessage =
+  | JoinMessage
+  | StateMessage
+  | DoorRequestMessage
+  | SwitchRequestMessage
+  | TriggerRequestMessage
+  | ChatRequestMessage
+  | TimeRequestMessage
+  | KnockRequestMessage
+  | SmashRequestMessage;
 
 // ---- server -> client ----
 
@@ -144,6 +181,8 @@ export interface WelcomeMessage {
   scores: Record<string, number>;
   mission: MissionState | null;
   clock: Clock;
+  /** Street things lying smashed, with how many seconds ago each was hit. */
+  smashed: [id: string, ago: number][];
   /**
    * The server's wall clock (ms) when this was sent. Timed things (rides, eruptions, rocket
    * launches) run on it, so they're in the same place on every player's screen.
@@ -244,6 +283,26 @@ export interface TriggerMessage {
   by: string;
 }
 
+/**
+ * Someone's car hit `target` at speed, sending them flying at `v` (m/s): sent to the player
+ * hit (who flies), or for people walking about the world, to everyone else.
+ */
+export interface KnockMessage {
+  type: 'knock';
+  target: string;
+  v: Vec3;
+  /** Whose car it was. */
+  by: string;
+}
+
+/** Someone's car smashed a street thing (sent to everyone else). */
+export interface SmashMessage {
+  type: 'smash';
+  id: string;
+  v: Vec3;
+  by: string;
+}
+
 export interface PlayerJoinedMessage {
   type: 'player_joined';
   player: PlayerInfo;
@@ -275,6 +334,8 @@ export type ServerMessage =
   | DoorMessage
   | SwitchMessage
   | TriggerMessage
+  | KnockMessage
+  | SmashMessage
   | ChatMessage
   | NoticeMessage
   | MissionMessage

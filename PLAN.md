@@ -126,6 +126,12 @@ fight the day/night cycle).
   are drawn in a few draws instead of hundreds; small props far away aren't drawn; house
   interiors don't cast sun shadows; Medium draws at most 1.5× the screen's pixels.
 
+- Crashes: cars knock over street lamps, hydrants (gushing), mailboxes, bins, fences and
+  hedges as loose physics pieces (server-synced, repaired after 3 minutes); people and small
+  animals are knocked flying, lie there and get up limping (players lose health, synced
+  through the server); big animals are solid; cars dent per side, smoke, lose power and
+  wreck (dents shown on friends' cars too).
+
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.

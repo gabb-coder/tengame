@@ -52,6 +52,20 @@ each with its own fish, from common to legendary; strike when the float bobs. Pr
 open your **journal**: the relics you've found, riddles for the rest, and the fish you've
 caught. Both are remembered in your browser.
 
+**Crashes**: the car is a real physical body, and so is what it hits.
+- **Things**: it knocks flying the street lamps (they topple and go dark), fire hydrants
+  (they gush water), mailboxes, wheelie bins, picket fences and hedges. Slow down and lamps
+  and hydrants stop you instead. What's smashed stays smashed for everyone in the room, and
+  is put back a few minutes later.
+- **People**: anyone walking about, friends included, goes flying when hit. They tumble,
+  lie there a moment, get up and limp off. The townsfolk complain; friends lose health (a
+  bar appears) and limp until it comes back. Too big a hit knocks them out for a few seconds.
+- **Animals**: small ones (penguins, reindeer, horses, camels, raptors, crabs) get knocked
+  over. The big dinosaurs and mammoths don't budge: you bounce off.
+- **Your car** dents on the side that hit, and the "Car" bar under the speed goes down. A
+  damaged engine smokes and loses power, smashed lights go out, and a wrecked car catches
+  fire and stops. Press **T** for a new one. Friends see your dents and smoke too.
+
 Each place also sounds like itself: wind on the tundra, rain and sirens in the city, waves
 and gulls at the bay, birds by day and crickets at night, insects in the jungle, the rumbling
 volcano, the roar of the waterfall. (The volume is in Settings, as "Background sounds".)
@@ -122,7 +136,7 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 | Space | Handbrake |
 | E | Get out (when nearly stopped) |
 | R | Flip the car upright where it is |
-| T | Respawn at your starting spot |
+| T | A new car (good as new) at your starting spot |
 | M | Mute sound |
 | N | Skip 2 hours (free roam) |
 | F | Fullscreen |

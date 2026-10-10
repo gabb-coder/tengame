@@ -1,5 +1,6 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { breakablePlacements } from '../breakables.ts';
 import {
   DOOR_HEIGHT,
   DOOR_WIDTH,
@@ -172,9 +173,9 @@ export function buildHouse(
   builder.add(flatRect(h.doorOffset - 0.6, d / 2 + 1.3 + PORCH_STEP_DEPTH, h.doorOffset + 0.6, lotFront, yardY, TEXTURE_TILE.concrete), m.paving, M, undefined, {
     castShadow: false,
   });
+  // (The mailbox, bins, fence and hedge can be knocked flying by a car: see world/breakables.ts.)
   const mailX = h.doorOffset - h.drivewaySide * 1.2;
-  builder.add(box(0.08, 1.05, 0.08), m.darkMetal, at(mailX, 0.52, lotFront - 0.6));
-  builder.add(new THREE.CapsuleGeometry(0.17, 0.32, 4, 10).rotateX(Math.PI / 2), m.door, at(mailX, 1.15, lotFront - 0.6), h.doorColor);
+  breakablePlacements.push({ id: `mailbox:${h.id}`, kind: 'mailbox', matrix: at(mailX, 0, lotFront - 0.6), color: h.doorColor });
   yard(builder, m, h, at, lotFront, driveX);
 }
 
@@ -209,19 +210,18 @@ function yard(builder: MeshBuilder, m: TownMaterials, h: House, at: (x: number, 
   }
   if (lotMid + lotHalf > from + 0.5) runs.push([from, lotMid + lotHalf]);
   const style = rnd();
-  for (const [x0, x1] of runs) {
-    const len = x1 - x0;
-    const mid = (x0 + x1) / 2;
-    if (style < 0.4) {
-      // White picket fence.
-      builder.add(box(len, 0.08, 0.04), m.lacquer, at(mid, 0.45, front), '#f4f2ec');
-      builder.add(box(len, 0.08, 0.04), m.lacquer, at(mid, 0.8, front), '#f4f2ec');
-      for (let x = x0 + 0.08; x < x1; x += 0.16 + 0.06) builder.add(box(0.08, 0.95, 0.03).translate(0, 0.475, 0), m.lacquer, at(x, 0, front + 0.035), '#f8f6f0');
-    } else if (style < 0.75) {
-      // A clipped hedge.
-      builder.add(box(len, 0.9, 0.7, 1), m.hedge, at(mid, 0.45, front - 0.2), HEDGE[Math.floor(rnd() * HEDGE.length)]);
+  runs.forEach(([x0, x1], r) => {
+    // A white picket fence or a clipped hedge, in pieces about a metre long.
+    if (style >= 0.75) return;
+    const fence = style < 0.4;
+    const color = fence ? undefined : HEDGE[Math.floor(rnd() * HEDGE.length)];
+    const n = Math.ceil((x1 - x0) / 1.2);
+    const piece = (x1 - x0) / n;
+    for (let j = 0; j < n; j++) {
+      const matrix = at(x0 + piece * (j + 0.5), 0, fence ? front : front - 0.2).multiply(new THREE.Matrix4().makeScale(piece, 1, 1));
+      breakablePlacements.push({ id: `${fence ? 'fence' : 'hedge'}:${h.id}:${r}:${j}`, kind: fence ? 'fence' : 'hedge', matrix, color });
     }
-  }
+  });
   // Flower beds under the front windows, either side of the door.
   for (const side of [-1, 1]) {
     const x0 = side < 0 ? -w / 2 + 0.3 : h.doorOffset + 1.1;
@@ -245,8 +245,7 @@ function yard(builder: MeshBuilder, m: TownMaterials, h: House, at: (x: number, 
   // Bins at the end of the driveway.
   const bx = driveX + h.drivewaySide * 1.9;
   for (const [k, color] of [[0, '#2f5a3a'], [1, '#2a3e6a']] as const) {
-    builder.add(box(0.55, 0.95, 0.6, 1), m.lacquer, at(bx, 0.48, front - 1.2 - k * 0.7), color);
-    builder.add(box(0.6, 0.06, 0.66), m.lacquer, at(bx, 0.98, front - 1.2 - k * 0.7), '#1e2a22');
+    breakablePlacements.push({ id: `bin:${h.id}:${k}`, kind: 'bin', matrix: at(bx, 0, front - 1.2 - k * 0.7), color });
   }
 }
 

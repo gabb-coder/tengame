@@ -10,7 +10,8 @@ import { Input } from './input.ts';
 import { MissionClient } from './game/missions.ts';
 import { Connection } from './net/connection.ts';
 import { RemotePlayers } from './net/remotePlayers.ts';
-import { applyHudSettings, renderClock, renderFps, renderFuel, renderGauges, renderMode, renderPlayerList, renderPrompt, renderUnderwater, renderWarmth, renderZone, showDisconnected, showHud, toggleHelp } from './ui/hud.ts';
+import { applyHudSettings, renderCarHealth, renderClock, renderFps, renderFuel, renderGauges, renderHealth, renderMode, renderPlayerList, renderPrompt, renderUnderwater, renderWarmth, renderZone, showDisconnected, showHud, toggleHelp } from './ui/hud.ts';
+import { effects } from './world/particles.ts';
 import { Fishing } from './game/fishing.ts';
 import { AmbientSound } from './audio/ambience.ts';
 import { zoneWeights } from './world/zones/ambience.ts';
@@ -128,7 +129,8 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   const appliances = new Appliances(world.scene, world.town.houses, world.town.interiors, generateWorld().fires, world.materials, world.lights);
   for (const id of welcome.switchedOn) appliances.setOn(id, true);
   const interiorLights = new InteriorLights(world.lights, world.town.houses, world.town.interiors);
-  const streetLights = new StreetLights(world.lights, lampPositions(world.town.layout), world.materials.lampGlow);
+  const streetLights = new StreetLights(world.lights, lampPositions(world.town.layout), world.materials.lampGlow, (i) => world.breakables.isBroken(`lamp:${i}`));
+  for (const [id, ago] of welcome.smashed) world.breakables.alreadySmashed(id, ago);
 
   const me = welcome.players.find((p) => p.id === welcome.id)!;
   // Separate spawn points so players don't start inside each other.
@@ -154,8 +156,22 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     hasJetpack: () => player.jetpack !== null,
     trigger: (id: string) => conn.send({ type: 'trigger', id }),
     notice: showNotice,
+    knock: (target: string, v: THREE.Vector3Like) => conn.send({ type: 'knock', target, v: [v.x, v.y, v.z] }),
+    smash: (id: string, v: THREE.Vector3Like) => conn.send({ type: 'smash', id, v: [v.x, v.y, v.z] }),
     sounds,
   });
+  // Crashes: a wrecked car burns until you call for a new one; being hit can knock you out.
+  car.onWrecked = () => {
+    sounds.wreck(car.object.position);
+    const at = car.object.position;
+    for (let i = 0; i < 60; i++) {
+      const v = new THREE.Vector3((Math.random() - 0.5) * 6, 2 + Math.random() * 5, (Math.random() - 0.5) * 6);
+      effects.fire.emit(at, v, new THREE.Color(2.6, 1.1 + Math.random() * 0.6, 0.3), 0.6 + Math.random() * 0.5, 0.5 + Math.random() * 0.5);
+    }
+    showNotice('Your car is wrecked! Press T for a new one');
+  };
+  player.onKnockedOut = (out) => showNotice(out ? 'You were knocked out!' : 'You come round, sore but in one piece');
+  world.scene.add(...effects.objects);
   game.player.id = me.id;
 
   // Treasures to find and fish to catch, both written up in the journal.
@@ -262,6 +278,18 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
         markFired(msg.id);
         playTrigger(msg.id, msg.by);
         break;
+      case 'knock': {
+        // Hit by someone's car (we fly), or one of the people walking about was.
+        const v = { x: msg.v[0], y: msg.v[1], z: msg.v[2] };
+        if (msg.target === welcome.id) {
+          player.knockedBy(v);
+          showNotice(`${players.get(msg.by)?.name ?? 'Someone'} ran you over!`);
+        } else game.knockables.get(msg.target)?.(v);
+        break;
+      }
+      case 'smash':
+        world.breakables.smash(msg.id, { x: msg.v[0], y: msg.v[1], z: msg.v[2] });
+        break;
       case 'switch': {
         appliances.setOn(msg.id, msg.on);
         const a = appliances.get(msg.id);
@@ -322,6 +350,7 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
       lastSend = now;
     }
 
+    remotes.walkersSolid = player.mode !== 'car';
     remotes.update(now, dt);
     missions.update(now, world.camera);
     interiorLights.update(player.focus);
@@ -347,6 +376,8 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     warmth.update(dt, { position: player.focus, onFoot: player.mode === 'foot', indoors: interiorLights.inside, nearFire: appliances.litFireNear(player.focus, FIRE_WARMTH_RANGE) });
     player.speedScale = warmth.speed;
     renderWarmth(warmth.value, zone.id === 'arctic' && player.mode === 'foot');
+    renderHealth(player.health, player.flash);
+    renderCarHealth(car.damage.health, player.mode === 'car' && car.damage.health < 1);
     if (warmth.takeWarning()) showNotice("You're freezing! Warm up by a fire, indoors or in your car");
     const night = world.dayNight.night;
     streetLights.update(night);
@@ -359,6 +390,9 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     furniture.update(world.camera.position);
     appliances.update(world.camera.position, dt);
     world.lights.update(dt, world.camera.position);
+    effects.setView(world.renderer.domElement.height, world.camera.fov);
+    effects.update(dt, world.dayNight.night);
+    world.breakables.update(dt, world.camera.position);
 
     renderMode(player.mode, input.pointerLocked);
     renderPrompt(player.interaction, player.remoteTv);

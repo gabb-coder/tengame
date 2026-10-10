@@ -2,6 +2,9 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { Label } from '../render/labels.ts';
 import type { Act, AvatarState, CarState, PlayerInfo, PlayerTransform } from '../../../shared/protocol.ts';
+import { game } from '../game/link.ts';
+import type { Target } from '../game/impacts.ts';
+import { knockFlight } from '../game/thrown.ts';
 import { showAct } from '../player/acts.ts';
 import { AvatarModel } from '../player/avatarModel.ts';
 import { AVATAR, CAPSULE_CENTER } from '../player/character.ts';
@@ -49,7 +52,14 @@ interface Remote {
   /** Stand-ins in our physics world, moved to where the player is drawn, so we bump into them. */
   carBody: RAPIER.RigidBody;
   avatarBody: RAPIER.RigidBody;
+  /** Something our car can knock flying, while they're walking. */
+  target: Target;
 }
+
+/** After knocking someone over, they can't be hit again for this long (ms): they're flying. */
+const KNOCK_AGAIN_MS = 2500;
+/** What someone knocked over is doing until they're back on their feet. */
+const KNOCKED_DOWN = new Set<Act | null>(['tumble', 'down', 'getup']);
 
 /**
  * Draws and voices other players' cars and characters, smoothing between server
@@ -57,6 +67,11 @@ interface Remote {
  */
 export class RemotePlayers {
   private remotes = new Map<string, Remote>();
+  /**
+   * Whether walking players are solid to us. Not while we drive: the car hits them and
+   * they fly (see game/impacts.ts), rather than stopping dead as if at a post.
+   */
+  walkersSolid = true;
 
   constructor(
     private scene: THREE.Scene,
@@ -85,7 +100,25 @@ export class RemotePlayers {
     this.scene.add(model.root);
     const carBody = this.kinematicBody(RAPIER.ColliderDesc.cuboid(CAR.halfExtents.x, CAR.halfExtents.y, CAR.halfExtents.z));
     const avatarBody = this.kinematicBody(RAPIER.ColliderDesc.capsule(AVATAR.halfHeight, AVATAR.radius));
-    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0, act: null, carBody, avatarBody });
+    // Run them over and they fly (it's up to their game to fly them); not again while
+    // they're still flying, lying there or getting up.
+    let hittableAt = 0;
+    const down = () => KNOCKED_DOWN.has(this.remotes.get(info.id)?.act ?? null);
+    const target: Target = {
+      at: (out) => (avatar.root.visible && performance.now() > hittableAt && !down() ? out.copy(avatar.root.position) : null),
+      radius: 0.35,
+      height: 1.8,
+      minSpeed: 1.2,
+      mass: 80,
+      harm: 0.03,
+      hit: (car) => {
+        hittableAt = performance.now() + KNOCK_AGAIN_MS;
+        game.knock(info.id, knockFlight(car));
+        game.sounds?.thud(avatar.root.position, Math.min(1, car.length() / 15));
+      },
+    };
+    game.impacts.addMoving(target);
+    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0, act: null, carBody, avatarBody, target });
   }
 
   remove(id: string): void {
@@ -101,6 +134,7 @@ export class RemotePlayers {
     this.scene.remove(remote.model.root);
     this.physics.removeRigidBody(remote.carBody);
     this.physics.removeRigidBody(remote.avatarBody);
+    game.impacts.removeMoving(remote.target);
     this.remotes.delete(id);
   }
 
@@ -172,6 +206,8 @@ export class RemotePlayers {
       remote.wheelSpin += (speed / CAR.wheelRadius) * dt;
       for (let i = 0; i < 4; i++) model.setWheel(i, i < 2 ? lerp('steer') : 0, remote.wheelSpin, SETTLED_SUSPENSION);
       model.setBraking(next.car.braking);
+      model.setDamage(next.car.dmg);
+      model.smoke(dt);
       const rpm = lerp('rpm');
       remote.engine.update(rpm, lerp('load'), rpm > 0 ? 1 : 0);
       this.updateAvatar(remote, a.avatar, next.avatar, k, dt);
@@ -184,7 +220,7 @@ export class RemotePlayers {
     const state = b ?? a;
     const walking = state !== null;
     avatar.root.visible = walking;
-    if (!walking) moveBody(remote.avatarBody, PARKED_FAR);
+    if (!walking || !this.walkersSolid) moveBody(remote.avatarBody, PARKED_FAR);
     const tagParent = walking ? avatar.root : model.root;
     if (nameTag.parent !== tagParent) {
       tagParent.add(nameTag);
@@ -201,10 +237,11 @@ export class RemotePlayers {
     const act = to.act ?? null;
     showAct(avatar, act, to.gear, !!to.swim, remote.act, performance.now() / 1000);
     remote.act = act;
+    avatar.limp = to.hurt ? 1 : 0;
     avatar.animate(from.speed + (to.speed - from.speed) * k, dt, act === 'jet');
     const feet = avatar.root.position;
     // Someone sitting is part of the sofa; their standing body would only get in the way.
-    moveBody(remote.avatarBody, to.seated ? PARKED_FAR : { x: feet.x, y: feet.y + CAPSULE_CENTER, z: feet.z });
+    if (this.walkersSolid) moveBody(remote.avatarBody, to.seated ? PARKED_FAR : { x: feet.x, y: feet.y + CAPSULE_CENTER, z: feet.z });
   }
 }
 

@@ -430,3 +430,84 @@ test('made-up acts and gear are refused', async () => {
   assert.deepEqual(avatar, { p: [2, 0, 2], yaw: 0, speed: 0, swim: true, act: 'dance', gear: 'jetpack' });
   for (const client of [a, b]) client.close();
 });
+
+test('a driver can knock over a player standing by their car, and only them', async () => {
+  const car = { steer: 0, rpm: 3000, load: 1, speed: 12, braking: false };
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const welcome = await a.next('welcome');
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room: welcome.room });
+  const bob = (await b.next('welcome')).id;
+  const c = await TestClient.connect();
+  c.send({ type: 'join', name: 'Cat', room: welcome.room });
+  await c.next('welcome');
+  const knock = { type: 'knock', target: bob, v: [30, 8, 0] };
+
+  // Bob is walking far from Alice's car: nothing. Next to it: Bob alone is told, flying no faster than allowed.
+  a.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car, avatar: null });
+  b.send({ type: 'state', p: [50, 1, 50], q: [0, 0, 0, 1], car, avatar: { p: [40, 0, 0], yaw: 0, speed: 1 } });
+  await a.next('snapshot');
+  await a.next('snapshot');
+  a.send(knock);
+  b.send({ type: 'state', p: [50, 1, 50], q: [0, 0, 0, 1], car, avatar: { p: [3, 0, 1], yaw: 0, speed: 1, hurt: true } });
+  let avatar;
+  for (let i = 0; i < 10 && !avatar?.hurt; i++) avatar = (await c.next('snapshot')).players.find((p) => p.avatar)?.avatar;
+  assert.equal(avatar?.hurt, true, 'being hurt is passed on');
+  a.send({ ...knock, v: [300, 80, 0] });
+  const hit = await b.next('knock');
+  assert.equal(hit.target, bob);
+  assert.equal(hit.by, welcome.id);
+  assert.ok(Math.abs(Math.hypot(...hit.v) - 45) < 0.01, 'flying speed is capped');
+  // Straight away again: once a second at most. And nobody else hears of it.
+  a.send(knock);
+  a.send({ type: 'chat', text: 'done' });
+  await b.next('chat');
+  assert.equal(b.inbox.filter((m) => m.type === 'knock').length, 0);
+  assert.equal(c.inbox.filter((m) => m.type === 'knock').length, 0);
+  // People walking about the world: everyone else sees them fly. Walkers can't knock anyone.
+  a.send({ type: 'knock', target: 'npc:mayor', v: [10, 5, 0] });
+  assert.deepEqual(await c.next('knock'), { type: 'knock', target: 'npc:mayor', v: [10, 5, 0], by: welcome.id });
+  b.send({ type: 'knock', target: 'npc:mayor', v: [10, 5, 0] });
+  a.send({ type: 'knock', target: 'npc:<b>', v: [10, 5, 0] });
+  b.send({ type: 'chat', text: 'done' });
+  await c.next('chat');
+  assert.equal(c.inbox.filter((m) => m.type === 'knock').length, 0);
+  for (const client of [a, b, c]) client.close();
+});
+
+test('smashed street things stay smashed for everyone, newcomers included, and car damage is shared', async () => {
+  const car = { steer: 0, rpm: 3000, load: 1, speed: 12, braking: false };
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const welcome = await a.next('welcome');
+  assert.deepEqual(welcome.smashed, []);
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room: welcome.room });
+  await b.next('welcome');
+
+  a.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car: { ...car, dmg: [0.5, 0, 0.25, 2] }, avatar: null });
+  a.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car: { ...car, dmg: [0.5, 0, 0.25, 0] }, avatar: null });
+  let dmg;
+  for (let i = 0; i < 10 && !dmg; i++) dmg = (await b.next('snapshot')).players.find((p) => p.id === welcome.id)?.car.dmg;
+  assert.deepEqual(dmg, [0.5, 0, 0.25, 0], 'only sensible damage is passed on');
+
+  a.send({ type: 'smash', id: 'lamp:12', v: [8, 3, 0] });
+  assert.deepEqual(await b.next('smash'), { type: 'smash', id: 'lamp:12', v: [8, 3, 0], by: welcome.id });
+  // Already down; nonsense ids; on foot: nothing.
+  a.send({ type: 'smash', id: 'lamp:12', v: [8, 3, 0] });
+  a.send({ type: 'smash', id: '<script>', v: [8, 3, 0] });
+  b.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car, avatar: { p: [1, 0, 1], yaw: 0, speed: 0 } });
+  b.send({ type: 'smash', id: 'bin:h3:0', v: [1, 1, 0] });
+  b.send({ type: 'chat', text: 'done' });
+  await a.next('chat');
+  assert.equal(a.inbox.filter((m) => m.type === 'smash').length + b.inbox.filter((m) => m.type === 'smash').length, 0);
+
+  const c = await TestClient.connect();
+  c.send({ type: 'join', name: 'Cat', room: welcome.room });
+  const late = await c.next('welcome');
+  assert.equal(late.smashed.length, 1);
+  assert.equal(late.smashed[0][0], 'lamp:12');
+  assert.ok(late.smashed[0][1] >= 0 && late.smashed[0][1] < 5);
+  for (const client of [a, b, c]) client.close();
+});

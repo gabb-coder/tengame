@@ -82,7 +82,7 @@ export function renderFps(now: number): void {
   fpsSince = now;
 }
 
-const CAR_HELP = ['W accelerate', 'S brake/reverse', 'A D steer', 'Space handbrake', 'E get out', 'R flip upright', 'T respawn'];
+const CAR_HELP = ['W accelerate', 'S brake/reverse', 'A D steer', 'Space handbrake', 'E get out', 'R flip upright', 'T new car'];
 const COMMON_HELP = ['M mute', 'F fullscreen', 'Enter chat', 'Esc menu', 'H hide help'];
 
 /** Shows the speedometer and driving help in the car, walking help on foot. */
@@ -193,6 +193,30 @@ export function renderFuel(fuel: number | null): void {
   const bar = $('hud-fuel-bar');
   bar.style.width = `${Math.round(fuel * 100)}%`;
   bar.classList.toggle('low', fuel < 0.2);
+}
+
+/** The car's condition under the speed (shown once it's taken damage): 0..1, and wrecked. */
+export function renderCarHealth(health: number, show: boolean): void {
+  const row = $('hud-car');
+  if (row.hidden === show) row.hidden = !show;
+  if (!show) return;
+  const bar = $('hud-car-bar');
+  bar.style.width = `${Math.round(health * 100)}%`;
+  bar.classList.toggle('worn', health < 0.6 && health >= 0.3);
+  bar.classList.toggle('bad', health < 0.3);
+  $('hud-car-label').textContent = health <= 0 ? 'Wrecked · T' : 'Car';
+}
+
+/** The player's health (0..100), shown while hurt, and a red flash when hit (0..1). */
+export function renderHealth(value: number, flash: number): void {
+  const panel = $('hud-health');
+  const show = value < 100;
+  if (panel.hidden === show) panel.hidden = !show;
+  $('hud-health-bar').style.width = `${Math.round(value)}%`;
+  const hurt = $('hurt');
+  const amount = Math.max(flash, value < 35 ? (35 - value) / 70 : 0);
+  hurt.hidden = amount <= 0.01;
+  if (amount > 0.01) hurt.style.opacity = amount.toFixed(2);
 }
 
 export function renderWarmth(value: number, cold: boolean): void {

@@ -51,6 +51,12 @@ export class AvatarModel {
   swimming = false;
   /** A clip to play instead of standing about (see Human.action); cleared when a one-shot ends. */
   action: string | null = null;
+  /** Head over heels through the air (radians, turning about the hips): knocked flying. */
+  tumble = 0;
+  /** When the tumbling started (seconds, on the caller's clock). */
+  tumbleFrom = 0;
+  /** Hobbling on a hurt leg, 0..1. */
+  limp = 0;
   /** Things worn or carried, hung on the realistic person's bones once they're loaded. */
   private gear = new Map<string, { make: () => { bone: string; object: THREE.Object3D }; object: THREE.Object3D | null; on: boolean }>();
   /** Called when the realistic person replaces the simple one (to dress them up). */
@@ -173,6 +179,11 @@ export class AvatarModel {
       this.human.animate(speed, dt, airborne);
       // A one-shot that finished clears itself.
       this.action = this.human.action;
+      // Tumbling turns the body about the hips; a limp rolls it and dips on the bad leg.
+      const step = Math.sin(this.human.stride * Math.PI * 2) * Math.min(1, speed) * this.limp;
+      const h = HIP_HEIGHT;
+      this.human.root.rotation.set(this.tumble, 0, step * 0.08);
+      this.human.root.position.set(0, h - h * Math.cos(this.tumble) - Math.max(0, step) * 0.05, -h * Math.sin(this.tumble));
       return;
     }
     // The simple body can't dance or wave; one-shots end at once.

@@ -1024,11 +1024,19 @@ body.hide-names .name-tag {
   100% { opacity: 0; }
 }
 
-/* Arctic warmth: a bar above the speedometer, and frost creeping in from the edges. */
-.hud-warmth {
+/* Bars stacked above the speedometer: warmth, jetpack fuel, health. */
+.hud-meters {
   position: absolute;
   right: 16px;
   bottom: 118px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+/* Arctic warmth, with frost creeping in from the edges. */
+.hud-warmth {
   min-width: 160px;
   font-size: 13px;
 }
@@ -1189,9 +1197,6 @@ body.hide-names .name-tag {
 
 /* Jetpack fuel, like the warmth bar. */
 .hud-fuel {
-  position: absolute;
-  right: 16px;
-  bottom: 120px;
   min-width: 160px;
 }
 
@@ -1217,5 +1222,67 @@ body.hide-names .name-tag {
 }
 
 #hud-fuel-bar.low {
+  background: #ff5a4a;
+}
+
+/* Health after being hit by a car, and the red flash of the hit. */
+.hud-health {
+  min-width: 160px;
+  font-size: 13px;
+}
+.health-row {
+  display: flex;
+  gap: 6px;
+  color: var(--muted);
+}
+.health-row span:first-child {
+  color: #ff5a5a;
+}
+.health {
+  margin-top: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+#hud-health-bar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff4a4a, #ffa04a);
+  transition: width 0.3s;
+}
+#hurt {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(200, 0, 0, 0) 40%, rgba(200, 0, 0, 0.7) 100%);
+}
+
+/* How battered the car is, under the speed. */
+.car-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.car-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+#hud-car-bar {
+  height: 100%;
+  width: 100%;
+  background: #6cd46c;
+  transition: width 0.3s, background-color 0.3s;
+}
+#hud-car-bar.worn {
+  background: #f2c14e;
+}
+#hud-car-bar.bad {
   background: #ff5a4a;
 }

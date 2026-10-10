@@ -249,6 +249,50 @@ export class Sounds {
     this.burst(out, t + 0.1, 'highpass', 3000, 2.5, 0.25);
   }
 
+  /** Someone (or something soft) hit by a car: a dull body thump. `strength` 0..1. */
+  thud(position: THREE.Vector3Like, strength: number): void {
+    const out = this.at(position, 4);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'lowpass', 110, 0.3, 1.5 * strength);
+    this.burst(out, t, 'bandpass', 420, 0.12, 0.6 * strength);
+  }
+
+  /** A metal post struck: a clang with a ringing tail. */
+  clang(position: THREE.Vector3Like): void {
+    const out = this.at(position, 8, 3);
+    const t = this.ctx.currentTime;
+    [[310, 1.6, 0.35], [847, 1.1, 0.2], [1520, 0.7, 0.12], [2310, 0.4, 0.08]].forEach(([f, decay, level]) => this.tone(out, t, f, 'triangle', 0.002, decay, level, 8));
+    this.burst(out, t, 'bandpass', 3200, 0.08, 0.5);
+    this.burst(out, t, 'lowpass', 160, 0.25, 0.8);
+  }
+
+  /** Plastic or wood knocked flying: a crack and a clatter. */
+  crunch(position: THREE.Vector3Like): void {
+    const out = this.at(position, 4);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'bandpass', 900, 0.1, 0.9);
+    this.burst(out, t + 0.02, 'bandpass', 2400, 0.06, 0.4);
+    for (let i = 0; i < 4; i++) this.burst(out, t + 0.12 + i * (0.08 + Math.random() * 0.08), 'bandpass', 1300 + Math.random() * 1500, 0.05, 0.25);
+  }
+
+  /** A fire hydrant knocked off: a pop, then the hiss of water gushing out. */
+  gush(position: THREE.Vector3Like): void {
+    const out = this.at(position, 8, 3.2);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'lowpass', 300, 0.2, 0.8);
+    this.burst(out, t + 0.05, 'highpass', 2500, 2.9, 0.35);
+    this.burst(out, t + 0.05, 'bandpass', 900, 2.9, 0.3);
+  }
+
+  /** A car wrecked: a deep bang and the crackle of flames catching. */
+  wreck(position: THREE.Vector3Like): void {
+    const out = this.at(position, 12, 3.2);
+    const t = this.ctx.currentTime;
+    this.burst(out, t, 'lowpass', 90, 1.2, 1.8);
+    this.burst(out, t, 'bandpass', 600, 0.4, 0.8);
+    for (let i = 0; i < 10; i++) this.burst(out, t + 0.3 + i * 0.22 + Math.random() * 0.1, 'bandpass', 2000 + Math.random() * 2500, 0.04, 0.2);
+  }
+
   /** A sine (or other wave) note with a quick attack and exponential decay. */
   private tone(out: AudioNode, start: number, freq: number, type: OscillatorType, attack: number, decay: number, level: number, wobble = 0): void {
     const osc = this.ctx.createOscillator();

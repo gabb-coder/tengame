@@ -312,7 +312,7 @@ function buildBeachLife(ctx: ZoneContext, b: ChunkedBuilder): Herd {
       out[2] = [0, -Math.sin(t * 3 + i) * 0.3, 0];
     },
   };
-  return new Herd(crab, 10, (i, t, out) => {
+  const crabs = new Herd(crab, 10, (i, t, out) => {
     const base = 236 + i * 21;
     out.x = base + Math.sin(t * 0.25 + i) * 6;
     out.z = 265 + Math.sin(i * 1.7) * 1.2;
@@ -323,6 +323,8 @@ function buildBeachLife(ctx: ZoneContext, b: ChunkedBuilder): Herd {
     out.roll = 0;
     return true;
   }, [], 120);
+  crabs.hittable('crab', { radius: 0.25, height: 0.25, mass: 2 }, physics, terrain);
+  return crabs;
 }
 
 /** How often the whale leaps out of the sea (seconds on the shared clock). */

@@ -1,6 +1,7 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CURB_HEIGHT, mulberry32, type Tree } from '../../../../shared/town.ts';
+import { breakablePlacements } from '../breakables.ts';
 import { cylinderCollider } from './colliders.ts';
 import type { TownMaterials } from './materials.ts';
 
@@ -56,31 +57,11 @@ export function buildTrees(trees: Tree[], m: TownMaterials, physics: RAPIER.Worl
   return group;
 }
 
-/** Street lamps: pole, arm toward local +Z, and a glowing head. */
-export function buildLamps(positions: { x: number; z: number; yaw: number }[], m: TownMaterials, physics: RAPIER.World): THREE.Group {
-  const group = new THREE.Group();
-  const pole = new THREE.CylinderGeometry(0.07, 0.11, LAMP_HEIGHT, 8).translate(0, LAMP_HEIGHT / 2, 0);
-  const arm = new THREE.CylinderGeometry(0.04, 0.05, ARM_LENGTH, 6)
-    .rotateX(Math.PI / 2)
-    .translate(0, LAMP_HEIGHT - 0.1, ARM_LENGTH / 2);
-  const head = new THREE.BoxGeometry(0.35, 0.12, 0.6).translate(0, LAMP_HEIGHT - 0.2, ARM_LENGTH);
-  const meshes = [
-    new THREE.InstancedMesh(pole, m.darkMetal, positions.length),
-    new THREE.InstancedMesh(arm, m.darkMetal, positions.length),
-    new THREE.InstancedMesh(head, m.lampGlow, positions.length),
-  ];
-  const matrix = new THREE.Matrix4();
+/** Street lamps (pole, arm toward local +Z, glowing head), which a fast car can knock down: see world/breakables.ts. */
+export function placeLamps(positions: { x: number; z: number; yaw: number }[]): void {
   positions.forEach((p, i) => {
-    matrix.makeRotationY(p.yaw).setPosition(p.x, CURB_HEIGHT, p.z);
-    meshes.forEach((mesh) => mesh.setMatrixAt(i, matrix));
-    cylinderCollider(physics, p.x, CURB_HEIGHT, p.z, 0.12, LAMP_HEIGHT);
+    breakablePlacements.push({ id: `lamp:${i}`, kind: 'lamp', matrix: new THREE.Matrix4().makeRotationY(p.yaw).setPosition(p.x, CURB_HEIGHT, p.z) });
   });
-  for (const mesh of meshes) {
-    mesh.castShadow = true;
-    mesh.computeBoundingSphere();
-    group.add(mesh);
-  }
-  return group;
 }
 
 /** Icosphere with its vertices pushed in and out a little so foliage isn't a perfect ball. */

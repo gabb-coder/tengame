@@ -116,6 +116,8 @@ const HUMANS = {
     // fencing, holding a torch, fixing things, casting spells, driving, getting hit.
     ...['Dance_Loop', 'Idle_Talking_Loop', 'Sitting_Talking_Loop', 'Interact', 'PickUp_Table', 'Sword_Idle', 'Sword_Attack', 'Idle_Torch_Loop'],
     ...['Fixing_Kneeling', 'Crouch_Idle_Loop', 'Spell_Simple_Idle_Loop', 'Spell_Simple_Shoot', 'Driving_Loop', 'Hit_Chest'],
+    // Knocked down by a car: tumbling through the air, falling flat (played backwards to get up).
+    ...['Roll', 'Death01'],
   ],
   moving: ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Swim_Fwd_Loop'],
 };

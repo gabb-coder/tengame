@@ -83,6 +83,7 @@ export function buildAncient(ctx: ZoneContext): ZoneContent {
     ),
   );
   group.add(camels.group);
+  camels.hittable('camel', { radius: 0.9, height: 2.3, mass: 500 }, physics, terrain);
   addCamelRides(ctx, camels);
   const chariots = buildChariots(ctx);
   group.add(chariots.group);

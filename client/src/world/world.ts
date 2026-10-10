@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { generateWorld, WORLD_HALF } from '../../../shared/world.ts';
+import { Breakables } from './breakables.ts';
 import { DayNight } from './dayNight.ts';
 import { Grass } from './grass.ts';
 import { LightPool } from './lightPool.ts';
@@ -34,6 +35,8 @@ export class World {
   readonly grass: Grass;
   /** The real point lights, shared by every lamp, fire and glow. */
   readonly lights: LightPool;
+  /** Street lamps, hydrants, bins, fences...: things a car can knock flying. */
+  readonly breakables: Breakables;
 
   constructor(container: HTMLElement, media: Media) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -61,6 +64,8 @@ export class World {
     this.zones = new Zones(this.scene, this.physics, this.materials, this.zoneMaterials, this.terrain, media, this.lights);
     this.grass = new Grass(this.terrain);
     this.scene.add(this.grass.mesh);
+    this.breakables = new Breakables(this.physics, this.materials);
+    this.scene.add(this.breakables.group);
     addBoundary(this.physics);
   }
 

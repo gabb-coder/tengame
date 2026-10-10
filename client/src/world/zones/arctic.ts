@@ -146,6 +146,8 @@ export function buildArctic(ctx: ZoneContext): ZoneContent {
     ),
   );
   group.add(reindeer.group, penguins.group);
+  reindeer.hittable('reindeer', { radius: 0.6, height: 1.6, mass: 150 }, physics, terrain);
+  penguins.hittable('penguin', { radius: 0.3, height: 0.8, mass: 25 }, physics, terrain);
 
   const aurora = new Aurora();
   group.add(aurora.mesh);

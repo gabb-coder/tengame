@@ -481,6 +481,7 @@ function buildCountryside(ctx: ZoneContext, b: ChunkedBuilder): Herd {
   ['#8a5a32', '#2a2220', '#e8e2d8', '#6a4a32'].forEach((c, i) => {
     for (const p of [0, 1, 2, 5, 6, 7, 8]) horses.tint(i, p, c);
   });
+  horses.hittable('horse', { radius: 0.8, height: 1.9, mass: 450 }, physics, terrain);
 
   // Hay carts by the village.
   for (const [x, z, yaw] of [[-36, -288, 0.4], [100, -312, -1.2]] as const) {

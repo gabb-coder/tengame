@@ -99,7 +99,7 @@ export class Zones {
       this.contents.push(content);
       this.group.add(content.group);
     }
-    this.npcs = new Npcs(terrain);
+    this.npcs = new Npcs(terrain, physics);
     this.group.add(this.weather.group, this.npcs.group, fireworks.points, this.stars.mesh);
     scene.add(this.group);
     this.group.updateMatrixWorld(true);

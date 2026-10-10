@@ -99,15 +99,26 @@ export function buildPrehistoric(ctx: ZoneContext): ZoneContent {
   buildNest(ctx, b);
   const tar = buildTarPit(ctx, b);
   group.add(tar.group, b.build('prehistoric'));
+  const rexes = new Herd(theropod(), 1, rex.mover, [1.15]);
+  const raptors = new Herd(theropod('#4a6a52', '#9aa080'), 4, loopMover([[-230, 300], [-262, 352], [-322, 352], [-302, 290]], 7, terrain, { spacing: 3, spread: 2 }), [0.32, 0.3, 0.34, 0.31], 260);
+  const trikes = new Herd(ceratopsian(), 3, loopMover([[-470, 250], [-502, 302], [-462, 332], [-430, 282]], 1.2, terrain, { spacing: 10, spread: 4 }));
+  const mammoths = new Herd(mammoth(), 4, loopMover([[-560, 230], [-582, 300], [-542, 342], [-520, 262]], 1.1, terrain, { spacing: 9, spread: 5 }), [1, 1.1, 0.8, 0.6]);
   const herds = [
     sauropods,
-    new Herd(theropod(), 1, rex.mover, [1.15]),
-    new Herd(theropod('#4a6a52', '#9aa080'), 4, loopMover([[-230, 300], [-262, 352], [-322, 352], [-302, 290]], 7, terrain, { spacing: 3, spread: 2 }), [0.32, 0.3, 0.34, 0.31], 260),
-    new Herd(ceratopsian(), 3, loopMover([[-470, 250], [-502, 302], [-462, 332], [-430, 282]], 1.2, terrain, { spacing: 10, spread: 4 })),
-    new Herd(mammoth(), 4, loopMover([[-560, 230], [-582, 300], [-542, 342], [-520, 262]], 1.1, terrain, { spacing: 9, spread: 5 }), [1, 1.1, 0.8, 0.6]),
+    rexes,
+    raptors,
+    trikes,
+    mammoths,
     new Herd(flyer({ size: 2.4, body: '#7a5a42', wing: '#8a6a4a', beat: 0.6, long: true }), 6, circleMover(v.x + 40, v.z - 40, 80, 125, 13, null, { absolute: true }), [], 600),
   ];
   group.add(...herds.map((h) => h.group));
+  // Little raptors go flying if you hit them; the big beasts are like hitting a wall.
+  const theropodSize = { radius: 1.5, height: 4.5, mass: 7000 };
+  sauropods.hittable('sauropod', { radius: 3, height: 9, mass: 30000, big: true }, physics, terrain);
+  rexes.hittable('rex', { ...theropodSize, big: true }, physics, terrain);
+  raptors.hittable('raptor', theropodSize, physics, terrain);
+  trikes.hittable('triceratops', { radius: 2, height: 3, mass: 9000, big: true }, physics, terrain);
+  mammoths.hittable('mammoth', { radius: 2, height: 4, mass: 8000, big: true }, physics, terrain);
 
   return {
     id: 'prehistoric',

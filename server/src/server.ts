@@ -5,12 +5,15 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import {
   ACTS,
   type AvatarState,
+  type CarDamage,
   type CarState,
   type ClientMessage,
   DOOR_REACH,
   GEARS,
+  MAX_KNOCK_SPEED,
   type ServerMessage,
   TICK_RATE,
+  type Vec3,
 } from '../../shared/protocol.ts';
 import { TRIGGER_REACH, TRIGGERS_BY_ID } from '../../shared/activities.ts';
 import { APPLIANCE_REACH, type Appliance, appliancesOf, fireAppliances, TV_REMOTE_REACH } from '../../shared/appliances.ts';
@@ -27,6 +30,15 @@ const APPLIANCES = new Map<string, Appliance>(
 );
 /** Extra reach allowed on the server, since positions arrive a little late. */
 const DOOR_REACH_SLACK = 1.5;
+/**
+ * A driver can only knock over someone this close to their car (meters, with room for
+ * lag), and the same person once a second at most.
+ */
+const KNOCK_REACH = 10;
+const KNOCK_COOLDOWN = 1;
+/** People walking about the world, and the street things a car can smash. */
+const NPC_ID = /^npc:[a-z0-9-]{1,40}$/;
+const SMASH_ID = /^[a-z]+:[A-Za-z0-9:_.,-]{1,60}$/;
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -159,6 +171,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           scores: room.scoreTable(),
           mission: room.missions?.snapshot(Date.now()) ?? null,
           clock: room.clock(),
+          smashed: room.smashed(),
           now: Date.now(),
         });
       } else if (msg.type === 'time') {
@@ -171,8 +184,8 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         if (avatar !== null && !isAvatarState(avatar)) return;
         player.p = msg.p;
         player.q = msg.q;
-        const { steer, rpm, load, speed, braking } = msg.car;
-        player.car = { steer, rpm, load, speed, braking };
+        const { steer, rpm, load, speed, braking, dmg } = msg.car;
+        player.car = { steer, rpm, load, speed, braking, ...(isDamage(dmg) ? { dmg } : {}) };
         player.avatar = avatar && {
           p: avatar.p,
           yaw: avatar.yaw,
@@ -181,6 +194,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           ...(avatar.swim ? { swim: true } : {}),
           ...(avatar.act ? { act: avatar.act } : {}),
           ...(avatar.gear ? { gear: avatar.gear } : {}),
+          ...(avatar.hurt ? { hurt: true } : {}),
         };
       } else if (msg.type === 'door') {
         // Only players on foot, standing at that house's door, can use it.
@@ -215,6 +229,30 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         if (Math.hypot(x - trigger.x, z - trigger.z) > TRIGGER_REACH + DOOR_REACH_SLACK || Math.abs(y - trigger.y) > 2.5) return;
         if (!room.fire(trigger.id, trigger.cooldown)) return;
         room.broadcast({ type: 'trigger', id: trigger.id, by: player.id });
+      } else if (msg.type === 'knock') {
+        // Only a driver can run someone over: a player standing by their car, or one of the
+        // people walking about the world (everyone else sees them fly too).
+        if (!room || !player || player.avatar || !isVec(msg.v, 3)) return;
+        const target = String(msg.target ?? '');
+        const v = capSpeed(msg.v, MAX_KNOCK_SPEED);
+        if (NPC_ID.test(target)) {
+          if (room.allow(`${player.id}:knock`, 10, 1000)) room.broadcast({ type: 'knock', target, v, by: player.id }, player.id);
+          return;
+        }
+        const victim = room.players.get(target);
+        if (!victim?.avatar || victim === player) return;
+        const [x, y, z] = victim.avatar.p;
+        const [cx, cy, cz] = player.p;
+        if (Math.hypot(x - cx, z - cz) > KNOCK_REACH || Math.abs(y - cy) > 4) return;
+        if (!room.fire(`knock:${victim.id}`, KNOCK_COOLDOWN)) return;
+        send(victim.socket, { type: 'knock', target, v, by: player.id });
+      } else if (msg.type === 'smash') {
+        // A driver knocked over a lamp, a bin, a fence...: it stays down for everyone until
+        // it's put back.
+        const id = String(msg.id ?? '');
+        if (!room || !player || player.avatar || !isVec(msg.v, 3) || !SMASH_ID.test(id)) return;
+        if (!room.allow(`${player.id}:smash`, 20, 1000) || !room.smash(id)) return;
+        room.broadcast({ type: 'smash', id, v: capSpeed(msg.v, MAX_KNOCK_SPEED), by: player.id }, player.id);
       }
     });
 
@@ -257,15 +295,26 @@ function isVec(v: unknown, length: number): v is number[] {
   );
 }
 
+/** `v` scaled down, if need be, to at most `max` long. */
+function capSpeed(v: number[], max: number): Vec3 {
+  const k = Math.min(1, max / (Math.hypot(v[0], v[1], v[2]) || 1));
+  return [v[0] * k, v[1] * k, v[2] * k];
+}
+
+function isDamage(d: unknown): d is CarDamage {
+  return isVec(d, 4) && d.every((n) => n >= 0 && n <= 1);
+}
+
 function isAvatarState(a: unknown): a is AvatarState {
   if (typeof a !== 'object' || a === null) return false;
-  const { p, yaw, speed, seated, swim, act, gear } = a as Record<string, unknown>;
+  const { p, yaw, speed, seated, swim, act, gear, hurt } = a as Record<string, unknown>;
   const flag = (v: unknown) => v === undefined || typeof v === 'boolean';
   return (
     isVec(p, 3) &&
     isVec([yaw, speed], 2) &&
     flag(seated) &&
     flag(swim) &&
+    flag(hurt) &&
     (act === undefined || (ACTS as readonly unknown[]).includes(act)) &&
     (gear === undefined || (GEARS as readonly unknown[]).includes(gear))
   );

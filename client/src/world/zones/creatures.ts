@@ -1,4 +1,7 @@
+import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { game } from '../../game/link.ts';
+import { knockFlight, Thrown } from '../../game/thrown.ts';
 import type { Terrain } from '../terrain.ts';
 
 // Animals built from simple shapes and animated procedurally: a creature is a tree of
@@ -42,6 +45,30 @@ export interface Placement {
 /** Moves animal `i` at time `t`; returns false to hide it. */
 export type Mover = (i: number, t: number, out: Placement) => boolean;
 
+/** How big and heavy an animal is to a car (at its modeled size). */
+export interface Bulk {
+  /** How far it reaches around its feet, and how tall it is (m). */
+  radius: number;
+  height: number;
+  /** kg */
+  mass: number;
+  /** Too big to knock over: the car bounces off it, and comes off worse. */
+  big?: boolean;
+}
+
+/** An animal knocked flying: thrown, lying on its side, getting up, going back to its herd. */
+interface Knocked {
+  body: Thrown;
+  phase: 'fly' | 'down' | 'up' | 'back';
+  t: number;
+  yaw: number;
+  /** Which side it lies on (±1), and how high its middle is (so it lies on the ground, not in it). */
+  side: number;
+  lift: number;
+  /** Where it got up. */
+  rest: THREE.Vector3;
+}
+
 const shaded = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.78, metalness: 0 });
 const glowing = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
 
@@ -60,6 +87,11 @@ export class Herd {
   private place: Placement = { x: 0, y: 0, z: 0, yaw: 0 };
   private travelled: number[];
   private last: { x: number; z: number }[];
+  /** Where each animal is now, if shown (for cars to run into). */
+  private where: THREE.Vector3[];
+  private shownNow: boolean[];
+  private knocked = new Map<number, Knocked>();
+  private clock = NaN;
 
   constructor(
     private species: Species,
@@ -83,6 +115,88 @@ export class Herd {
     this.world = species.parts.map(() => new THREE.Matrix4());
     this.travelled = Array.from({ length: count }, (_, i) => i * 3.7);
     this.last = Array.from({ length: count }, () => ({ x: NaN, z: NaN }));
+    this.where = Array.from({ length: count }, () => new THREE.Vector3());
+    this.shownNow = Array(count).fill(false);
+  }
+
+  /**
+   * Lets cars run into these animals (`name` tells herds apart, for the other players):
+   * small ones get knocked flying, big ones are a wall the car bounces off.
+   */
+  hittable(name: string, bulk: Bulk, physics: RAPIER.World, terrain: Terrain): void {
+    for (let i = 0; i < this.count; i++) {
+      const s = this.scales[i] ?? 1;
+      const id = `npc:${name}-${i}`;
+      const mass = bulk.mass * s ** 3;
+      const knock = (v: THREE.Vector3Like) => {
+        if (this.knocked.has(i)) return;
+        const yaw = Math.atan2(-v.x, -v.z);
+        this.knocked.set(i, { body: new Thrown(physics, this.where[i], v, (x, z) => terrain.heightAt(x, z), bulk.height * s * 0.5), phase: 'fly', t: 0, yaw, side: Math.random() < 0.5 ? 1 : -1, lift: bulk.radius * s * 0.5, rest: new THREE.Vector3() });
+        game.sounds?.thud(this.where[i], Math.min(1, Math.hypot(v.x, v.y, v.z) / 15));
+      };
+      game.knockables.set(id, knock);
+      game.impacts.addMoving({
+        at: (out) => (this.shownNow[i] && !this.knocked.has(i) ? out.copy(this.where[i]) : null),
+        radius: bulk.radius * s,
+        height: bulk.height * s,
+        minSpeed: bulk.big ? 0.5 : 1.2,
+        mass: bulk.big ? Math.max(mass, 20000) : mass,
+        harm: bulk.big ? 0.4 : Math.min(0.2, mass / 2500),
+        solid: bulk.big,
+        hit: (car) => {
+          if (bulk.big) {
+            game.sounds?.thud(this.where[i], 1);
+            return;
+          }
+          const v = knockFlight(car).multiplyScalar(Math.min(1, 120 / mass));
+          knock(v);
+          game.knock(id, v);
+        },
+      });
+    }
+  }
+
+  /** Carries a knocked-over animal: flying, lying on its side, getting up, rejoining the herd. */
+  private carry(k: Knocked, place: Placement, dt: number, i: number): void {
+    k.t += dt;
+    const p = k.body.position;
+    if (k.phase === 'back') {
+      // Back where the herd would have it, over a few seconds.
+      const w = THREE.MathUtils.smoothstep(k.t, 0, 3);
+      place.x = THREE.MathUtils.lerp(k.rest.x, place.x, w);
+      place.y = THREE.MathUtils.lerp(k.rest.y, place.y, w);
+      place.z = THREE.MathUtils.lerp(k.rest.z, place.z, w);
+      if (k.t >= 3) this.knocked.delete(i);
+      return;
+    }
+    let lean = 1;
+    if (k.phase === 'fly') {
+      k.body.update(dt);
+      lean = 0;
+      if (k.body.landed) {
+        k.phase = 'down';
+        k.t = 0;
+      }
+    } else if (k.phase === 'down') {
+      k.body.update(dt);
+      if (k.t > 3) {
+        k.phase = 'up';
+        k.t = 0;
+      }
+    } else {
+      lean = Math.max(0, 1 - k.t / 0.8);
+      if (k.t > 0.8) {
+        k.phase = 'back';
+        k.t = 0;
+        k.rest.copy(p);
+      }
+    }
+    place.x = p.x;
+    place.y = p.y + lean * k.lift;
+    place.z = p.z;
+    place.yaw = k.yaw;
+    place.pitch = k.phase === 'fly' ? k.t * 5 : 0;
+    place.roll = lean * (Math.PI / 2) * k.side;
   }
 
   /**
@@ -101,19 +215,26 @@ export class Herd {
 
   update(t: number, camera: THREE.Vector3): void {
     const { species, place } = this;
+    const dt = Number.isNaN(this.clock) ? 0 : Math.min(0.1, Math.max(0, t - this.clock));
+    this.clock = t;
     let shown = 0;
     for (let i = 0; i < this.count; i++) {
       const visible = this.mover(i, t, place);
+      const knocked = this.knocked.get(i);
+      if (knocked) this.carry(knocked, place, dt, i);
       const far = (place.x - camera.x) ** 2 + (place.z - camera.z) ** 2 > this.range ** 2;
       if (!visible || far) {
         for (const mesh of this.meshes) mesh.setMatrixAt(i, ZERO);
         this.last[i].x = NaN;
+        this.shownNow[i] = false;
         continue;
       }
       shown++;
-      // Gait follows the distance actually covered, so feet don't slide.
+      this.shownNow[i] = true;
+      this.where[i].set(place.x, place.y, place.z);
+      // Gait follows the distance actually covered, so feet don't slide (and stops while knocked over).
       const l = this.last[i];
-      if (!Number.isNaN(l.x)) this.travelled[i] += Math.hypot(place.x - l.x, place.z - l.z);
+      if (!Number.isNaN(l.x) && (!knocked || knocked.phase === 'back')) this.travelled[i] += Math.hypot(place.x - l.x, place.z - l.z);
       l.x = place.x;
       l.z = place.z;
       const s = this.scales[i] ?? 1;

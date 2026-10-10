@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Act } from '../../../shared/protocol.ts';
 import type { Sounds } from '../audio/sounds.ts';
 import { Activities, type Mount } from './activities.ts';
+import { Impacts } from './impacts.ts';
 
 /**
  * How things in the world reach the game: the world (zones, the town park) is built before
@@ -11,6 +12,13 @@ import { Activities, type Mount } from './activities.ts';
 export const game = {
   /** Everything to do out in the world. */
   activities: new Activities(),
+  /** Everything a car can knock over or smash. */
+  impacts: new Impacts(),
+  /**
+   * People and animals walking about the world that cars knock flying, by id
+   * (`npc:<id>`): another player's car hitting one reaches it through here.
+   */
+  knockables: new Map<string, (v: THREE.Vector3Like) => void>(),
   /** The local player: feet (or the car), and whether they're walking. */
   player: { id: '', position: new THREE.Vector3(), onFoot: false, grounded: true },
   ride(mount: Mount): void {
@@ -52,6 +60,16 @@ export const game = {
   },
   notice(text: string): void {
     void text;
+  },
+  /** Tells the server (and so the others) that our car knocked `target` flying at `v` (m/s). */
+  knock(target: string, v: THREE.Vector3Like): void {
+    void target;
+    void v;
+  },
+  /** Tells the server (and so the others) that our car smashed street thing `id`, knocking it off at `v`. */
+  smash(id: string, v: THREE.Vector3Like): void {
+    void id;
+    void v;
   },
   sounds: null as Sounds | null,
 };

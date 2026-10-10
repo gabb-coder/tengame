@@ -3,12 +3,15 @@ import * as THREE from 'three';
 import type { CarState, Quat, Vec3 } from '../../../shared/protocol.ts';
 import { CarModel } from './carModel.ts';
 import { type CarControls, type CarEnvironment, CarPhysics } from './carPhysics.ts';
+import { Damage } from './damage.ts';
 import { EngineSound, TireSound } from './engineSound.ts';
 
 const RESPAWN_BELOW_Y = -60;
 /** Sideways/forward deceleration (m/s²) that counts as hitting something; hard braking is ~10. */
 const IMPACT_ACCEL = 35;
 const IMPACT_COOLDOWN = 0.4; // s
+/** A crash's whole jolt is measured over this long (s) after it starts. */
+const IMPACT_WINDOW = 0.12;
 
 /** The player's own car: physics, visuals and sound. */
 export class Car {
@@ -25,8 +28,15 @@ export class Car {
   private velocity = new THREE.Vector3();
   private inverse = new THREE.Quaternion();
   private impactCooldown = 0;
+  /** A crash being measured: the velocity just before it, and time left to measure. */
+  private impact: { before: THREE.Vector3; left: number } | null = null;
+  /** Dents, and what they do to the car. */
+  readonly damage = new Damage();
   /** Called when the car hits something hard; `strength` is 0..1. */
   onImpact: (strength: number) => void = () => {};
+  /** Called once when the car is wrecked. */
+  onWrecked: () => void = () => {};
+  private wreckShown = false;
 
   constructor(
     world: RAPIER.World,
@@ -51,11 +61,28 @@ export class Car {
     }
   }
 
-  /** Headlights on at night, while the engine runs. */
+  /** Headlights on at night, while the engine runs (and they aren't smashed). */
   setNight(night: number): void {
-    const on = this.engineOn ? THREE.MathUtils.smoothstep(night, 0.25, 0.6) : 0;
+    const on = this.running && this.model.headlights ? THREE.MathUtils.smoothstep(night, 0.25, 0.6) : 0;
     for (const beam of this.beams) beam.intensity = on * 260;
     this.model.setNight(night);
+  }
+
+  /** The engine's going: someone's in, and it isn't wrecked. */
+  get running(): boolean {
+    return this.engineOn && !this.damage.wrecked;
+  }
+
+  /**
+   * Damage from hitting something the car doesn't simply bounce off (a person, a bin, a
+   * lamp post that snaps): `dir` points (car-local) toward what was hit; `amount` 0..1.
+   */
+  hit(dir: { x: number; z: number }, amount: number): void {
+    // It slows the car, but that isn't a crash into a wall.
+    this.impactCooldown = Math.max(this.impactCooldown, 0.25);
+    this.impact = null;
+    this.damage.hit(dir, amount);
+    this.showDamage();
   }
 
   get object(): THREE.Object3D {
@@ -64,6 +91,9 @@ export class Car {
 
   /** Fixed-step physics update. */
   step(controls: CarControls, dt: number, place?: CarEnvironment & { lava?: boolean }): void {
+    // A smashed nose loses power; a wreck has none.
+    const power = this.damage.power;
+    if (power < 1) controls = { ...controls, throttle: controls.throttle * power };
     this.controls = controls;
     this.physics.step(controls, dt, place);
     // Fell off the world, or drove into lava: back to the start.
@@ -76,9 +106,11 @@ export class Car {
     this.impactCooldown = IMPACT_COOLDOWN; // stopping dead here isn't a crash
   }
 
-  /** Teleports the car back to its spawn point. */
+  /** Teleports the car back to its spawn point, good as new. */
   respawn(): void {
     this.teleport(this.spawn.position, this.spawn.yaw);
+    this.damage.repair();
+    this.showDamage();
   }
 
   /** Places the car at `position` facing `yaw` (0 = +Z), at rest. */
@@ -119,6 +151,16 @@ export class Car {
       if (jolt > IMPACT_ACCEL && this.impactCooldown <= 0) {
         this.impactCooldown = IMPACT_COOLDOWN;
         this.onImpact(Math.min(1, (jolt - IMPACT_ACCEL) / 120 + 0.25));
+        this.impact = { before: this.lastVelocity.clone(), left: IMPACT_WINDOW };
+      }
+      if (this.impact && (this.impact.left -= dt) <= 0) {
+        // The whole change in speed the crash made, and which side took it: the car's
+        // pushed away from what it hit.
+        const push = this.velocity.clone().sub(this.impact.before).setY(0);
+        this.impact = null;
+        const toward = push.clone().negate().applyQuaternion(this.inverse.copy(this.model.root.quaternion).invert());
+        this.damage.crash({ x: toward.x, z: toward.z }, push.length());
+        this.showDamage();
       }
       accel.applyQuaternion(this.inverse.copy(this.model.root.quaternion).invert());
       this.model.lean(accel.x, accel.z, dt);
@@ -126,7 +168,8 @@ export class Car {
     this.lastVelocity.copy(this.velocity);
     this.model.setBraking(this.braking);
 
-    this.engine.update(this.physics.rpm, this.physics.load, this.engineOn ? 1 : 0);
+    this.model.smoke(dt);
+    this.engine.update(this.physics.rpm, this.physics.load, this.running ? 1 : 0);
     const grounded = [0, 1, 2, 3].some((i) => this.physics.wheel(i).inContact);
     const handbrakeSkid = this.controls.handbrake && Math.abs(this.physics.speed) > 3;
     this.tires.update(grounded ? this.physics.slipAngle : 0, grounded && handbrakeSkid);
@@ -140,11 +183,20 @@ export class Car {
   get state(): CarState {
     return {
       steer: round(this.physics.steerAngle),
-      rpm: this.engineOn ? Math.round(this.physics.rpm) : 0,
-      load: this.engineOn ? round(this.physics.load) : 0,
+      rpm: this.running ? Math.round(this.physics.rpm) : 0,
+      load: this.running ? round(this.physics.load) : 0,
       speed: round(this.physics.speed),
       braking: this.braking,
+      ...(this.damage.state ? { dmg: this.damage.state } : {}),
     };
+  }
+
+  /** Dents the model to match the damage; tells once when that's the end of the car. */
+  private showDamage(): void {
+    const was = this.wreckShown;
+    this.model.setDamage(this.damage.sides);
+    this.wreckShown = this.damage.wrecked;
+    if (this.wreckShown && !was) this.onWrecked();
   }
 
   private get braking(): boolean {

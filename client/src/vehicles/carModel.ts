@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Media, Model } from '../assets/media.ts';
+import type { CarDamage } from '../../../shared/protocol.ts';
 import { mergeByMaterial } from '../render/merge.ts';
+import { effects } from '../world/particles.ts';
 import { CAR } from './carPhysics.ts';
+import { carHealth, FRONT, REAR } from './damage.ts';
 
 const WHEEL_POSITIONS: [number, number][] = [
   [CAR.wheelX, CAR.wheelZFront],
@@ -33,6 +36,28 @@ const MODEL_WHEELS = ['WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR'];
 /** The loaded car model (see CarModel.load), and every car waiting to switch to it. */
 let template: Model | null = null;
 const cars = new Set<CarModel>();
+
+/** How far each end and side is pushed in (m) when smashed all the way, and how deep into the car the crumpling reaches. */
+const CRUSH = { end: 0.55, side: 0.3 };
+const CRUSH_DEPTH = { end: 1.3, side: 0.5 };
+/** Below this much health a car smokes (darker the worse it is); at none it burns. */
+const SMOKES_BELOW = 0.55;
+const SMOKE_LIGHT = new THREE.Color('#bfbfbf');
+const SMOKE_DARK = new THREE.Color('#1a1a1a');
+const FLAME = new THREE.Color(2.4, 0.9, 0.25);
+
+/** Part of the body that dents: its mesh's geometry as it was made, and where that sits in the car. */
+interface Dentable {
+  geometry: THREE.BufferGeometry;
+  positions: Float32Array;
+  normals: Float32Array;
+  offset: THREE.Vector3;
+}
+
+/** Smooth, wavy crumpling (the same for vertices in the same place, so seams don't split), -1..1. */
+function crumple(x: number, y: number, z: number): number {
+  return Math.sin(x * 7.3 + z * 3.1) * Math.sin(y * 9.7 + z * 5.3 + x * 2.1);
+}
 
 // Shared geometry and materials across all cars.
 const tireGeometry = makeTire();
@@ -67,6 +92,13 @@ export class CarModel {
   private pitch = 0;
   private night = 0;
   private braking = false;
+  /** The dentable body, the shape of the car (car-local), and how dented it's drawn. */
+  private dentables: Dentable[] = [];
+  private bounds = { front: 2.3, rear: -2.3, left: 0.9, right: -0.9 };
+  private dents: CarDamage = [0, 0, 0, 0];
+  /** Where smoke pours out of a damaged engine (car-local), and when the next puff is due. */
+  private hood = new THREE.Vector3(0, 0.3, 1.6);
+  private smokeDue = 0;
 
   /**
    * Loads the real car model in the background; every car, existing or new, switches to
@@ -220,6 +252,111 @@ export class CarModel {
       mergeByMaterial(spin);
       mergeByMaterial(steer, [spin]);
     }
+
+    // Remember the body's shape, to dent it in crashes.
+    this.dentables = fit.children
+      .filter((o): o is THREE.Mesh => (o as THREE.Mesh).isMesh)
+      .map((mesh) => ({
+        geometry: mesh.geometry,
+        positions: (mesh.geometry.attributes.position.array as Float32Array).slice(),
+        normals: (mesh.geometry.attributes.normal.array as Float32Array).slice(),
+        offset: fit.position.clone(),
+      }));
+    const b = { front: -Infinity, rear: Infinity, left: -Infinity, right: Infinity };
+    for (const d of this.dentables) {
+      for (let i = 0; i < d.positions.length; i += 3) {
+        const x = d.positions[i] + d.offset.x;
+        const z = d.positions[i + 2] + d.offset.z;
+        b.front = Math.max(b.front, z);
+        b.rear = Math.min(b.rear, z);
+        b.left = Math.max(b.left, x);
+        b.right = Math.min(b.right, x);
+      }
+    }
+    this.bounds = b;
+    // Smoke comes from the middle of the hood.
+    let top = -Infinity;
+    for (const d of this.dentables) {
+      for (let i = 0; i < d.positions.length; i += 3) {
+        const z = d.positions[i + 2] + d.offset.z;
+        if (Math.abs(d.positions[i] + d.offset.x) < 0.3 && z > b.front - 1.1 && z < b.front - 0.5) top = Math.max(top, d.positions[i + 1] + d.offset.y);
+      }
+    }
+    if (Number.isFinite(top)) this.hood.set(0, top + 0.05, b.front - 0.8);
+    this.drawDents();
+  }
+
+  /** Dents the body to match crash damage (front, back, left, right; 0..1 each). */
+  setDamage(damage: CarDamage | undefined): void {
+    const d = damage ?? [0, 0, 0, 0];
+    // Reshaping the body is work: only for a change that shows.
+    if (d.every((v, i) => Math.abs(v - this.dents[i]) < 0.02)) return;
+    for (let i = 0; i < 4; i++) this.dents[i] = d[i];
+    this.drawDents();
+    this.applyTaillights();
+  }
+
+  private drawDents(): void {
+    const [front, rear, left, right] = this.dents;
+    const damaged = front + rear + left + right > 0;
+    const b = this.bounds;
+    const half = (b.front - b.rear) / 2;
+    const middle = (b.front + b.rear) / 2;
+    const into = (depth: number, edge: number, d: number) => Math.min(1, Math.max(0, (depth - (edge - d)) / d));
+    for (const d of this.dentables) {
+      const position = d.geometry.attributes.position;
+      const out = position.array as Float32Array;
+      const o = d.positions;
+      for (let i = 0; i < o.length; i += 3) {
+        const x = o[i] + d.offset.x;
+        const y = o[i + 1] + d.offset.y;
+        const z = o[i + 2] + d.offset.z;
+        let dx = 0;
+        let dy = 0;
+        let dz = 0;
+        const n = crumple(x, y, z);
+        // The nose and tail fold in, buckling up and down; the sides cave in, most mid-car.
+        const nose = front * into(z, b.front, CRUSH_DEPTH.end) ** 1.6;
+        const tail = rear * into(-z, -b.rear, CRUSH_DEPTH.end) ** 1.6;
+        dz += (tail - nose) * CRUSH.end;
+        dy += (nose + tail) * 0.12 * n;
+        dx += (nose + tail) * 0.06 * crumple(z, x, y);
+        const along = Math.max(0, 1 - ((z - middle) / half) ** 2);
+        const l = left * into(x, b.left, CRUSH_DEPTH.side) ** 1.4 * along;
+        const r = right * into(-x, -b.right, CRUSH_DEPTH.side) ** 1.4 * along;
+        dx += (r - l) * CRUSH.side;
+        dy += (l + r) * 0.05 * n;
+        dz += (l + r) * 0.08 * crumple(y, z, x);
+        out[i] = o[i] + dx;
+        out[i + 1] = o[i + 1] + dy;
+        out[i + 2] = o[i + 2] + dz;
+      }
+      position.needsUpdate = true;
+      if (damaged) d.geometry.computeVertexNormals();
+      else (d.geometry.attributes.normal.array as Float32Array).set(d.normals);
+      d.geometry.attributes.normal.needsUpdate = true;
+      d.geometry.computeBoundingSphere();
+    }
+  }
+
+  /** Smoke from a damaged engine, flames from a wrecked one. Call every frame. */
+  smoke(dt: number): void {
+    const health = carHealth(this.dents);
+    if (health >= SMOKES_BELOW || !this.root.visible) {
+      this.smokeDue = 0;
+      return;
+    }
+    const wrecked = health <= 0;
+    const rate = wrecked ? 26 : 4 + (SMOKES_BELOW - health) * 40;
+    this.smokeDue = Math.min(this.smokeDue + dt * rate, 4);
+    const grey = new THREE.Color().lerpColors(SMOKE_DARK, SMOKE_LIGHT, Math.min(1, health / SMOKES_BELOW));
+    const at = new THREE.Vector3();
+    for (; this.smokeDue >= 1; this.smokeDue--) {
+      at.set(this.hood.x + (Math.random() - 0.5) * 0.5, this.hood.y, this.hood.z + (Math.random() - 0.5) * 0.4);
+      this.root.localToWorld(at);
+      effects.smoke.emit(at, { x: (Math.random() - 0.5) * 0.4, y: 1 + Math.random(), z: (Math.random() - 0.5) * 0.4 }, grey, wrecked ? 0.6 : 0.45, 2.6, wrecked ? 0.55 : 0.45);
+      if (wrecked) effects.fire.emit(at, { x: (Math.random() - 0.5) * 0.5, y: 1.2 + Math.random() * 1.2, z: (Math.random() - 0.5) * 0.5 }, FLAME, 0.55, 0.55, 0.9);
+    }
   }
 
   /** Poses one wheel. `suspension` is the current spring length. */
@@ -258,8 +395,14 @@ export class CarModel {
   }
 
   private applyTaillights(): void {
-    // Kept moderate: tone mapping pushes very bright red toward orange.
-    this.brakeLights.emissiveIntensity = this.braking ? 1.3 + this.night * 1.5 : 0.35 + this.night * 0.6;
+    // Kept moderate: tone mapping pushes very bright red toward orange. Smashed ones go out.
+    const working = this.dents[REAR] > 0.6 ? 0.1 : 1;
+    this.brakeLights.emissiveIntensity = (this.braking ? 1.3 + this.night * 1.5 : 0.35 + this.night * 0.6) * working;
+  }
+
+  /** Whether the headlights still work (not smashed in). */
+  get headlights(): boolean {
+    return this.dents[FRONT] <= 0.6;
   }
 }
 

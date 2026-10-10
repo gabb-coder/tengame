@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TRIGGERS_BY_ID } from '../../../../shared/activities.ts';
 import { CURB_HEIGHT, generateTown, PARK_FOUNTAIN } from '../../../../shared/town.ts';
 import { lampPositions } from '../town/roads.ts';
+import { breakablePlacements } from '../breakables.ts';
 import { game, onTrigger } from '../../game/link.ts';
 import { boxCollider } from '../town/colliders.ts';
 import { box, IDENTITY, placement } from '../town/meshBuilder.ts';
@@ -159,17 +160,12 @@ function buildPicnicTables(ctx: ZoneContext, b: ChunkedBuilder): void {
 function buildStreetFurniture(ctx: ZoneContext, b: ChunkedBuilder): void {
   const { physics, zm, m } = ctx;
   const town = generateTown();
-  const hydrant = new THREE.CylinderGeometry(0.13, 0.16, 0.7, 10).translate(0, 0.35, 0);
-  const cap = new THREE.SphereGeometry(0.15, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.7, 0);
-  const nozzle = new THREE.CylinderGeometry(0.06, 0.06, 0.4, 8).rotateZ(Math.PI / 2).translate(0, 0.45, 0);
+  // (Knock one off and it gushes: see world/breakables.ts.)
   lampPositions(town).forEach((lamp, i) => {
     if (i % 3) return;
     // Along the road from the lamp, toward the curb.
     const along = { x: Math.cos(lamp.yaw), z: -Math.sin(lamp.yaw) };
-    const x = lamp.x + along.x * 3;
-    const z = lamp.z + along.z * 3;
-    for (const g of [hydrant, cap, nozzle]) b.add(g, zm.paint, placement(x, Y, z, lamp.yaw), '#d0302a');
-    cylinderCollider(physics, x, Y, z, 0.18, 0.8);
+    breakablePlacements.push({ id: `hydrant:${i}`, kind: 'hydrant', matrix: placement(lamp.x + along.x * 3, Y, lamp.z + along.z * 3, lamp.yaw) });
   });
   // Bus stops on the streets either side of the park.
   for (const [x, z, yaw] of [[-20, -46.6, Math.PI], [20, 46.6, 0]] as const) {
