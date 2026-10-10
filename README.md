@@ -57,9 +57,12 @@ caught. Both are remembered in your browser.
   (they gush water), mailboxes, wheelie bins, picket fences and hedges. Slow down and lamps
   and hydrants stop you instead. What's smashed stays smashed for everyone in the room, and
   is put back a few minutes later.
-- **People**: anyone walking about, friends included, goes flying when hit. They tumble,
-  lie there a moment, get up and limp off. The townsfolk complain; friends lose health (a
-  bar appears) and limp until it comes back. Too big a hit knocks them out for a few seconds.
+- **People**: anyone walking about, friends included, goes limp when hit, like a real
+  body ("ragdoll" physics): legs swept away, thrown onto the bonnet or over the roof,
+  tumbling along the road and landing in a heap wherever they stop. After a moment they push
+  themselves up onto one knee, stand, and limp off, favoring one leg. The townsfolk
+  complain; friends lose health (a bar appears) and limp until it comes back. Too big a hit
+  knocks them out for a few seconds. Everyone in the room sees the same person fly.
 - **Animals**: small ones (penguins, reindeer, horses, camels, raptors, crabs) get knocked
   over. The big dinosaurs and mammoths don't budge: you bounce off.
 - **Your car** dents on the side that hit, and the "Car" bar under the speed goes down. A

@@ -2,13 +2,15 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { Label } from '../render/labels.ts';
 import type { Act, AvatarState, CarState, PlayerInfo, PlayerTransform } from '../../../shared/protocol.ts';
+import { CAR_SHAPE_GROUPS, REMOTE_CAR_GROUPS, WALKER_GROUPS } from '../game/groups.ts';
 import { game } from '../game/link.ts';
 import type { Target } from '../game/impacts.ts';
-import { knockFlight } from '../game/thrown.ts';
+import { groundUnder } from '../game/thrown.ts';
 import { showAct } from '../player/acts.ts';
 import { AvatarModel } from '../player/avatarModel.ts';
 import { AVATAR, CAPSULE_CENTER } from '../player/character.ts';
-import { CAR } from '../vehicles/carPhysics.ts';
+import { flingFrom } from '../player/ragdoll.ts';
+import { CAR, carShapes } from '../vehicles/carPhysics.ts';
 import { CarModel } from '../vehicles/carModel.ts';
 import { EngineSound } from '../vehicles/engineSound.ts';
 
@@ -23,11 +25,9 @@ const PARKED_FAR = { x: 0, y: -200, z: 0 };
 const TELEPORT_DISTANCE = 8;
 
 /**
- * Collision groups (memberships << 16 | filter). Other players are solid to everything,
- * but camera rays use `CAMERA_RAY_GROUPS` and pass through them, so the camera doesn't
- * jump in whenever a car drives between it and you.
+ * Camera rays (collision groups: memberships << 16 | filter, see game/groups.ts) pass
+ * through other players, so the camera doesn't jump in whenever a car drives between it and you.
  */
-export const REMOTE_GROUPS = (0x0002 << 16) | 0xffff;
 export const CAMERA_RAY_GROUPS = (0x0001 << 16) | 0x0001;
 
 interface Sample {
@@ -54,12 +54,16 @@ interface Remote {
   avatarBody: RAPIER.RigidBody;
   /** Something our car can knock flying, while they're walking. */
   target: Target;
+  /** When we last sent their body flying (ms), before their own game says so too. */
+  flungAt: number;
 }
 
 /** After knocking someone over, they can't be hit again for this long (ms): they're flying. */
 const KNOCK_AGAIN_MS = 2500;
 /** What someone knocked over is doing until they're back on their feet. */
 const KNOCKED_DOWN = new Set<Act | null>(['tumble', 'down', 'getup']);
+/** How long a body we knocked flying stays limp waiting for their game to agree (ms). */
+const AGREE_MS = 2000;
 
 /**
  * Draws and voices other players' cars and characters, smoothing between server
@@ -98,12 +102,13 @@ export class RemotePlayers {
     model.root.add(audio);
 
     this.scene.add(model.root);
-    const carBody = this.kinematicBody(RAPIER.ColliderDesc.cuboid(CAR.halfExtents.x, CAR.halfExtents.y, CAR.halfExtents.z));
-    const avatarBody = this.kinematicBody(RAPIER.ColliderDesc.capsule(AVATAR.halfHeight, AVATAR.radius));
-    // Run them over and they fly (it's up to their game to fly them); not again while
-    // they're still flying, lying there or getting up.
+    const carBody = this.kinematicBody(RAPIER.ColliderDesc.cuboid(CAR.halfExtents.x, CAR.halfExtents.y, CAR.halfExtents.z).setCollisionGroups(REMOTE_CAR_GROUPS));
+    for (const shape of carShapes()) this.physics.createCollider(shape.setCollisionGroups(CAR_SHAPE_GROUPS), carBody);
+    const avatarBody = this.kinematicBody(RAPIER.ColliderDesc.capsule(AVATAR.halfHeight, AVATAR.radius).setCollisionGroups(WALKER_GROUPS));
+    // Run them over and they fly limp (here at once, and in their game too); not again
+    // while they're still flying, lying there or getting up.
     let hittableAt = 0;
-    const down = () => KNOCKED_DOWN.has(this.remotes.get(info.id)?.act ?? null);
+    const down = () => avatar.down || KNOCKED_DOWN.has(this.remotes.get(info.id)?.act ?? null);
     const target: Target = {
       at: (out) => (avatar.root.visible && performance.now() > hittableAt && !down() ? out.copy(avatar.root.position) : null),
       radius: 0.35,
@@ -113,12 +118,24 @@ export class RemotePlayers {
       harm: 0.03,
       hit: (car) => {
         hittableAt = performance.now() + KNOCK_AGAIN_MS;
-        game.knock(info.id, knockFlight(car));
+        const v = flingFrom(car);
+        game.knock(info.id, v);
+        this.fling(info.id, v);
         game.sounds?.thud(avatar.root.position, Math.min(1, car.length() / 15));
       },
     };
     game.impacts.addMoving(target);
-    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0, act: null, carBody, avatarBody, target });
+    // Someone else's car hit them: they fly here too.
+    game.knockables.set(info.id, (v) => this.fling(info.id, v));
+    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0, act: null, carBody, avatarBody, target, flungAt: -Infinity });
+  }
+
+  /** Knocks someone's body flying limp at `v` (m/s), if they're walking about and not already down. */
+  private fling(id: string, v: THREE.Vector3Like): void {
+    const r = this.remotes.get(id);
+    if (!r || !r.avatar.root.visible || r.avatar.down) return;
+    r.avatar.fling(this.physics, v);
+    r.flungAt = performance.now();
   }
 
   remove(id: string): void {
@@ -134,7 +151,9 @@ export class RemotePlayers {
     this.scene.remove(remote.model.root);
     this.physics.removeRigidBody(remote.carBody);
     this.physics.removeRigidBody(remote.avatarBody);
+    remote.avatar.unfling();
     game.impacts.removeMoving(remote.target);
+    game.knockables.delete(id);
     this.remotes.delete(id);
   }
 
@@ -158,7 +177,7 @@ export class RemotePlayers {
 
   private kinematicBody(shape: RAPIER.ColliderDesc): RAPIER.RigidBody {
     const body = this.physics.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(PARKED_FAR.x, PARKED_FAR.y, PARKED_FAR.z));
-    this.physics.createCollider(shape.setCollisionGroups(REMOTE_GROUPS), body);
+    this.physics.createCollider(shape, body);
     return body;
   }
 
@@ -226,22 +245,56 @@ export class RemotePlayers {
       tagParent.add(nameTag);
       nameTag.position.y = walking ? 2.05 : 1.6;
     }
-    if (!state) return;
+    if (!state) {
+      avatar.unfling();
+      return;
+    }
     // Blend between samples only when both have the avatar (not across getting in/out).
     const from = a ?? state;
     const to = b ?? state;
-    avatar.root.position.set(...from.p).lerp(new THREE.Vector3(...to.p), k);
-    const dy = Math.atan2(Math.sin(to.yaw - from.yaw), Math.cos(to.yaw - from.yaw));
-    avatar.root.rotation.y = from.yaw + dy * k;
-    avatar.seated = !!to.seated;
     const act = to.act ?? null;
+    const there = new THREE.Vector3(...from.p).lerp(new THREE.Vector3(...to.p), k);
+    const dy = Math.atan2(Math.sin(to.yaw - from.yaw), Math.cos(to.yaw - from.yaw));
+    const yaw = from.yaw + dy * k;
     showAct(avatar, act, to.gear, !!to.swim, remote.act, performance.now() / 1000);
     remote.act = act;
     avatar.limp = to.hurt ? 1 : 0;
+    if (this.knockedDown(remote, act, there, yaw, dt)) return;
+    avatar.root.position.copy(there);
+    avatar.root.rotation.y = yaw;
+    avatar.seated = !!to.seated;
     avatar.animate(from.speed + (to.speed - from.speed) * k, dt, act === 'jet');
     const feet = avatar.root.position;
     // Someone sitting is part of the sofa; their standing body would only get in the way.
     if (this.walkersSolid) moveBody(remote.avatarBody, to.seated ? PARKED_FAR : { x: feet.x, y: feet.y + CAPSULE_CENTER, z: feet.z });
+  }
+
+  /**
+   * Someone knocked over: their body flies limp here (from the knock, see `add`), lies
+   * there, and gets up when they do, drifting over to where they really are as they rise.
+   * Returns true while that's what's shown.
+   */
+  private knockedDown(remote: Remote, act: Act | null, there: THREE.Vector3, yaw: number, dt: number): boolean {
+    const { avatar } = remote;
+    const knocked = KNOCKED_DOWN.has(act);
+    // Missed the knock (joined late, say): just fall where they are.
+    if ((act === 'tumble' || act === 'down') && !avatar.down && !avatar.rising) {
+      avatar.root.position.copy(there);
+      avatar.fling(this.physics, { x: 0, y: 0, z: 0 });
+    }
+    if (act === 'getup' && avatar.down) avatar.getUp(groundUnder(this.physics, avatar.hips(), () => there.y));
+    // Up and about without ever going down (in a car, say): never mind.
+    else if (!knocked && avatar.down && performance.now() - remote.flungAt > AGREE_MS) avatar.unfling();
+    if (!avatar.down && !avatar.rising) return false;
+    if (avatar.rising) {
+      const k = 1 - Math.exp(-dt * 2);
+      const root = avatar.root;
+      root.position.lerp(there, k);
+      root.rotation.y += Math.atan2(Math.sin(yaw - root.rotation.y), Math.cos(yaw - root.rotation.y)) * k;
+    }
+    avatar.animate(0, dt);
+    moveBody(remote.avatarBody, PARKED_FAR);
+    return true;
   }
 }
 

@@ -3,7 +3,8 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
-import { CAMERA_RAY_GROUPS, REMOTE_GROUPS } from '../src/net/remotePlayers.ts';
+import { REMOTE_CAR_GROUPS } from '../src/game/groups.ts';
+import { CAMERA_RAY_GROUPS } from '../src/net/remotePlayers.ts';
 import { CAR, CarPhysics, type CarControls } from '../src/vehicles/carPhysics.ts';
 
 const DT = 1 / 60;
@@ -19,7 +20,7 @@ function setup() {
   // Another player's car parked 20 m ahead, the way RemotePlayers adds it.
   const h = CAR.halfExtents;
   const other = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0, 0.8, 20));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(h.x, h.y, h.z).setCollisionGroups(REMOTE_GROUPS), other);
+  world.createCollider(RAPIER.ColliderDesc.cuboid(h.x, h.y, h.z).setCollisionGroups(REMOTE_CAR_GROUPS), other);
   const run = (c: CarControls, seconds: number) => {
     for (let i = 0; i < seconds / DT; i++) {
       car.step(c, DT);

@@ -97,10 +97,19 @@ export class Thrown {
 
   /** The height of whatever's solid under `p`: a sidewalk, a floor, the ground. */
   ground(p: THREE.Vector3Like): number {
-    this.ray.origin = { x: p.x, y: p.y + 1.5, z: p.z };
-    this.ray.dir = { x: 0, y: -1, z: 0 };
-    // Not solid: starting inside something (a wall), find where it ends below, not its inside.
-    const hit = this.physics.castRay(this.ray, 8, false, STATIC_ONLY);
-    return hit ? p.y + 1.5 - hit.timeOfImpact : this.fallback(p.x, p.z);
+    return groundUnder(this.physics, p, this.fallback);
   }
+}
+
+const down = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+
+/**
+ * The height of whatever's solid under `p` (a sidewalk, a floor, the ground; not cars or
+ * people), or `fallback` there if nothing is found.
+ */
+export function groundUnder(physics: RAPIER.World, p: THREE.Vector3Like, fallback: (x: number, z: number) => number): number {
+  down.origin = { x: p.x, y: p.y + 1.5, z: p.z };
+  // Not solid: starting inside something (a wall), find where it ends below, not its inside.
+  const hit = physics.castRay(down, 8, false, STATIC_ONLY);
+  return hit ? p.y + 1.5 - hit.timeOfImpact : fallback(p.x, p.z);
 }

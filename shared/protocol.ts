@@ -284,8 +284,9 @@ export interface TriggerMessage {
 }
 
 /**
- * Someone's car hit `target` at speed, sending them flying at `v` (m/s): sent to the player
- * hit (who flies), or for people walking about the world, to everyone else.
+ * Someone's car hit `target` at speed, sending them flying at `v` (m/s): a player (who
+ * flies in their own game) or one of the people walking about the world. Sent to everyone
+ * but the driver, so all see the body fly.
  */
 export interface KnockMessage {
   type: 'knock';

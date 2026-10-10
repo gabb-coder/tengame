@@ -38,7 +38,9 @@ import { applyZoneTextures } from './world/zones/materials.ts';
 import { lampPositions } from './world/town/roads.ts';
 import { CarModel } from './vehicles/carModel.ts';
 import { AvatarModel } from './player/avatarModel.ts';
+import { Ragdoll } from './player/ragdoll.ts';
 import { World } from './world/world.ts';
+import { placeEffects } from './world/zones/index.ts';
 import { generateWorld, zoneAt, ZONES } from '../../shared/world.ts';
 import { syncClock, worldSeconds } from './game/clock.ts';
 import { game, playTrigger } from './game/link.ts';
@@ -325,6 +327,7 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     // Fixed-step physics keeps handling identical across frame rates.
     while (accumulator >= PHYSICS_STEP) {
       player.fixedStep(input, PHYSICS_STEP);
+      Ragdoll.step(PHYSICS_STEP, placeEffects);
       world.stepPhysics();
       accumulator -= PHYSICS_STEP;
     }

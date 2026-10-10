@@ -22,6 +22,7 @@ import { placeEffects } from '../world/zones/index.ts';
 import type { Activities, Activity, Mount, Prompt } from './activities.ts';
 import { carHits, type CarShape } from './impacts.ts';
 import { game } from './link.ts';
+import { groundUnder } from './thrown.ts';
 
 /** How close (meters from the car's center) you must be to get in. */
 const CAR_REACH = 3.2;
@@ -37,10 +38,9 @@ const REFUEL_SECONDS = 3;
 const JET_THRUST = 2.2;
 /** The car's body, for running into people and things (see game/impacts.ts). */
 const CAR_SHAPE: CarShape = { halfWidth: 0.98, halfLength: 2.25, below: 0.7, above: 0.9 };
-/** Knocked down by a car: lying there (longer if knocked out), then getting up (the clip's length). */
+/** Knocked down by a car: lying there once still (longer if knocked out). */
 const DOWN_SECONDS = 2.2;
 const KNOCKED_OUT_SECONDS = 5;
-const GET_UP_SECONDS = 2;
 /** Health lost to a car hit at no speed, and per m/s more; how soon and fast it comes back. */
 const HIT_HARM = 12;
 const HARM_PER_MS = 2.6;
@@ -110,8 +110,10 @@ export class LocalPlayer {
   private sinceHurt = Infinity;
   /** The red flash of being hit, fading (0..1). */
   flash = 0;
-  /** Knocked over by a car: flying, lying there, getting up; and seconds left of it. */
+  /** Knocked over by a car: flying limp, lying there, getting up; seconds left of lying there. */
   private knockdown: { phase: 'fly' | 'down' | 'up'; left: number; out: boolean } | null = null;
+  /** Where we were hit, to get up at if there's no room where we fell. */
+  private knockedFrom = new THREE.Vector3();
   /** Called when knocked out cold, and when coming round. */
   onKnockedOut: (out: boolean) => void = () => {};
 
@@ -155,6 +157,8 @@ export class LocalPlayer {
     this.swimming = place.underwater;
     const c = input.foot;
     if (this.task && (c.forward || c.strafe || c.jump)) this.stopTask();
+    // Limp, the body is all physics; the walking capsule waits until we're up.
+    if (this.knockdown && this.knockdown.phase !== 'up') return;
     if (this.mount || this.task || this.knockdown) {
       if (this.task) this.character.yaw = this.task.yaw;
       this.character.step(STILL, false, false, dt, place);
@@ -191,13 +195,15 @@ export class LocalPlayer {
     this.stopTask();
     this.dancing = false;
     this.oneShot = null;
-    this.character.launch(v);
+    this.knockedFrom.copy(this.character.feet);
+    this.avatar.fling(this.world.physics, v);
+    this.character.setEnabled(false);
     const speed = Math.hypot(v.x, v.y, v.z);
     this.health = Math.max(0, this.health - (HIT_HARM + speed * HARM_PER_MS));
     this.sinceHurt = 0;
     this.flash = 1;
     this.knockdown = { phase: 'fly', left: 0, out: this.health <= 0 };
-    this.sounds.thud(this.character.feet, Math.min(1, speed / 15));
+    this.sounds.thud(this.knockedFrom, Math.min(1, speed / 15));
   }
 
   /** Healing over time, and the knockdown: flying, lying there, getting up. */
@@ -208,21 +214,43 @@ export class LocalPlayer {
     const k = this.knockdown;
     if (!k) return;
     k.left -= dt;
+    if (k.phase !== 'up') {
+      const hard = this.avatar.takeImpact();
+      if (hard > 0.2) this.sounds.thud(this.avatar.hips(), hard * 0.6);
+    }
     if (k.phase === 'fly') {
-      // Landed (or ended up on something else: in water, on a ride).
-      if (this.mode !== 'foot' || this.mount || ((this.character.grounded || this.swimming) && this.character.motion.y <= 0)) {
+      // Come to rest in a heap.
+      if (this.avatar.resting) {
         k.phase = 'down';
         k.left = k.out ? KNOCKED_OUT_SECONDS : DOWN_SECONDS;
         if (k.out) this.onKnockedOut(true);
       }
     } else if (k.phase === 'down' && k.left <= 0) {
       k.phase = 'up';
-      k.left = GET_UP_SECONDS;
       if (k.out) {
         this.health = 30;
         this.onKnockedOut(false);
       }
-    } else if (k.phase === 'up' && k.left <= 0) this.knockdown = null;
+      this.standUp();
+    } else if (k.phase === 'up' && !this.avatar.rising) this.knockdown = null;
+  }
+
+  /** Gets up where the body lies (or where we were hit, if there's no room there). */
+  private standUp(): void {
+    const hips = this.avatar.hips();
+    const fallback = this.knockedFrom;
+    const { position, yaw } = this.avatar.getUp(groundUnder(this.world.physics, hips, () => fallback.y));
+    this.character.setEnabled(true);
+    const spot = this.character.fits(position) ? position : fallback;
+    this.character.teleport(spot, yaw);
+    if (spot !== position) this.avatar.root.position.copy(spot);
+  }
+
+  /** Back on our feet at once, however we lay (put in our car for a race, say). */
+  private endKnockdown(): void {
+    if (!this.knockdown) return;
+    this.avatar.unfling();
+    this.knockdown = null;
   }
 
   /**
@@ -291,10 +319,16 @@ export class LocalPlayer {
         return;
       }
       this.avatar.seated = false;
+      this.avatar.limp = this.hurt ? 1 : 0;
+      if (this.avatar.down) {
+        // Limp: the body goes where physics throws it, and the camera follows.
+        this.avatar.animate(0, dt);
+        this.orbit.update(this.avatar.hips());
+        return;
+      }
       const feet = this.character.feet;
       this.avatar.root.position.copy(feet);
       this.avatar.root.rotation.y = this.character.yaw;
-      this.avatar.limp = this.hurt ? 1 : 0;
       this.avatar.animate(this.knockdown ? 0 : this.character.speed, dt, !this.character.grounded && !this.swimming && !this.knockdown);
       this.orbit.update(feet);
     }
@@ -415,7 +449,8 @@ export class LocalPlayer {
       const seated = this.mount.pose === 'sit' ? { seated: true } : {};
       return { p: [round(p.x), round(p.y), round(p.z)], yaw: round(this.mount.yaw), speed: 0, ...seated, ...extra };
     }
-    const f = this.character.feet;
+    // Limp, we're wherever the body lies.
+    const f = this.avatar.down ? this.avatar.root.position : this.character.feet;
     return { p: [round(f.x), round(f.y), round(f.z)], yaw: round(this.character.yaw), speed: round(this.character.speed), ...extra };
   }
 
@@ -509,6 +544,7 @@ export class LocalPlayer {
   }
 
   private enterCar(): void {
+    this.endKnockdown();
     this.stopTask();
     this.dancing = false;
     this.oneShot = null;

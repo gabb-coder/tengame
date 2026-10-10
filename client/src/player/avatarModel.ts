@@ -1,6 +1,8 @@
+import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { Media } from '../assets/media.ts';
 import { Human, loadHumans, type Outfit } from './humanModel.ts';
+import { Ragdoll } from './ragdoll.ts';
 
 /** The realistic people, once loaded (see AvatarModel.load), and every avatar waiting for them. */
 let humans: Awaited<ReturnType<typeof loadHumans>> = null;
@@ -51,12 +53,12 @@ export class AvatarModel {
   swimming = false;
   /** A clip to play instead of standing about (see Human.action); cleared when a one-shot ends. */
   action: string | null = null;
-  /** Head over heels through the air (radians, turning about the hips): knocked flying. */
-  tumble = 0;
-  /** When the tumbling started (seconds, on the caller's clock). */
-  tumbleFrom = 0;
   /** Hobbling on a hurt leg, 0..1. */
   limp = 0;
+  /** Knocked flying and gone limp: the body physics throws about (see fling). */
+  private ragdoll: Ragdoll | null = null;
+  /** The simple body has no bones to go limp with: it just lies flat. */
+  private flat = false;
   /** Things worn or carried, hung on the realistic person's bones once they're loaded. */
   private gear = new Map<string, { make: () => { bone: string; object: THREE.Object3D }; object: THREE.Object3D | null; on: boolean }>();
   /** Called when the realistic person replaces the simple one (to dress them up). */
@@ -170,20 +172,106 @@ export class AvatarModel {
     return this.gear.get(name)?.object ?? null;
   }
 
+  /**
+   * Knocked flying by a car at `v` (m/s): goes limp where they stand, and physics throws
+   * the body about until it comes to rest (see Ragdoll).
+   */
+  fling(physics: RAPIER.World, v: THREE.Vector3Like): void {
+    this.unfling();
+    this.seated = false;
+    this.action = null;
+    if (!this.human) {
+      this.flat = true;
+      return;
+    }
+    this.human.goLimp();
+    this.ragdoll = new Ragdoll(physics, this.human, v);
+  }
+
+  /** Limp (flying, or lying where they fell). */
+  get down(): boolean {
+    return this.ragdoll !== null || this.flat;
+  }
+
+  /** Lying still, ready to get up. */
+  get resting(): boolean {
+    return this.ragdoll?.resting ?? this.flat;
+  }
+
+  /** Where the hips are, while limp; otherwise above the feet. */
+  hips(out = new THREE.Vector3()): THREE.Vector3 {
+    return this.ragdoll ? this.ragdoll.hips(out) : out.copy(this.root.position).setY(this.root.position.y + HIP_HEIGHT);
+  }
+
+  /** How hard the limp body last hit something (the ground, a wall), 0..1; then forgets it. */
+  takeImpact(): number {
+    return this.ragdoll?.takeImpact() ?? 0;
+  }
+
+  /**
+   * Gets up from wherever the body lies, onto feet at height `ground` under the hips:
+   * kneeling, then standing, facing the way the body lay. Returns where they'll stand and
+   * which way they'll face.
+   */
+  getUp(ground: number): { position: THREE.Vector3; yaw: number } {
+    const at = this.hips().setY(ground);
+    let yaw = this.root.rotation.y;
+    if (this.ragdoll && this.human) {
+      yaw = this.ragdoll.lying().yaw;
+      // Keep the hips where they lie while the body's frame moves under them.
+      const pelvis = this.human.bone('pelvis')!;
+      pelvis.updateWorldMatrix(true, false);
+      const lying = pelvis.matrixWorld.clone();
+      this.root.position.copy(at);
+      this.root.rotation.set(0, yaw, 0);
+      this.root.updateMatrixWorld(true);
+      lying.premultiply(pelvis.parent!.matrixWorld.clone().invert()).decompose(pelvis.position, pelvis.quaternion, new THREE.Vector3());
+      this.ragdoll.dispose();
+      this.ragdoll = null;
+      this.human.getUp();
+    } else {
+      this.root.position.copy(at);
+      this.unfling();
+    }
+    return { position: at, yaw };
+  }
+
+  /** Still getting up. */
+  get rising(): boolean {
+    return this.human?.rising ?? false;
+  }
+
+  /** Back on their feet at once (getting into a car, say), however they lay or rose. */
+  unfling(): void {
+    this.ragdoll?.dispose();
+    this.ragdoll = null;
+    this.flat = false;
+    this.human?.stopLimp();
+    this.body.rotation.x = 0;
+  }
+
   /** Advances the walk cycle. `speed` in m/s; `airborne` tucks the legs. */
   animate(speed: number, dt: number, airborne = false): void {
+    if (this.ragdoll) {
+      // The body's frame follows the hips about, so it's drawn (and labelled) where it lies.
+      const hips = this.ragdoll.hips();
+      this.root.position.set(hips.x, hips.y - 0.5, hips.z);
+      this.ragdoll.pose();
+      return;
+    }
     if (this.human) {
       this.human.seated = this.seated;
       this.human.swimming = this.swimming;
       if (this.human.action !== this.action) this.human.action = this.action;
+      this.human.hobble = this.limp;
       this.human.animate(speed, dt, airborne);
       // A one-shot that finished clears itself.
       this.action = this.human.action;
-      // Tumbling turns the body about the hips; a limp rolls it and dips on the bad leg.
-      const step = Math.sin(this.human.stride * Math.PI * 2) * Math.min(1, speed) * this.limp;
-      const h = HIP_HEIGHT;
-      this.human.root.rotation.set(this.tumble, 0, step * 0.08);
-      this.human.root.position.set(0, h - h * Math.cos(this.tumble) - Math.max(0, step) * 0.05, -h * Math.sin(this.tumble));
+      return;
+    }
+    if (this.flat) {
+      this.body.rotation.x = -Math.PI / 2;
+      this.body.position.y = 0.15;
       return;
     }
     // The simple body can't dance or wave; one-shots end at once.

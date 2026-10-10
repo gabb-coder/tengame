@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import type { Act, Gear } from '../../../shared/protocol.ts';
 import type { AvatarModel } from './avatarModel.ts';
-import { GET_UP, SPRAWL } from './humanModel.ts';
 
 /** The animation clip each act plays (null: no special pose). */
 const ACT_CLIPS: Record<Act, string | null> = {
@@ -13,16 +12,14 @@ const ACT_CLIPS: Record<Act, string | null> = {
   fish: 'Idle_Torch_Loop',
   hit: 'Hit_Chest',
   jet: null,
-  // Knocked flying by a car: curled up in the air, flat on the ground, getting back up.
-  tumble: 'Roll',
-  down: SPRAWL,
-  getup: GET_UP,
+  // Knocked flying by a car: physics throws the limp body about, then it gets up (see AvatarModel.fling).
+  tumble: null,
+  down: null,
+  getup: null,
 };
 
 /** Acts that play once (the player's state keeps naming them only while they play). */
 export const ONE_SHOT_ACTS = new Set<Act>(['interact', 'pickup', 'hit', 'getup']);
-/** How fast someone knocked flying turns head over heels (radians per second). */
-const TUMBLE_RATE = 7;
 
 const graphite = new THREE.MeshStandardMaterial({ color: '#2a2c30', roughness: 0.4, metalness: 0.6 });
 const cork = new THREE.MeshStandardMaterial({ color: '#b08a5a', roughness: 0.9 });
@@ -82,8 +79,6 @@ export function jetpack(): { bone: string; object: THREE.Object3D } {
  */
 export function showAct(avatar: AvatarModel, act: Act | null | undefined, gear: Gear | null | undefined, swimming: boolean, previous: Act | null | undefined, time: number): void {
   avatar.swimming = swimming;
-  if (act === 'tumble' && previous !== 'tumble') avatar.tumbleFrom = time;
-  avatar.tumble = act === 'tumble' ? ((time - avatar.tumbleFrom) * TUMBLE_RATE) % (Math.PI * 2) : 0;
   if (act !== previous) avatar.action = act ? ACT_CLIPS[act] : null;
   // Looping acts keep going for as long as they're named.
   else if (act && !ONE_SHOT_ACTS.has(act) && ACT_CLIPS[act] && avatar.action !== ACT_CLIPS[act]) avatar.action = ACT_CLIPS[act];

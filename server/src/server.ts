@@ -245,7 +245,8 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         const [cx, cy, cz] = player.p;
         if (Math.hypot(x - cx, z - cz) > KNOCK_REACH || Math.abs(y - cy) > 4) return;
         if (!room.fire(`knock:${victim.id}`, KNOCK_COOLDOWN)) return;
-        send(victim.socket, { type: 'knock', target, v, by: player.id });
+        // They fly in their own game; everyone else sees their body fly too.
+        room.broadcast({ type: 'knock', target, v, by: player.id }, player.id);
       } else if (msg.type === 'smash') {
         // A driver knocked over a lamp, a bin, a fence...: it stays down for everyone until
         // it's put back.

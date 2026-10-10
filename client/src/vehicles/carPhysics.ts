@@ -1,4 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
+import { CAR_BOX_GROUPS, CAR_SHAPE_GROUPS, SKIP_RAGDOLLS } from '../game/groups.ts';
 
 /** Driver inputs for one physics step. */
 export interface CarControls {
@@ -115,9 +116,11 @@ export class CarPhysics {
           { x: 0, y: 0, z: 0, w: 1 },
         )
         .setFriction(0.3)
-        .setRestitution(0.1),
+        .setRestitution(0.1)
+        .setCollisionGroups(CAR_BOX_GROUPS),
       this.body,
     );
+    for (const shape of carShapes()) world.createCollider(shape.setCollisionGroups(CAR_SHAPE_GROUPS), this.body);
 
     const v = world.createVehicleController(this.body);
     v.indexUpAxis = 1;
@@ -232,7 +235,8 @@ export class CarPhysics {
       this.body.setAngvel({ x: av.x * 0.97, y: av.y * 0.97, z: av.z * 0.97 }, true);
     }
 
-    this.vehicle.updateVehicle(dt);
+    // Wheels roll over someone lying in the road rather than climbing onto them.
+    this.vehicle.updateVehicle(dt, undefined, SKIP_RAGDOLLS);
   }
 
   /** Puts the car back on its wheels at its current spot, keeping its heading. */
@@ -283,4 +287,24 @@ export class CarPhysics {
     // Split across the two driven wheels.
     return ((torque * ratio * CAR.finalDrive * CAR.efficiency) / CAR.wheelRadius) / DRIVEN.length;
   }
+}
+
+/**
+ * The car's true shape, from the side (z, y in the chassis frame; see CarModel), and how
+ * wide: the body from bumper to bumper, and the cabin with its sloping windshield and roof.
+ */
+const SHAPES: { profile: [number, number][]; halfWidth: number }[] = [
+  { profile: [[2.14, -0.42], [2.27, -0.3], [2.3, -0.04], [2.08, 0.1], [1.05, 0.19], [-1.5, 0.21], [-2.24, 0.1], [-2.27, -0.3], [-2.12, -0.42]], halfWidth: 0.85 },
+  { profile: [[1, 0.2], [0.24, 0.68], [-0.4, 0.71], [-0.98, 0.64], [-1.46, 0.2]], halfWidth: 0.7 },
+];
+
+/**
+ * Shapes for a car's body and cabin, weighing nothing: only limp bodies feel them (the box
+ * does the driving), so someone knocked flying rolls up over the bonnet and windshield.
+ */
+export function carShapes(): RAPIER.ColliderDesc[] {
+  return SHAPES.map(({ profile, halfWidth }) => {
+    const points = profile.flatMap(([z, y]) => [-halfWidth, y, z, halfWidth, y, z]);
+    return RAPIER.ColliderDesc.convexHull(new Float32Array(points))!.setDensity(0).setFriction(0.5).setRestitution(0.1);
+  });
 }

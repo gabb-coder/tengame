@@ -132,6 +132,14 @@ fight the day/night cycle).
   through the server); big animals are solid; cars dent per side, smoke, lose power and
   wreck (dents shown on friends' cars too).
 
+- Realistic people in crashes: someone hit goes limp as a ragdoll (twelve jointed pieces
+  of their own skeleton, with human joint limits and a little muscle tone), is thrown by
+  the car's true shape (bonnet, windshield, roof) and comes to rest wherever physics leaves
+  them; they get up from that pose onto one knee, then stand. Players knocked over are
+  thrown in everyone's game, not just their own. A hurt leg now shows as a real limp
+  (less time on the sore leg, a stiff knee, leaning over it) instead of the whole body
+  rocking.
+
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.

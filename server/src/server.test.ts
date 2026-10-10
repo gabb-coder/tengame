@@ -431,7 +431,7 @@ test('made-up acts and gear are refused', async () => {
   for (const client of [a, b]) client.close();
 });
 
-test('a driver can knock over a player standing by their car, and only them', async () => {
+test('a driver can knock over a player standing by their car, and everyone sees it', async () => {
   const car = { steer: 0, rpm: 3000, load: 1, speed: 12, braking: false };
   const a = await TestClient.connect();
   a.send({ type: 'join', name: 'Alice' });
@@ -444,7 +444,7 @@ test('a driver can knock over a player standing by their car, and only them', as
   await c.next('welcome');
   const knock = { type: 'knock', target: bob, v: [30, 8, 0] };
 
-  // Bob is walking far from Alice's car: nothing. Next to it: Bob alone is told, flying no faster than allowed.
+  // Bob is walking far from Alice's car: nothing. Next to it: Bob and Cat are told, flying no faster than allowed.
   a.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car, avatar: null });
   b.send({ type: 'state', p: [50, 1, 50], q: [0, 0, 0, 1], car, avatar: { p: [40, 0, 0], yaw: 0, speed: 1 } });
   await a.next('snapshot');
@@ -459,7 +459,9 @@ test('a driver can knock over a player standing by their car, and only them', as
   assert.equal(hit.target, bob);
   assert.equal(hit.by, welcome.id);
   assert.ok(Math.abs(Math.hypot(...hit.v) - 45) < 0.01, 'flying speed is capped');
-  // Straight away again: once a second at most. And nobody else hears of it.
+  assert.deepEqual(await c.next('knock'), hit, 'everyone else sees Bob fly too');
+  assert.equal(a.inbox.filter((m) => m.type === 'knock').length, 0, 'the driver already knows');
+  // Straight away again: once a second at most.
   a.send(knock);
   a.send({ type: 'chat', text: 'done' });
   await b.next('chat');

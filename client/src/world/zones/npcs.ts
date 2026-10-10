@@ -1,7 +1,7 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { Label } from '../../render/labels.ts';
-import { knockFlight, Thrown } from '../../game/thrown.ts';
+import { groundUnder } from '../../game/thrown.ts';
 import { generateTown, PARK_FOUNTAIN } from '../../../../shared/town.ts';
 import { ANCIENT } from '../../../../shared/zones/ancient.ts';
 import { ARCTIC } from '../../../../shared/zones/arctic.ts';
@@ -11,7 +11,8 @@ import { MEDIEVAL } from '../../../../shared/zones/medieval.ts';
 import { SPACE } from '../../../../shared/zones/space.ts';
 import { game } from '../../game/link.ts';
 import { AvatarModel } from '../../player/avatarModel.ts';
-import { GET_UP, type Human, type Outfit, SPRAWL } from '../../player/humanModel.ts';
+import type { Human, Outfit } from '../../player/humanModel.ts';
+import { flingFrom } from '../../player/ragdoll.ts';
 import type { Terrain } from '../terrain.ts';
 
 /** People are only animated (and drawn) this close to the camera. */
@@ -35,13 +36,11 @@ const OUCH = [
   'Somebody take that driver’s license away!',
 ];
 
-/** Knocked flying by a car: the flight, then lying there, getting up and limping back. */
+/** Knocked flying by a car: thrown limp, then lying there, getting up and limping back. */
 interface Knock {
-  body: Thrown;
   phase: 'fly' | 'down' | 'up' | 'back';
   /** Seconds in this phase. */
   t: number;
-  yaw: number;
 }
 
 type Gear = (human: Human) => void;
@@ -361,23 +360,22 @@ export class Npcs {
       minSpeed: 1.2,
       mass: 80,
       harm: 0.03,
-      hit: (car) => this.knockOver(npc, knockFlight(car), true),
+      hit: (car) => this.knockOver(npc, flingFrom(car), true),
     });
-    // Another player's car knocking them over reaches them here.
+    // Another player's car knocking them over reaches them here (if they're anywhere near us).
     game.knockables.set(`npc:${seed}`, (v) => {
-      if (!npc.knock) this.knockOver(npc, v, false);
+      if (!npc.knock && avatar.root.visible) this.knockOver(npc, v, false);
     });
   }
 
   /** Sends someone flying at `v` (m/s); if it was our car, the other players are told. */
   private knockOver(n: Npc, v: THREE.Vector3Like, mine: boolean): void {
-    const at = n.avatar.root.position;
-    n.knock = { body: new Thrown(this.physics, at, v, (x, z) => n.floor ?? this.terrain.heightAt(x, z)), phase: 'fly', t: 0, yaw: Math.atan2(-v.x, -v.z) };
+    n.avatar.fling(this.physics, v);
+    n.knock = { phase: 'fly', t: 0 };
     n.talking = n.saying = 0;
     this.hideBubble(n);
-    n.avatar.action = 'Roll';
     if (mine) game.knock(`npc:${n.id}`, v);
-    game.sounds?.thud(at, Math.min(1, Math.hypot(v.x, v.y, v.z) / 15));
+    game.sounds?.thud(n.avatar.root.position, Math.min(1, Math.hypot(v.x, v.y, v.z) / 15));
   }
 
   /** Where someone belongs: their spot, or the point on their walk they'd got to. */
@@ -387,37 +385,36 @@ export class Npcs {
     return n.path.getPointAt((((n.walked % length) + length) % length) / length, out);
   }
 
-  /** Flying, lying there, getting up, and limping back to where they were. */
+  /** The floor or ground under `p`. */
+  private ground(n: Npc, p: THREE.Vector3Like): number {
+    return groundUnder(this.physics, p, (x, z) => n.floor ?? this.terrain.heightAt(x, z));
+  }
+
+  /** Flying limp, lying there, getting up, and limping back to where they were. */
   private recover(n: Npc, dt: number, camera: THREE.Vector3): void {
     const k = n.knock!;
-    const body = k.body;
-    const p = body.position;
+    const a = n.avatar;
     k.t += dt;
     let speed = 0;
-    let yaw = k.yaw;
-    if (k.phase === 'fly') {
-      if (body.landed) {
+    if (k.phase === 'fly' || k.phase === 'down') {
+      const hard = a.takeImpact();
+      if (hard > 0.2) game.sounds?.thud(a.hips(), hard * 0.6);
+      if (k.phase === 'fly' && a.resting) {
         k.phase = 'down';
         k.t = 0;
-        n.avatar.action = SPRAWL;
-        game.sounds?.thud(p, 0.35);
-      }
-      body.update(dt);
-    } else if (k.phase === 'down') {
-      body.update(dt);
-      if (k.t > DOWN_SECONDS) {
+      } else if (k.phase === 'down' && k.t > DOWN_SECONDS) {
+        a.getUp(this.ground(n, a.hips()));
         k.phase = 'up';
         k.t = 0;
-        n.avatar.action = GET_UP;
       }
     } else if (k.phase === 'up') {
-      // Up once the getting-up move has played (it clears itself).
-      if (n.avatar.action === null) {
+      if (!a.rising) {
         k.phase = 'back';
         k.t = 0;
         this.say(n, OUCH[Math.floor(Math.random() * OUCH.length)]);
       }
     } else {
+      const p = a.root.position;
       const home = this.home(n, new THREE.Vector3());
       const dx = home.x - p.x;
       const dz = home.z - p.z;
@@ -428,21 +425,20 @@ export class Npcs {
         return;
       }
       speed = LIMP_SPEED;
-      yaw = Math.atan2(dx, dz);
       const step = Math.min(d, speed * dt);
       p.x += (dx / d) * step;
       p.z += (dz / d) * step;
-      p.y = body.ground(p);
+      p.y = this.ground(n, p);
+      const yaw = Math.atan2(dx, dz);
+      const cur = a.root.rotation.y;
+      a.root.rotation.y = cur + Math.atan2(Math.sin(yaw - cur), Math.cos(yaw - cur)) * Math.min(1, dt * 6);
     }
+    const p = a.root.position;
     const near = (p.x - camera.x) ** 2 + (p.z - camera.z) ** 2 < RANGE * RANGE;
-    n.avatar.root.visible = n.avatar.root.matrixWorldAutoUpdate = near;
+    a.root.visible = a.root.matrixWorldAutoUpdate = near;
     if (!near) return;
-    n.avatar.root.position.copy(p);
-    const cur = n.avatar.root.rotation.y;
-    n.avatar.root.rotation.y = k.phase === 'back' ? cur + Math.atan2(Math.sin(yaw - cur), Math.cos(yaw - cur)) * Math.min(1, dt * 6) : yaw;
-    n.avatar.limp = k.phase === 'back' ? 1 : 0;
-    n.avatar.tumble = k.phase === 'fly' ? k.t * 7 : 0;
-    n.avatar.animate(speed, dt);
+    a.limp = k.phase === 'back' ? 1 : 0;
+    a.animate(speed, dt);
   }
 
   /** Shows something said in passing over their head for a few seconds. */
