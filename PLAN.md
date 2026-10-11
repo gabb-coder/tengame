@@ -139,6 +139,9 @@ fight the day/night cycle).
   thrown in everyone's game, not just their own. A hurt leg now shows as a real limp
   (less time on the sore leg, a stiff knee, leaning over it) instead of the whole body
   rocking.
+- Animals knocked over go limp too: each one's body, neck, head, legs and tail become
+  jointed pieces (antlers, manes and beaks ride along), thrown by physics, then blended
+  back up onto their feet. People and animals share one limp-body core (game/limp.ts).
 
 ## Possible next steps
 

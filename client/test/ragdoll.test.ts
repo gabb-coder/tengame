@@ -4,8 +4,13 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import * as THREE from 'three';
+import { Limp } from '../src/game/limp.ts';
 import { Ragdoll, type Skeleton } from '../src/player/ragdoll.ts';
 import { CarPhysics } from '../src/vehicles/carPhysics.ts';
+import { carHits } from '../src/game/impacts.ts';
+import { game } from '../src/game/link.ts';
+import { grazer, Herd } from '../src/world/zones/creatures.ts';
+import type { Terrain } from '../src/world/terrain.ts';
 
 const DT = 1 / 60;
 const NORMAL = { gravity: 1, underwater: false };
@@ -81,12 +86,12 @@ test('someone hit by a car flies, lands in a heap and lies still, in one piece',
   const physics = world();
   const skeleton = person();
   const ragdoll = new Ragdoll(physics, skeleton, { x: 0, y: 3, z: 12 });
-  const parts = (ragdoll as unknown as { parts: { bone: THREE.Object3D; body: RAPIER.RigidBody }[] }).parts;
+  const parts = (ragdoll as unknown as { pieces: { bone: THREE.Object3D; body: RAPIER.RigidBody }[] }).pieces;
   const byName = new Map(parts.map((p) => [p.bone.name, p.body]));
   let restedAt = -1;
   let worstKnee = 0;
   for (let i = 0; i < 10 / DT && restedAt < 0; i++) {
-    Ragdoll.step(DT, () => NORMAL);
+    Limp.step(DT, () => NORMAL);
     physics.step();
     for (const s of ['l', 'r'] as const) worstKnee = Math.min(worstKnee, kneeBend(skeleton, s, byName));
     if (ragdoll.resting) restedAt = i * DT;
@@ -121,11 +126,50 @@ test("someone thrown onto a car lands on its roof, not inside it", (t) => {
   skeleton.root.rotation.set(0, 0, Math.PI / 2);
   const ragdoll = new Ragdoll(physics, skeleton, { x: 0, y: 0, z: 0 });
   for (let i = 0; i < 3 / DT; i++) {
-    Ragdoll.step(DT, () => NORMAL);
+    Limp.step(DT, () => NORMAL);
     car.step({ throttle: 0, brake: 0, steer: 0, handbrake: true }, DT);
     physics.step();
   }
   const roof = car.body.translation().y + 0.7;
   const hips = ragdoll.hips();
   assert.ok(hips.y > roof - 0.1, `fell into the car: hips ${hips.y.toFixed(2)} m up, roof at ${roof.toFixed(2)} m`);
+});
+
+test('an animal hit by a car goes limp, lands, gets up and walks back to its herd', (t) => {
+  t.mock.method(Math, 'random', () => 0.3);
+  const physics = world();
+  const ground = { heightAt: () => 0 } as unknown as Terrain;
+  // One reindeer standing still at the origin, facing +Z.
+  const herd = new Herd(grazer('reindeer', '#8a6a4a'), 1, (_i, _t, out) => Object.assign(out, { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0 }) !== null);
+  herd.hittable('test-deer', { radius: 0.6, height: 1.6, mass: 150 }, physics, ground);
+  const camera = new THREE.Vector3(5, 2, 5);
+  herd.update(0, camera);
+  // A car doing 12 m/s, its bumper just short of the deer: it runs into it.
+  const hits = carHits(game.impacts, { halfWidth: 0.98, halfLength: 2.25, below: 0.7, above: 0.9 }, { x: 0, y: 0.65, z: -2.7 }, { x: 0, y: 0, z: 0, w: 1 }, { x: 0, y: 0, z: 12 }, DT);
+  assert.equal(hits.length, 1, 'the car runs into it');
+  hits[0].target.hit(new THREE.Vector3(0, 0, 12));
+  const body = (herd as unknown as { meshes: THREE.InstancedMesh[] }).meshes;
+  const knocked = (herd as unknown as { knocked: Map<number, { phase: string; limp: unknown }> }).knocked;
+  const at = (part: number) => new THREE.Vector3().setFromMatrixPosition(body[part].getMatrixAt(0, new THREE.Matrix4()));
+  let furthest = 0;
+  let lay: number | null = null;
+  let flopped = 0;
+  for (let i = 1; i < 16 / DT && knocked.size > 0; i++) {
+    Limp.step(DT, () => NORMAL);
+    physics.step();
+    herd.update(i * DT, camera);
+    const k = knocked.get(0);
+    furthest = Math.max(furthest, at(0).z);
+    if (k?.phase === 'down') {
+      lay ??= at(0).y;
+      // In one piece: the head and legs stay by the body.
+      for (let p = 1; p < body.length; p++) flopped = Math.max(flopped, at(p).distanceTo(at(0)));
+    }
+  }
+  assert.equal(knocked.size, 0, 'got up and went back');
+  assert.ok(furthest > 2, `only thrown ${furthest.toFixed(1)} m`);
+  assert.ok(lay !== null && lay < 0.6, `lying down: body ${lay?.toFixed(2)} m up`);
+  assert.ok(flopped < 1.6, `a part came ${flopped.toFixed(2)} m away from the body`);
+  // Standing again, back at its spot.
+  assert.ok(at(0).distanceTo(new THREE.Vector3(0, 1.15, 0)) < 0.05, `stands at ${at(0).toArray().map((v) => v.toFixed(2))}`);
 });

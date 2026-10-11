@@ -22,7 +22,7 @@ import { placeEffects } from '../world/zones/index.ts';
 import type { Activities, Activity, Mount, Prompt } from './activities.ts';
 import { carHits, type CarShape } from './impacts.ts';
 import { game } from './link.ts';
-import { groundUnder } from './thrown.ts';
+import { groundUnder } from './limp.ts';
 
 /** How close (meters from the car's center) you must be to get in. */
 const CAR_REACH = 3.2;

@@ -302,8 +302,8 @@ function buildBeachLife(ctx: ZoneContext, b: ChunkedBuilder): Herd {
   const crab: Species = {
     parts: [
       { parent: -1, offset: [0, 0.12, 0], geometry: new THREE.SphereGeometry(0.16, 10, 6).scale(1.3, 0.55, 1), color: '#d84a2a' },
-      { parent: 0, offset: [0.18, 0, 0.14], geometry: new THREE.SphereGeometry(0.06, 8, 6).scale(1.4, 0.8, 1), color: '#d84a2a' },
-      { parent: 0, offset: [-0.18, 0, 0.14], geometry: new THREE.SphereGeometry(0.06, 8, 6).scale(1.4, 0.8, 1), color: '#d84a2a' },
+      { parent: 0, offset: [0.18, 0, 0.14], geometry: new THREE.SphereGeometry(0.06, 8, 6).scale(1.4, 0.8, 1), color: '#d84a2a', rigid: true },
+      { parent: 0, offset: [-0.18, 0, 0.14], geometry: new THREE.SphereGeometry(0.06, 8, 6).scale(1.4, 0.8, 1), color: '#d84a2a', rigid: true },
     ],
     stride: 0.3,
     pose(phase, t, i, out) {

@@ -1,7 +1,7 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { Label } from '../../render/labels.ts';
-import { groundUnder } from '../../game/thrown.ts';
+import { groundUnder } from '../../game/limp.ts';
 import { generateTown, PARK_FOUNTAIN } from '../../../../shared/town.ts';
 import { ANCIENT } from '../../../../shared/zones/ancient.ts';
 import { ARCTIC } from '../../../../shared/zones/arctic.ts';

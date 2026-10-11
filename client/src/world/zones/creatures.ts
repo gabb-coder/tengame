@@ -1,7 +1,8 @@
-import type RAPIER from '@dimforge/rapier3d-compat';
+import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { groundUnder, Limp, type Piece } from '../../game/limp.ts';
 import { game } from '../../game/link.ts';
-import { knockFlight, Thrown } from '../../game/thrown.ts';
+import { flingFrom } from '../../player/ragdoll.ts';
 import type { Terrain } from '../terrain.ts';
 
 // Animals built from simple shapes and animated procedurally: a creature is a tree of
@@ -17,6 +18,8 @@ export interface Part {
   color: string;
   /** Glowing (unlit) instead of shaded. */
   glow?: boolean;
+  /** Stays fixed to its parent even when the animal goes limp (antlers, a mane, a beak). */
+  rigid?: boolean;
 }
 
 export interface Species {
@@ -56,17 +59,108 @@ export interface Bulk {
   big?: boolean;
 }
 
-/** An animal knocked flying: thrown, lying on its side, getting up, going back to its herd. */
+/**
+ * An animal knocked flying: thrown limp, lying where it fell, getting up, going back to its
+ * herd. While getting up it blends from how it lay (`lay`, each part) to standing at `rest`.
+ */
 interface Knocked {
-  body: Thrown;
+  limp: LimpAnimal | null;
   phase: 'fly' | 'down' | 'up' | 'back';
   t: number;
   yaw: number;
-  /** Which side it lies on (±1), and how high its middle is (so it lies on the ground, not in it). */
-  side: number;
-  lift: number;
-  /** Where it got up. */
   rest: THREE.Vector3;
+  lay: THREE.Matrix4[];
+}
+
+/** Seconds an animal lies still before getting up, and takes to get up. */
+const LIE_SECONDS = 2.5;
+const RISE_SECONDS = 1.2;
+
+/** A piece of a limp animal: the part it moves (small parts fixed to it ride along). */
+interface Chunk extends Piece {
+  part: number;
+}
+
+const v3 = new THREE.Vector3();
+const q4 = new THREE.Quaternion();
+const s3 = new THREE.Vector3();
+const UNIT = new THREE.Vector3(1, 1, 1);
+
+/**
+ * An animal gone limp, knocked flying by a car (see Limp): its body, neck, head, legs and
+ * tail are pieces joined where each hangs from the next, drawn gently back toward the pose
+ * it was in; small parts (antlers, a mane, a beak) ride along on theirs.
+ */
+class LimpAnimal extends Limp<Chunk> {
+  /** For each part: the piece carrying it, and where it sits in that piece's frame. */
+  private carriers: { piece: Chunk; offset: THREE.Matrix4 }[] = [];
+
+  /** Builds it from where each part is drawn (`drawn`, world matrices at size `scale`), weighing `mass`, flung at `v`. */
+  constructor(physics: RAPIER.World, species: Species, drawn: THREE.Matrix4[], private scale: number, mass: number, v: THREE.Vector3Like) {
+    super(physics);
+    const boxes = species.parts.map((part) => {
+      if (!part.geometry.boundingBox) part.geometry.computeBoundingBox();
+      return part.geometry.boundingBox!;
+    });
+    const volumes = boxes.map((box) => {
+      const size = box.getSize(v3).multiplyScalar(scale);
+      return Math.max(size.x, 0.02) * Math.max(size.y, 0.02) * Math.max(size.z, 0.02);
+    });
+    const total = volumes.reduce((sum, x) => sum + x, 0);
+    const spin = (Math.random() * 2 - 1) * 2;
+    const frames: THREE.Matrix4[] = [];
+    species.parts.forEach((part, i) => {
+      drawn[i].decompose(v3, q4, s3);
+      const frame = new THREE.Matrix4().compose(v3, q4, UNIT);
+      let carrier: { piece: Chunk; offset: THREE.Matrix4 };
+      if (i === 0 || part.rigid) {
+        // Fixed to the part it hangs from (or the middle of the body, for the body itself).
+        if (i === 0) {
+          carrier = { piece: this.addPiece(v3, q4, v, { x: 0, y: spin, z: 0 }, { part: i }), offset: new THREE.Matrix4() };
+          frames.push(frame);
+        } else {
+          const parent = this.carriers[part.parent];
+          const index = this.pieces.indexOf(parent.piece);
+          carrier = { piece: parent.piece, offset: frames[index].clone().invert().multiply(frame) };
+        }
+      } else {
+        const piece = this.addPiece(v3, q4, v, { x: 0, y: spin, z: 0 }, { part: i });
+        frames.push(frame);
+        carrier = { piece, offset: new THREE.Matrix4() };
+        const parent = this.carriers[part.parent].piece;
+        const pr = parent.body.rotation();
+        // Measured from the pose it was in: legs and necks swing a fair way, twist a little.
+        const f1 = new THREE.Quaternion(pr.x, pr.y, pr.z, pr.w).invert().multiply(q4);
+        this.ball(parent, piece, v3.clone(), f1, new THREE.Quaternion(), [[-0.8, 0.8], [-0.4, 0.4], [-0.5, 0.5]], 6);
+      }
+      this.carriers.push(carrier);
+      // Its shape: the part's bounding box, placed on its piece; weight shared out by size.
+      const box = boxes[i];
+      const center = box.getCenter(new THREE.Vector3()).multiplyScalar(scale);
+      const half = box.getSize(new THREE.Vector3()).multiplyScalar(scale / 2);
+      const at = new THREE.Matrix4().makeTranslation(center).premultiply(carrier.offset);
+      at.decompose(v3, q4, s3);
+      const desc = RAPIER.ColliderDesc.cuboid(Math.max(half.x, 0.015), Math.max(half.y, 0.015), Math.max(half.z, 0.015)).setTranslation(v3.x, v3.y, v3.z).setRotation(q4.clone());
+      this.addShape(carrier.piece, desc, Math.max(mass * (volumes[i] / total), mass * 0.03));
+    });
+  }
+
+  /** Where each part is drawn now (world matrices). */
+  pose(out: THREE.Matrix4[]): void {
+    const size = v3.set(this.scale, this.scale, this.scale);
+    this.carriers.forEach(({ piece, offset }, i) => {
+      const t = piece.body.translation();
+      const r = piece.body.rotation();
+      out[i].compose(s3.set(t.x, t.y, t.z), q4.set(r.x, r.y, r.z, r.w), UNIT).multiply(offset).scale(size);
+    });
+  }
+
+  /** Which way the body points (yaw, 0 = +Z), lying however it lies. */
+  heading(fallback: number): number {
+    const r = this.pieces[0].body.rotation();
+    const forward = v3.set(0, 0, 1).applyQuaternion(q4.set(r.x, r.y, r.z, r.w));
+    return Math.hypot(forward.x, forward.z) > 0.2 ? Math.atan2(forward.x, forward.z) : fallback;
+  }
 }
 
 const shaded = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.78, metalness: 0 });
@@ -92,6 +186,9 @@ export class Herd {
   private shownNow: boolean[];
   private knocked = new Map<number, Knocked>();
   private clock = NaN;
+  /** The height of the ground under a point (set once animals can be knocked over). */
+  private ground: (p: THREE.Vector3Like) => number = (p) => p.y;
+  private middle = new THREE.Vector3();
 
   constructor(
     private species: Species,
@@ -129,11 +226,14 @@ export class Herd {
       const id = `npc:${name}-${i}`;
       const mass = bulk.mass * s ** 3;
       const knock = (v: THREE.Vector3Like) => {
-        if (this.knocked.has(i)) return;
-        const yaw = Math.atan2(-v.x, -v.z);
-        this.knocked.set(i, { body: new Thrown(physics, this.where[i], v, (x, z) => terrain.heightAt(x, z), bulk.height * s * 0.5), phase: 'fly', t: 0, yaw, side: Math.random() < 0.5 ? 1 : -1, lift: bulk.radius * s * 0.5, rest: new THREE.Vector3() });
+        // Only one we can see (others are where nobody's looking).
+        if (this.knocked.has(i) || !this.shownNow[i]) return;
+        const drawn = this.meshes.map((mesh) => mesh.getMatrixAt(i, new THREE.Matrix4()));
+        const limp = new LimpAnimal(physics, this.species, drawn, s, mass, v);
+        this.knocked.set(i, { limp, phase: 'fly', t: 0, yaw: 0, rest: new THREE.Vector3(), lay: drawn });
         game.sounds?.thud(this.where[i], Math.min(1, Math.hypot(v.x, v.y, v.z) / 15));
       };
+      this.ground = (p) => groundUnder(physics, p, (x, z) => terrain.heightAt(x, z));
       game.knockables.set(id, knock);
       game.impacts.addMoving({
         at: (out) => (this.shownNow[i] && !this.knocked.has(i) ? out.copy(this.where[i]) : null),
@@ -148,7 +248,7 @@ export class Herd {
             game.sounds?.thud(this.where[i], 1);
             return;
           }
-          const v = knockFlight(car).multiplyScalar(Math.min(1, 120 / mass));
+          const v = flingFrom(car).multiplyScalar(Math.min(1, 120 / mass));
           knock(v);
           game.knock(id, v);
         },
@@ -156,47 +256,71 @@ export class Herd {
     }
   }
 
-  /** Carries a knocked-over animal: flying, lying on its side, getting up, rejoining the herd. */
-  private carry(k: Knocked, place: Placement, dt: number, i: number): void {
+  /**
+   * A knocked-over animal: thrown limp, lying there, getting up, then rejoining its herd.
+   * Returns true if it's been drawn here (limp or getting up); otherwise `place` is where
+   * to draw it standing.
+   */
+  private carry(k: Knocked, place: Placement, dt: number, i: number, camera: THREE.Vector3): boolean {
     k.t += dt;
-    const p = k.body.position;
-    if (k.phase === 'back') {
-      // Back where the herd would have it, over a few seconds.
-      const w = THREE.MathUtils.smoothstep(k.t, 0, 3);
-      place.x = THREE.MathUtils.lerp(k.rest.x, place.x, w);
-      place.y = THREE.MathUtils.lerp(k.rest.y, place.y, w);
-      place.z = THREE.MathUtils.lerp(k.rest.z, place.z, w);
-      if (k.t >= 3) this.knocked.delete(i);
-      return;
-    }
-    let lean = 1;
-    if (k.phase === 'fly') {
-      k.body.update(dt);
-      lean = 0;
-      if (k.body.landed) {
+    const s = this.scales[i] ?? 1;
+    if (k.limp) {
+      const hard = k.limp.takeImpact();
+      const middle = k.limp.hips(this.middle);
+      if (hard > 0.25) game.sounds?.thud(middle, hard * 0.5);
+      if (k.phase === 'fly' && k.limp.resting) {
         k.phase = 'down';
         k.t = 0;
       }
-    } else if (k.phase === 'down') {
-      k.body.update(dt);
-      if (k.t > 3) {
+      k.limp.pose(k.lay);
+      this.where[i].copy(middle);
+      if (k.phase === 'down' && k.t > LIE_SECONDS) {
+        // Up from where it lies, facing the way its body points.
+        k.yaw = k.limp.heading(place.yaw);
+        k.rest.set(middle.x, 0, middle.z);
+        k.rest.y = this.ground(k.rest.setY(middle.y));
+        k.limp.dispose();
+        k.limp = null;
         k.phase = 'up';
         k.t = 0;
-      }
-    } else {
-      lean = Math.max(0, 1 - k.t / 0.8);
-      if (k.t > 0.8) {
-        k.phase = 'back';
-        k.t = 0;
-        k.rest.copy(p);
+      } else {
+        this.draw(i, (middle.x - camera.x) ** 2 + (middle.z - camera.z) ** 2 <= this.range ** 2 ? k.lay : null);
+        return true;
       }
     }
-    place.x = p.x;
-    place.y = p.y + lean * k.lift;
-    place.z = p.z;
-    place.yaw = k.yaw;
-    place.pitch = k.phase === 'fly' ? k.t * 5 : 0;
-    place.roll = lean * (Math.PI / 2) * k.side;
+    if (k.phase === 'up') {
+      // Rolls up and stands: blends from how it lay to standing where it got up.
+      const w = THREE.MathUtils.smootherstep(k.t, 0, RISE_SECONDS);
+      Object.assign(place, { x: k.rest.x, y: k.rest.y, z: k.rest.z, yaw: k.yaw, pitch: 0, roll: 0 });
+      this.where[i].copy(k.rest);
+      if (k.t >= RISE_SECONDS) {
+        k.phase = 'back';
+        k.t = 0;
+        return false;
+      }
+      const near = (k.rest.x - camera.x) ** 2 + (k.rest.z - camera.z) ** 2 <= this.range ** 2;
+      if (!near) {
+        this.draw(i, null);
+        return true;
+      }
+      this.posed(i, place, s);
+      this.world.forEach((standing, p) => {
+        k.lay[p].decompose(v3, q4, s3);
+        const from = { p: v3.clone(), q: q4.clone() };
+        standing.decompose(v3, q4, s3);
+        standing.compose(from.p.lerp(v3, w), from.q.slerp(q4, w), s3);
+      });
+      this.draw(i, this.world);
+      return true;
+    }
+    // Back where the herd would have it, over a few seconds.
+    const w = THREE.MathUtils.smoothstep(k.t, 0, 3);
+    place.x = THREE.MathUtils.lerp(k.rest.x, place.x, w);
+    place.y = THREE.MathUtils.lerp(k.rest.y, place.y, w);
+    place.z = THREE.MathUtils.lerp(k.rest.z, place.z, w);
+    place.yaw = k.yaw + Math.atan2(Math.sin(place.yaw - k.yaw), Math.cos(place.yaw - k.yaw)) * w;
+    if (k.t >= 3) this.knocked.delete(i);
+    return false;
   }
 
   /**
@@ -221,37 +345,52 @@ export class Herd {
     for (let i = 0; i < this.count; i++) {
       const visible = this.mover(i, t, place);
       const knocked = this.knocked.get(i);
-      if (knocked) this.carry(knocked, place, dt, i);
+      if (knocked && this.carry(knocked, place, dt, i, camera)) {
+        if (this.shownNow[i]) shown++;
+        this.last[i].x = NaN;
+        continue;
+      }
       const far = (place.x - camera.x) ** 2 + (place.z - camera.z) ** 2 > this.range ** 2;
       if (!visible || far) {
-        for (const mesh of this.meshes) mesh.setMatrixAt(i, ZERO);
+        this.draw(i, null);
         this.last[i].x = NaN;
-        this.shownNow[i] = false;
         continue;
       }
       shown++;
-      this.shownNow[i] = true;
       this.where[i].set(place.x, place.y, place.z);
-      // Gait follows the distance actually covered, so feet don't slide (and stops while knocked over).
+      // Gait follows the distance actually covered, so feet don't slide.
       const l = this.last[i];
-      if (!Number.isNaN(l.x) && (!knocked || knocked.phase === 'back')) this.travelled[i] += Math.hypot(place.x - l.x, place.z - l.z);
+      if (!Number.isNaN(l.x)) this.travelled[i] += Math.hypot(place.x - l.x, place.z - l.z);
       l.x = place.x;
       l.z = place.z;
       const s = this.scales[i] ?? 1;
       species.pose(this.travelled[i] / (species.stride * s), t, i, this.rot);
-      this.e.set(place.pitch ?? 0, place.yaw, place.roll ?? 0, 'YXZ');
-      const root = this.local.compose(this.v.set(place.x, place.y, place.z), this.q.setFromEuler(this.e), this.one.set(s, s, s));
-      species.parts.forEach((part, p) => {
-        const r = this.rot[p];
-        this.e.set(r[0], r[1], r[2], 'YXZ');
-        const joint = this.joint.compose(this.v.set(...part.offset), this.q.setFromEuler(this.e), this.one.set(1, 1, 1));
-        this.world[p].multiplyMatrices(part.parent < 0 ? root : this.world[part.parent], joint);
-        this.meshes[p].setMatrixAt(i, this.world[p]);
-      });
+      this.posed(i, place, s);
+      this.draw(i, this.world);
     }
     // Send the new poses to the GPU, unless they're all still hidden.
     if (shown > 0 || this.group.visible) for (const mesh of this.meshes) mesh.instanceMatrix.needsUpdate = true;
     this.group.visible = shown > 0;
+  }
+
+  /** Works out each part's world matrix (into `world`) for an animal at `place`, size `s`, in the pose in `rot`. */
+  private posed(i: number, place: Placement, s: number): void {
+    const { species } = this;
+    if (this.knocked.get(i)?.phase === 'up') species.pose(this.travelled[i] / (species.stride * s), this.clock, i, this.rot);
+    this.e.set(place.pitch ?? 0, place.yaw, place.roll ?? 0, 'YXZ');
+    const root = this.local.compose(this.v.set(place.x, place.y, place.z), this.q.setFromEuler(this.e), this.one.set(s, s, s));
+    species.parts.forEach((part, p) => {
+      const r = this.rot[p];
+      this.e.set(r[0], r[1], r[2], 'YXZ');
+      const joint = this.joint.compose(this.v.set(...part.offset), this.q.setFromEuler(this.e), this.one.set(1, 1, 1));
+      this.world[p].multiplyMatrices(part.parent < 0 ? root : this.world[part.parent], joint);
+    });
+  }
+
+  /** Draws animal `i` with these part matrices, or hides it (null). */
+  private draw(i: number, parts: THREE.Matrix4[] | null): void {
+    this.shownNow[i] = parts !== null;
+    this.meshes.forEach((mesh, p) => mesh.setMatrixAt(i, parts ? parts[p] : ZERO));
   }
 }
 
@@ -393,7 +532,7 @@ export function theropod(color = '#5d5340', belly = '#8a7a5a'): Species {
     { parent: -1, offset: [0, 3.4, 0], geometry: blob(0.95, 1.15, 2.3, 0, 0, 0.2), color }, // 0 body
     { parent: 0, offset: [0, 0.6, 2.1], geometry: tube(0.65, 0.55, 1.1), color }, // 1 neck
     { parent: 1, offset: [0, 0.1, 1.0], geometry: blob(0.55, 0.62, 1.15, 0, 0.1, 0.8), color }, // 2 skull
-    { parent: 2, offset: [0, -0.25, 0.2], geometry: blob(0.45, 0.2, 1.0, 0, -0.1, 0.7), color: belly }, // 3 jaw
+    { parent: 2, offset: [0, -0.25, 0.2], geometry: blob(0.45, 0.2, 1.0, 0, -0.1, 0.7), color: belly, rigid: true }, // 3 jaw
   ];
   let prev = 0;
   for (let k = 0; k < 5; k++) {
@@ -539,7 +678,7 @@ export function grazer(kind: 'reindeer' | 'camel', color: string): Species {
     { parent: 0, offset: [0, 0.25, camel ? 1.0 : 0.75], geometry: tube(camel ? 0.2 : 0.18, camel ? 0.14 : 0.14, camel ? 1.3 : 0.7), color }, // neck
     { parent: 1, offset: [0, 0, camel ? 1.25 : 0.65], geometry: blob(0.17, 0.2, camel ? 0.4 : 0.32, 0, 0, 0.18), color }, // head
   ];
-  if (camel) parts.push({ parent: 0, offset: [0, 0.55, -0.1], geometry: blob(0.38, 0.45, 0.5), color });
+  if (camel) parts.push({ parent: 0, offset: [0, 0.55, -0.1], geometry: blob(0.38, 0.45, 0.5), color, rigid: true });
   else {
     const antler = new THREE.CylinderGeometry(0.025, 0.04, 0.8, 5).translate(0, 0.4, 0);
     const tine = new THREE.CylinderGeometry(0.02, 0.03, 0.35, 5).translate(0, 0.17, 0).rotateZ(0.8).translate(0, 0.45, 0);
@@ -547,8 +686,8 @@ export function grazer(kind: 'reindeer' | 'camel', color: string): Species {
     const merged = [antler, tine].map((g) => g.toNonIndexed());
     branch.setAttribute('position', new THREE.Float32BufferAttribute([...merged[0].attributes.position.array, ...merged[1].attributes.position.array], 3));
     branch.computeVertexNormals();
-    parts.push({ parent: 2, offset: [0.1, 0.15, 0], geometry: branch.clone().rotateZ(-0.5).rotateX(-0.3), color: '#d8c8a8' });
-    parts.push({ parent: 2, offset: [-0.1, 0.15, 0], geometry: branch.clone().rotateZ(0.5).rotateX(-0.3), color: '#d8c8a8' });
+    parts.push({ parent: 2, offset: [0.1, 0.15, 0], geometry: branch.clone().rotateZ(-0.5).rotateX(-0.3), color: '#d8c8a8', rigid: true });
+    parts.push({ parent: 2, offset: [-0.1, 0.15, 0], geometry: branch.clone().rotateZ(0.5).rotateX(-0.3), color: '#d8c8a8', rigid: true });
   }
   const legs = parts.length;
   const h = camel ? 1.75 : 0.95;
@@ -578,8 +717,8 @@ export function runner(kind: 'husky' | 'horse', color: string, mane = '#2a2220')
     { parent: 0, offset: [0, 0.1 * s, -0.9 * s], geometry: tube(0.07 * s, 0.03 * s, horse ? -0.8 : -0.5 * s * 2.2), color: horse ? mane : color }, // 3 tail
   ];
   // Ears (husky) or a mane (horse).
-  if (horse) parts.push({ parent: 1, offset: [0, 0.1, 0.25], geometry: blob(0.035, 0.08, 0.36, 0, 0, 0.1), color: mane });
-  else for (const x of [-0.05, 0.05]) parts.push({ parent: 2, offset: [x, 0.08, 0.02], geometry: spike(0.03, 0.09).rotateX(-Math.PI / 2), color });
+  if (horse) parts.push({ parent: 1, offset: [0, 0.1, 0.25], geometry: blob(0.035, 0.08, 0.36, 0, 0, 0.1), color: mane, rigid: true });
+  else for (const x of [-0.05, 0.05]) parts.push({ parent: 2, offset: [x, 0.08, 0.02], geometry: spike(0.03, 0.09).rotateX(-Math.PI / 2), color, rigid: true });
   const legs = parts.length;
   for (const [x, z] of [[0.18, 0.62], [-0.18, 0.62], [0.18, -0.62], [-0.18, -0.62]]) parts.push({ parent: 0, offset: [x * s, -0.2 * s, z * s], geometry: leg(0.08 * s, 0.05 * s, 1.08 * s), color });
   return {
@@ -603,9 +742,9 @@ export function penguin(): Species {
   return {
     parts: [
       { parent: -1, offset: [0, 0.4, 0], geometry: blob(0.22, 0.38, 0.2), color: '#1d2228' },
-      { parent: 0, offset: [0, 0, 0.05], geometry: blob(0.18, 0.32, 0.16), color: '#f2f2ee' },
+      { parent: 0, offset: [0, 0, 0.05], geometry: blob(0.18, 0.32, 0.16), color: '#f2f2ee', rigid: true },
       { parent: 0, offset: [0, 0.38, 0.02], geometry: blob(0.14, 0.14, 0.14), color: '#1d2228' },
-      { parent: 2, offset: [0, 0, 0.12], geometry: spike(0.04, 0.12), color: '#e8a030' },
+      { parent: 2, offset: [0, 0, 0.12], geometry: spike(0.04, 0.12), color: '#e8a030', rigid: true },
       { parent: 0, offset: [0.2, 0.1, 0], geometry: blob(0.04, 0.2, 0.08, 0, -0.15, 0), color: '#1d2228' },
       { parent: 0, offset: [-0.2, 0.1, 0], geometry: blob(0.04, 0.2, 0.08, 0, -0.15, 0), color: '#1d2228' },
     ],

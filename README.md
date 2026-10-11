@@ -63,8 +63,10 @@ caught. Both are remembered in your browser.
   themselves up onto one knee, stand, and limp off, favoring one leg. The townsfolk
   complain; friends lose health (a bar appears) and limp until it comes back. Too big a hit
   knocks them out for a few seconds. Everyone in the room sees the same person fly.
-- **Animals**: small ones (penguins, reindeer, horses, camels, raptors, crabs) get knocked
-  over. The big dinosaurs and mammoths don't budge: you bounce off.
+- **Animals**: small ones (penguins, reindeer, horses, camels, raptors, crabs) go limp the
+  same way: legs, necks and tails flop as they're thrown and tumble, and they lie where
+  they land before rolling back up onto their feet and rejoining the herd. The big
+  dinosaurs and mammoths don't budge: you bounce off.
 - **Your car** dents on the side that hit, and the "Car" bar under the speed goes down. A
   damaged engine smokes and loses power, smashed lights go out, and a wrecked car catches
   fire and stops. Press **T** for a new one. Friends see your dents and smoke too.
