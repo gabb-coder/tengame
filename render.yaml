@@ -1,0 +1,14 @@
+# Render settings (https://render.com/docs/blueprint-spec): the game server and the built
+# game in one free web service, built from the Dockerfile. In the Render dashboard,
+# New > Blueprint and pick this repository to set it up from this file.
+services:
+  - type: web
+    name: tengame
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: claude/ecstatic-lamport-cge95t
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    # A new version goes up by itself whenever new code lands on the branch.
+    autoDeployTrigger: commit
