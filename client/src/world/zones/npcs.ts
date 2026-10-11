@@ -9,6 +9,7 @@ import { CYBERPUNK } from '../../../../shared/zones/cyberpunk.ts';
 import { JUNGLE } from '../../../../shared/zones/jungle.ts';
 import { MEDIEVAL } from '../../../../shared/zones/medieval.ts';
 import { SPACE } from '../../../../shared/zones/space.ts';
+import { fingerWords } from '../../device.ts';
 import { game } from '../../game/link.ts';
 import { AvatarModel } from '../../player/avatarModel.ts';
 import type { Human, Outfit } from '../../player/humanModel.ts';
@@ -473,7 +474,7 @@ export class Npcs {
     el.replaceChildren();
     const who = document.createElement('strong');
     who.textContent = n.role.name;
-    el.append(who, line);
+    el.append(who, fingerWords(line));
     n.bubble.visible = true;
   }
 

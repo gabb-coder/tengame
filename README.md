@@ -164,8 +164,23 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 M, N, F, H, Enter and Esc work on foot too. Switched-on TVs, lamps, stoves and fires, and
 who's sitting where, are shared with everyone in the room.
 
-**Settings** (Esc → Settings, remembered in your browser): volume, mouse sensitivity, invert
-mouse, graphics quality, field of view, km/h or mph, and showing the minimap, key help,
+**On a phone or tablet** the game shows on-screen controls instead (computers never do):
+
+| Control | Action |
+|---|---|
+| Stick (left thumb, anywhere on the left) | Drive: up is the gas, down brakes and reverses, sideways steers. On foot: walk as fast as you push it; all the way out runs |
+| Drag anywhere else | Look around |
+| Brake / Jump (big button, right) | Handbrake; jump (hold it with a jetpack to fly) |
+| Get out, New car, Flip | E, T and R from the keyboard |
+| Use, Dance | E (shows when something's in reach) and G |
+| The prompt, e.g. **Open door** | Tap it to do it |
+| Chat, Journal, Sound, Full screen, +2 h | Under the menu button and by the clock |
+
+Phones and tablets start on the Low graphics setting; turn it up in Menu → Settings if
+yours is fast. The game plays best with the phone sideways.
+
+**Settings** (Esc → Settings, remembered in your browser): volume, mouse sensitivity (look
+sensitivity on a phone), invert mouse, graphics quality, field of view, km/h or mph, and showing the minimap, key help,
 player names and frame rate. **Leave room** in the same menu goes back to the title screen.
 
 `npm run dev` starts the game server on port 8080 and the Vite dev server on 5173
@@ -174,7 +189,7 @@ player names and frame rate. **Leave room** in the same menu goes back to the ti
 ## Other commands
 
 ```sh
-npm test          # car handling, walking, town/zone/floor-plan, relics, missions and server tests
+npm test          # car handling, walking, touch controls, town/zone/floor-plan, relics, missions and server tests
 npm run typecheck # client + server
 npm run build     # build client into client/dist (plus compressed copies)
 npm start         # serve client/dist + WebSocket server on $PORT (default 8080)
@@ -189,7 +204,27 @@ shared/   Message types, the town and zone layouts, the shape of the ground, and
           plans, shared by client and server (shared/zones/ has one file per zone)
 ```
 
-## Put it online with Fly.io
+## Put it online with Render
+
+This gives you a link like `https://tengame.onrender.com` that friends can open from
+anywhere, on Render's free plan. `render.yaml` holds the settings.
+
+1. **Make a Render account** at https://render.com (sign in with GitHub).
+2. **New → Blueprint**, pick this repository and click **Apply**. Render builds the game
+   from the `Dockerfile` as one free web service in Singapore, from the branch named in
+   `render.yaml`.
+3. **Play:** when the build finishes (a few minutes), open the link Render shows, create a
+   room and click **Copy invite link** to send it to friends.
+
+**Updating later:** nothing to do: every new commit on that branch goes up by itself.
+Deploying restarts the server, which ends any games in progress.
+
+**Good to know:** a free service falls asleep after 15 minutes with nobody playing; the
+next person to open the link waits about a minute while it wakes up. Rooms live in the
+server's memory, so keep it to one instance. The service's **Logs** tab in the Render
+dashboard shows the server's output if something goes wrong.
+
+## Or with Fly.io
 
 This gives you a link like `https://tengame-yourname.fly.dev` that friends can open from
 anywhere. You run these steps once, on your own computer, in a terminal opened in the

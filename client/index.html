@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Tengame</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -66,9 +66,10 @@
       </form>
 
       <footer class="lobby-footer">
-        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive</span>
-        <span><kbd>E</kbd> get in &amp; out, use things</span>
-        <span><kbd>Enter</kbd> chat</span>
+        <span class="keys-only"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive</span>
+        <span class="keys-only"><kbd>E</kbd> get in &amp; out, use things</span>
+        <span class="keys-only"><kbd>Enter</kbd> chat</span>
+        <span class="touch-only">Left thumb on the stick to drive and walk · drag anywhere else to look · buttons on the right</span>
         <span class="credit">Car model by Eric Chadwick (CC BY 4.0) · people by Quaternius, textures &amp; furniture from Poly Haven and ambientCG (CC0)</span>
       </footer>
     </div>
@@ -117,7 +118,7 @@
       <div id="notices" class="hud-notices" aria-live="polite"></div>
       <div id="chat" class="hud-chat">
         <ul id="chat-log"></ul>
-        <input id="chat-input" maxlength="200" autocomplete="off" placeholder="Say something (Enter to send, Esc to cancel)" hidden />
+        <input id="chat-input" maxlength="200" autocomplete="off" enterkeyhint="send" placeholder="Say something (Enter to send, Esc to cancel)" hidden />
       </div>
       <div id="hud-prompt" class="panel hud-prompt" hidden></div>
       <div class="panel hud-help" id="help-car"></div>

@@ -7,20 +7,20 @@ Realistic art style, up to 4 players per room, two modes (free-roam and missions
 
 | Topic | Decision |
 |---|---|
-| Platform | Browser (desktop) |
+| Platform | Browser (desktop; phones and tablets with on-screen controls) |
 | Art style | Realistic (PBR, HDR lighting, baked interior lightmaps) |
 | Modes | Free-roam sandbox + missions (same world, mission manager on/off) |
 | Multiplayer | Up to 4 players per room, join by room code/link |
 | Interiors | Fully furnished, explorable rooms |
 | Chat | Text only |
-| Hosting | Fly.io (server + static client) |
+| Hosting | Render free plan (server + static client); Fly.io also set up |
 | Assets | None yet – placeholders first, swap in CC0/purchased packs later |
 
 ## Stack
 
 - **Client:** Three.js + TypeScript + Vite, Rapier physics (WASM)
 - **Server:** Node.js + WebSocket rooms (Colyseus or plain `ws`)
-- **Deploy:** Docker image on Fly.io, serving both the built client and the WebSocket server
+- **Deploy:** Docker image on Render (`render.yaml`) or Fly.io (`fly.toml`), serving both the built client and the WebSocket server
 
 ## Networking model
 
@@ -77,8 +77,8 @@ fly.toml
 
 ## Open items
 
-- Fly.io: deploying needs the user's Fly account; Dockerfile and `fly.toml` are ready
-  (see README, "Put it online with Fly.io").
+- Hosting: the game runs on Render's free plan (`render.yaml`, see README, "Put it online
+  with Render"); `fly.toml` still works for Fly.io.
 
 ## Real assets
 
@@ -142,6 +142,18 @@ fight the day/night cycle).
 - Animals knocked over go limp too: each one's body, neck, head, legs and tail become
   jointed pieces (antlers, manes and beaks ride along), thrown by physics, then blended
   back up onto their feet. People and animals share one limp-body core (game/limp.ts).
+
+## Phones and tablets
+
+- On a phone or tablet (a finger is the main pointer; computers with touch screens don't
+  count), the game shows controls for thumbs (ui/touchControls.ts): a stick that comes to
+  the left thumb (drive: up gas, down brake/reverse, sideways steer; on foot: walk as fast
+  as it's pushed, run at the edge), dragging anywhere else to look, round buttons by the
+  right thumb (jump/handbrake, use, dance; get out, new car, flip), tools under the menu
+  button (chat, journal, sound, full screen) and a +2 h button by the clock. Prompts like
+  "Open door" can be tapped. All of it presses the same keys the keyboard does (Input), so
+  everything works the same. Words that name keys ("Press J") name the buttons instead,
+  and these devices start on Low graphics.
 
 ## Possible next steps
 

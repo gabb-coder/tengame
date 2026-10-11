@@ -22,6 +22,8 @@ import { FIRE_WARMTH_RANGE, Warmth } from './game/warmth.ts';
 import { Menu } from './ui/menu.ts';
 import { onSettings, settings } from './settings.ts';
 import { Chat } from './ui/chat.ts';
+import { touchDevice } from './device.ts';
+import { TouchControls } from './ui/touchControls.ts';
 import { runLobby, setLobbyStatus } from './ui/lobby.ts';
 import { Minimap } from './ui/minimap.ts';
 import { TitleScene } from './ui/titleScene.ts';
@@ -60,6 +62,8 @@ const TEXTURE_WAIT_MS = 8000;
 const COMPILE_WAIT_MS = 15000;
 
 const container = document.getElementById('app')!;
+// Phones and tablets get words and a layout for fingers (and, in the game, a stick and buttons).
+document.body.classList.toggle('touch', touchDevice);
 const nextPaint = () => new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
 
 // Build the town as soon as physics is ready, and show it behind the title screen.
@@ -212,6 +216,9 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   const chat = new Chat();
   chat.onSend = (text) => conn.send({ type: 'chat', text });
   chat.onOpen = () => input.releaseAll();
+  // Phones and tablets: a stick, buttons and dragging to look, instead of keys and the mouse.
+  const touch = touchDevice ? new TouchControls(input, { chat: () => chat.open() }) : null;
+  if (touch && innerHeight > innerWidth && innerWidth < 600) showNotice('Tip: turn your phone sideways to see more');
 
   // The in-game menu: Esc (or the Menu button). Game keys pause while it's open.
   const menu = new Menu(welcome.room);
@@ -399,6 +406,12 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
 
     renderMode(player.mode, input.pointerLocked);
     renderPrompt(player.interaction, player.remoteTv);
+    const reach = player.interaction;
+    touch?.update({
+      driving: player.mode === 'car',
+      canUse: !!reach && !(reach.kind === 'leave' && reach.blocked) && !(reach.kind === 'activity' && reach.prompt.waiting),
+      muted,
+    });
     const speed = car.physics.speed;
     renderGauges(Math.abs(speed) < 0.3 ? 0 : speed, car.physics.gear, car.physics.rpm / CAR.redlineRpm);
     if (settings.showFps) renderFps(now);

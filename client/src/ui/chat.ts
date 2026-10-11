@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../../../shared/protocol.ts';
+import { fingerWords, touchDevice } from '../device.ts';
 
 const VISIBLE_LINES = 8;
 /** Lines fade after this long unless the chat box is open. */
@@ -17,13 +18,15 @@ export class Chat {
   onOpen: () => void = () => {};
 
   constructor() {
+    if (touchDevice) this.input.placeholder = 'Say something';
     addEventListener('keydown', (e) => {
       if (e.code !== 'Enter' || this.isOpen || e.target instanceof HTMLInputElement) return;
       e.preventDefault();
       this.open();
     });
     this.input.addEventListener('keydown', (e) => {
-      if (e.code === 'Enter') {
+      // Phone keyboards' send key says which key it is, but not always where it is (its code).
+      if (e.key === 'Enter') {
         const text = this.input.value.trim();
         if (text) this.onSend(text);
         this.close();
@@ -67,7 +70,7 @@ export class Chat {
   system(text: string): void {
     const li = document.createElement('li');
     li.className = 'system';
-    li.textContent = text;
+    li.textContent = fingerWords(text);
     this.push(li);
   }
 

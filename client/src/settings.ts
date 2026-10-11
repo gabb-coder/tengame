@@ -1,3 +1,5 @@
+import { touchDevice } from './device.ts';
+
 /** Player preferences, kept in this browser between visits. */
 export interface Settings {
   /** Master volume, 0..1. */
@@ -23,7 +25,8 @@ export const DEFAULT_SETTINGS: Settings = {
   mouseSensitivity: 1,
   invertY: false,
   fov: 62,
-  quality: 'medium',
+  // Phones and tablets start on the fastest graphics; they can turn it up in the menu.
+  quality: touchDevice ? 'low' : 'medium',
   units: 'kmh',
   showMinimap: true,
   showHelp: true,

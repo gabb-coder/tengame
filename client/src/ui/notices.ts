@@ -1,3 +1,5 @@
+import { fingerWords } from '../device.ts';
+
 const SHOW_MS = 4500;
 const MAX_VISIBLE = 3;
 
@@ -6,7 +8,7 @@ export function showNotice(text: string): void {
   const box = document.getElementById('notices')!;
   const el = document.createElement('div');
   el.className = 'notice';
-  el.textContent = text;
+  el.textContent = fingerWords(text);
   box.append(el);
   while (box.children.length > MAX_VISIBLE) box.firstElementChild!.remove();
   setTimeout(() => el.classList.add('leaving'), SHOW_MS);

@@ -1,5 +1,6 @@
 import type { GameMode, PlayerInfo } from '../../../shared/protocol.ts';
 import type { Interaction, Mode } from '../game/localPlayer.ts';
+import { fingerWords } from '../device.ts';
 import { type Settings, settings, updateSettings } from '../settings.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -113,26 +114,32 @@ function setHelp(el: HTMLElement, items: string[]): void {
 
 let lastPrompt = '';
 
-/** The "press E to ..." hint for whatever is in reach. */
+/** The "press E to ..." hint for whatever is in reach (on a phone or tablet, tap it). */
 export function renderPrompt(i: Interaction, remote: { on: boolean } | null = null): void {
   let html = '';
-  if (i?.kind === 'enter-car') html = '<kbd>E</kbd>Get in';
-  else if (i?.kind === 'door') html = `<kbd>E</kbd>${i.open ? 'Close' : 'Open'} door<small>${escapeHtml(i.address)}</small>`;
-  else if (i?.kind === 'sit') html = `<kbd>E</kbd>Sit down<small>${i.seat.label}</small>`;
-  else if (i?.kind === 'stand') html = `<kbd>E</kbd>Stand up${remote ? `<kbd class="second">R</kbd>TV ${remote.on ? 'off' : 'on'}` : '<small>or move</small>'}`;
-  else if (i?.kind === 'switch' && i.appliance === 'fire') html = `<kbd>E</kbd>${i.on ? 'Put out' : 'Light'} the fire`;
-  else if (i?.kind === 'switch') html = `<kbd>E</kbd>Turn ${i.on ? 'off' : 'on'} the ${i.appliance === 'tv' ? 'TV' : i.appliance}`;
-  else if (i?.kind === 'leave') html = i.blocked ? `<span class="waiting">${escapeHtml(i.blocked)}</span>` : `<kbd>E</kbd>Get off<small>${escapeHtml(i.label)}</small>`;
+  if (i?.kind === 'enter-car') html = action('E', 'Get in');
+  else if (i?.kind === 'door') html = action('E', `${i.open ? 'Close' : 'Open'} door`, escapeHtml(i.address));
+  else if (i?.kind === 'sit') html = action('E', 'Sit down', i.seat.label);
+  else if (i?.kind === 'stand') html = remote ? action('E', 'Stand up') + action('R', `TV ${remote.on ? 'off' : 'on'}`) : action('E', 'Stand up', 'or move');
+  else if (i?.kind === 'switch' && i.appliance === 'fire') html = action('E', `${i.on ? 'Put out' : 'Light'} the fire`);
+  else if (i?.kind === 'switch') html = action('E', `Turn ${i.on ? 'off' : 'on'} the ${i.appliance === 'tv' ? 'TV' : i.appliance}`);
+  else if (i?.kind === 'leave') html = i.blocked ? `<span class="waiting">${escapeHtml(i.blocked)}</span>` : action('E', 'Get off', escapeHtml(i.label));
   else if (i?.kind === 'activity') {
-    const { action, detail, waiting } = i.prompt;
-    const small = detail ? `<small>${escapeHtml(detail)}</small>` : '';
-    html = waiting ? `<span class="waiting">${escapeHtml(action)}</span>${small}` : `<kbd>E</kbd>${escapeHtml(action)}${small}`;
+    const { action: label, waiting } = i.prompt;
+    const detail = i.prompt.detail && escapeHtml(fingerWords(i.prompt.detail));
+    if (waiting) html = `<span class="waiting">${escapeHtml(label)}</span>${detail ? `<small>${detail}</small>` : ''}`;
+    else html = action('E', escapeHtml(label), detail);
   }
   if (html === lastPrompt) return;
   lastPrompt = html;
   const el = $('hud-prompt');
   el.hidden = !html;
   el.innerHTML = html;
+}
+
+/** Something to do: press `key` (`label`, then a word on what, if `detail`). Tapping it presses the key too. */
+function action(key: 'E' | 'R', label: string, detail?: string): string {
+  return `<span class="act" data-key="Key${key}"><kbd>${key}</kbd>${label}${detail ? `<small>${detail}</small>` : ''}</span>`;
 }
 
 function escapeHtml(text: string): string {
