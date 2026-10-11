@@ -70,7 +70,7 @@
         <span class="keys-only"><kbd>E</kbd> get in &amp; out, use things</span>
         <span class="keys-only"><kbd>Enter</kbd> chat</span>
         <span class="touch-only">Left thumb on the stick to drive and walk · drag anywhere else to look · buttons on the right</span>
-        <span class="credit">Car model by Eric Chadwick (CC BY 4.0) · people by Quaternius, textures &amp; furniture from Poly Haven and ambientCG (CC0)</span>
+        <span class="credit">Car model by Eric Chadwick (CC BY 4.0) · people from Microsoft Rocketbox (MIT), animations by Quaternius, textures &amp; furniture from Poly Haven and ambientCG (CC0)</span>
       </footer>
     </div>
 
@@ -112,7 +112,7 @@
         <span id="waypoint-distance"></span>
       </div>
       <div class="hud-map">
-        <canvas id="minimap" aria-label="Map"></canvas>
+        <canvas id="minimap" aria-label="Map (click to open)" title="Open the map (Tab)"></canvas>
         <div id="map-label" class="map-label" hidden></div>
       </div>
       <div id="notices" class="hud-notices" aria-live="polite"></div>
@@ -202,6 +202,20 @@
             <button type="button" id="leave-confirm" class="danger">Leave room</button>
           </div>
         </section>
+      </div>
+    </div>
+
+    <div id="bigmap" class="bigmap" hidden>
+      <canvas id="bigmap-canvas" aria-label="Map of the world"></canvas>
+      <div class="panel bigmap-bar">
+        <strong>Map</strong>
+        <span id="bigmap-where"></span>
+        <div class="bigmap-buttons">
+          <button type="button" id="bigmap-in" class="secondary" title="Zoom in" aria-label="Zoom in">+</button>
+          <button type="button" id="bigmap-out" class="secondary" title="Zoom out" aria-label="Zoom out">−</button>
+          <button type="button" id="bigmap-me" class="secondary" title="Find me">Find me</button>
+          <button type="button" id="bigmap-close" class="primary" title="Close (Tab or Esc)">Close</button>
+        </div>
       </div>
     </div>
 

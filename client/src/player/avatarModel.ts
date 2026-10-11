@@ -1,12 +1,11 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { Media } from '../assets/media.ts';
-import { Human, loadHumans, type Outfit } from './humanModel.ts';
+import { choosePerson, Human, type HumanLibrary, loadHumans, type Outfit } from './humanModel.ts';
 import { Ragdoll } from './ragdoll.ts';
 
-/** The realistic people, once loaded (see AvatarModel.load), and every avatar waiting for them. */
-let humans: Awaited<ReturnType<typeof loadHumans>> = null;
-const avatars = new Set<AvatarModel>();
+/** The realistic people's pack, once loaded (see AvatarModel.load). */
+let humans: HumanLibrary | null = null;
 
 const SKIN_TONES = ['#f1c7a5', '#e0ac85', '#c68863', '#9a6646', '#6e4a33', '#f5d6bf'];
 const HAIR_COLORS = ['#2a1d14', '#4a3020', '#7a5230', '#1b1b1b', '#a87a4a', '#5b4636'];
@@ -47,6 +46,9 @@ export class AvatarModel {
   private phase = 0;
   private swing = 0;
   private human: Human | null = null;
+  /** Their realistic person has been asked for (they load the first time someone's seen). */
+  private wanted = false;
+  private disposed = false;
   /** Sitting on something (see placeSeated). */
   seated = false;
   /** In the water, swimming. */
@@ -65,19 +67,18 @@ export class AvatarModel {
   onHuman: (human: Human) => void = () => {};
 
   /**
-   * Loads the realistic people in the background; every avatar, existing or new, switches
-   * to one once they arrive. Until then (or if they never do), avatars are built from shapes.
+   * Loads the realistic people's pack in the background. Each avatar becomes their person
+   * once they're first animated (in view) and that person has loaded. Until then (or if
+   * they never do), avatars are built from shapes.
    */
   static load(media: Media): void {
-    void loadHumans(media).then((assets) => {
-      if (!assets) return;
-      humans = assets;
-      for (const avatar of avatars) avatar.useHuman();
+    void loadHumans(media).then((library) => {
+      humans = library;
     });
   }
 
   constructor(
-    private shirtColor: string,
+    shirtColor: string,
     private seed: string,
     private outfit: Outfit = {},
   ) {
@@ -116,8 +117,6 @@ export class AvatarModel {
       if (o instanceof THREE.Mesh) o.castShadow = true;
     });
     this.root.add(this.body);
-    avatars.add(this);
-    if (humans) queueMicrotask(() => this.useHuman());
   }
 
   /**
@@ -138,18 +137,30 @@ export class AvatarModel {
     return this.root.localToWorld(hips);
   }
 
-    /** Stops following model loading, for an avatar that's being removed. */
+  /** Stops following model loading, for an avatar that's being removed. */
   dispose(): void {
-    avatars.delete(this);
+    this.disposed = true;
   }
 
-  private useHuman(): void {
-    if (!humans || this.human) return;
-    this.human = new Human(humans, this.shirtColor, this.seed, this.outfit);
-    this.root.remove(this.body);
-    this.root.add(this.human.root);
-    this.onHuman(this.human);
-    for (const [name, g] of this.gear) if (g.on) this.setGear(name, true, g.make);
+  /** Asks for this avatar's person, the first time they're seen once the pack is in. */
+  private wantHuman(): void {
+    if (this.wanted || !humans) return;
+    this.wanted = true;
+    const library = humans;
+    const person = choosePerson(library, this.seed, this.outfit);
+    void library.person(person.name).then((model) => {
+      if (!model || this.disposed || this.human) return;
+      // Not mid-fall: the simple body lying flat can't hand over to a limp one.
+      if (this.flat) {
+        this.wanted = false;
+        return;
+      }
+      this.human = new Human(library, model, person, this.seed);
+      this.root.remove(this.body);
+      this.root.add(this.human.root);
+      this.onHuman(this.human);
+      for (const [name, g] of this.gear) if (g.on) this.setGear(name, true, g.make);
+    });
   }
 
   /**
@@ -252,6 +263,7 @@ export class AvatarModel {
 
   /** Advances the walk cycle. `speed` in m/s; `airborne` tucks the legs. */
   animate(speed: number, dt: number, airborne = false): void {
+    this.wantHuman();
     if (this.ragdoll) {
       // The body's frame follows the hips about, so it's drawn (and labelled) where it lies.
       const hips = this.ragdoll.hips();

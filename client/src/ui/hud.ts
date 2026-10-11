@@ -84,7 +84,7 @@ export function renderFps(now: number): void {
 }
 
 const CAR_HELP = ['W accelerate', 'S brake/reverse', 'A D steer', 'Space handbrake', 'E get out', 'R flip upright', 'T new car'];
-const COMMON_HELP = ['M mute', 'F fullscreen', 'Enter chat', 'Esc menu', 'H hide help'];
+const COMMON_HELP = ['Tab map', 'M mute', 'F fullscreen', 'Enter chat', 'Esc menu', 'H hide help'];
 
 /** Shows the speedometer and driving help in the car, walking help on foot. */
 export function renderMode(mode: Mode, pointerLocked: boolean): void {

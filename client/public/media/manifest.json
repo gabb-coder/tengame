@@ -328,39 +328,153 @@
     }
   },
   "humans": {
-    "source": "https://quaternius.com/packs/universalbasecharacters.html",
-    "bodies": {
-      "male": {
-        "min": [
-          -1,
-          -0.97888119144261,
-          -0.30155339213232824
-        ],
-        "max": [
-          1,
-          0.97888119144261,
-          0.30155339213232824
-        ]
+    "license": "People: MIT, Microsoft (Rocketbox). Animations: CC0, Quaternius.",
+    "source": "https://github.com/microsoft/Microsoft-Rocketbox",
+    "people": [
+      {
+        "name": "Male_Adult_01",
+        "body": "male",
+        "height": 1.82,
+        "everyday": true
       },
-      "female": {
-        "min": [
-          -1,
-          -1,
-          -0.3197424237800226
-        ],
-        "max": [
-          1,
-          1,
-          0.3197424237800226
-        ]
+      {
+        "name": "Male_Adult_04",
+        "body": "male",
+        "height": 1.87,
+        "everyday": true
+      },
+      {
+        "name": "Male_Adult_06",
+        "body": "male",
+        "height": 1.83,
+        "everyday": true
+      },
+      {
+        "name": "Male_Adult_08",
+        "body": "male",
+        "height": 1.82,
+        "everyday": true
+      },
+      {
+        "name": "Male_Adult_10",
+        "body": "male",
+        "height": 1.83,
+        "everyday": true
+      },
+      {
+        "name": "Male_Adult_12",
+        "body": "male",
+        "height": 1.81,
+        "everyday": true
+      },
+      {
+        "name": "Female_Adult_01",
+        "body": "female",
+        "height": 1.74,
+        "everyday": true
+      },
+      {
+        "name": "Female_Adult_04",
+        "body": "female",
+        "height": 1.76,
+        "everyday": true
+      },
+      {
+        "name": "Female_Adult_05",
+        "body": "female",
+        "height": 1.74,
+        "everyday": true
+      },
+      {
+        "name": "Female_Adult_08",
+        "body": "female",
+        "height": 1.73,
+        "everyday": true
+      },
+      {
+        "name": "Female_Adult_12",
+        "body": "female",
+        "height": 1.73,
+        "everyday": true
+      },
+      {
+        "name": "Female_Adult_17",
+        "body": "female",
+        "height": 1.75,
+        "everyday": true
+      },
+      {
+        "name": "Male_Adult_03",
+        "body": "male",
+        "height": 1.81,
+        "everyday": false
+      },
+      {
+        "name": "Male_Adult_05",
+        "body": "male",
+        "height": 1.81,
+        "everyday": false
+      },
+      {
+        "name": "Male_Adult_14",
+        "body": "male",
+        "height": 1.8,
+        "everyday": false
+      },
+      {
+        "name": "Female_Adult_06",
+        "body": "female",
+        "height": 1.73,
+        "everyday": false
+      },
+      {
+        "name": "Female_Party_01",
+        "body": "female",
+        "height": 1.75,
+        "everyday": false
+      },
+      {
+        "name": "Female_Party_02",
+        "body": "female",
+        "height": 1.79,
+        "everyday": false
+      },
+      {
+        "name": "Police_Male_02",
+        "body": "male",
+        "height": 1.84,
+        "everyday": false
+      },
+      {
+        "name": "Medical_Male_02",
+        "body": "male",
+        "height": 1.83,
+        "everyday": false
+      },
+      {
+        "name": "Medical_Female_03",
+        "body": "female",
+        "height": 1.74,
+        "everyday": false
+      },
+      {
+        "name": "Delivery_Male_01",
+        "body": "male",
+        "height": 1.82,
+        "everyday": false
+      },
+      {
+        "name": "Gardener_Male_01",
+        "body": "male",
+        "height": 1.81,
+        "everyday": false
+      },
+      {
+        "name": "Business_Female_01",
+        "body": "female",
+        "height": 1.74,
+        "everyday": false
       }
-    },
-    "hair": [
-      "Hair_SimpleParted",
-      "Hair_Buzzed",
-      "Hair_Beard",
-      "Hair_Buns",
-      "Hair_BuzzedFemale"
     ],
     "clips": {
       "Jog_Fwd_Loop": {

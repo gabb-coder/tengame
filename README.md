@@ -69,7 +69,8 @@ caught. Both are remembered in your browser.
   dinosaurs and mammoths don't budge: you bounce off.
 - **Your car** dents on the side that hit, and the "Car" bar under the speed goes down. A
   damaged engine smokes and loses power, smashed lights go out, and a wrecked car catches
-  fire and stops. Press **T** for a new one. Friends see your dents and smoke too.
+  fire and stops. Press **T** for a new one, right where you are. Friends see your dents and
+  smoke too.
 
 Each place also sounds like itself: wind on the tundra, rain and sirens in the city, waves
 and gulls at the bay, birds by day and crickets at night, insects in the jungle, the rumbling
@@ -78,7 +79,10 @@ Grass sways in the wind on the meadows and lawns (Medium and High graphics).
 
 The minimap in the top-right corner turns with your view and shows streets, houses, your
 friends (arrows in their colors) and your next mission target (yellow diamond). Below it is
-the name of the street or house you're at.
+the name of the street or house you're at. Click or tap it (or press **Tab**) to open the
+big map: the whole world, north up, with every land, place and street named and everyone
+on it. Drag to move around, scroll or pinch to zoom, **Find me** to jump back to yourself;
+**Tab**, **Esc** or **Close** to go back to the game.
 
 Two modes, chosen when you create a room:
 
@@ -113,11 +117,17 @@ by Eric Chadwick (Darmstadt Graphics Group), licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), based on a CC0 model by Unity Fan.
 The Khronos logos were removed from it.
 
-The people are Quaternius's [Universal Base Characters](https://quaternius.com/packs/universalbasecharacters.html)
-with animations from his [Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html)
-(both CC0), dressed in a T-shirt in the player's color, jeans and shoes. itch.io doesn't allow
-scripted downloads, so to rebuild them with `npm run assets`, first download the two free
-"[Standard]" zips from itch.io into `.asset-cache/humans/` as `ubc.zip` and `ual.zip`.
+The people are 24 realistic, clothed men and women from Microsoft's
+[Rocketbox avatar library](https://github.com/microsoft/Microsoft-Rocketbox) (MIT license):
+everyday clothes for players and passers-by, and uniforms or costumes for the townsfolk,
+knights, astronauts and explorers. They move with Quaternius's
+[Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html)
+(CC0): `scripts/people.mjs` refits each person to that library's skeleton, so every
+animation, the ragdoll and getting up work on all of them. Each person is downloaded the
+first time someone in view is them (about 0.35 MB each). `npm run assets -- people` rebuilds
+just them; it fetches the people itself, but itch.io doesn't allow scripted downloads, so
+first download the free "[Standard]" animation zip from itch.io into `.asset-cache/humans/`
+as `ual.zip`.
 
 ## Run locally
 
@@ -141,7 +151,8 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 | Space | Handbrake |
 | E | Get out (when nearly stopped) |
 | R | Flip the car upright where it is |
-| T | A new car (good as new) at your starting spot |
+| T | A new car (good as new) right where you are |
+| Tab | Open the big map (or click the minimap) |
 | M | Mute sound |
 | N | Skip 2 hours (free roam) |
 | F | Fullscreen |

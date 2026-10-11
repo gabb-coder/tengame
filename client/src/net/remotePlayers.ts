@@ -163,14 +163,14 @@ export class RemotePlayers {
   }
 
   /** Each other player's position, heading (yaw, 0 = +Z) and color, for the minimap. */
-  markers(): { x: number; z: number; yaw: number; color: string }[] {
+  markers(): { x: number; z: number; yaw: number; color: string; name: string }[] {
     const out = [];
     for (const r of this.remotes.values()) {
       if (!r.model.root.visible) continue;
       const walking = r.avatar.root.visible;
       const o = walking ? r.avatar.root : r.model.root;
       const yaw = walking ? o.rotation.y : yawOf(o.quaternion);
-      out.push({ x: o.position.x, z: o.position.z, yaw, color: r.info.color });
+      out.push({ x: o.position.x, z: o.position.z, yaw, color: r.info.color, name: r.info.name });
     }
     return out;
   }

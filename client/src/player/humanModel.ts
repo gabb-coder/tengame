@@ -1,25 +1,12 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import type { Media } from '../assets/media.ts';
+import type { Media, PersonInfo } from '../assets/media.ts';
 
-/** Height the characters are scaled to, in meters. */
+/** How tall people are (m), when the pack doesn't say. */
 const HEIGHT = 1.76;
-
-/** Bones whose skin a T-shirt, trousers and shoes cover (by skin weight, so edges are soft). */
-const SHIRT_BONES = ['spine_01', 'spine_02', 'spine_03', 'clavicle_l', 'clavicle_r', 'upperarm_l', 'upperarm_r'];
-const PANTS_BONES = ['pelvis', 'thigh_l', 'thigh_r', 'calf_l', 'calf_r'];
-const SHOE_BONES = ['foot_l', 'foot_r', 'ball_l', 'ball_r', 'ball_leaf_l', 'ball_leaf_r'];
-
-const PANTS_COLORS = ['#2b3a55', '#3a3a3c', '#4a4136', '#33404a', '#1f2a3c'];
-/** Dark, so feet read as shoes rather than skin. */
-const SHOE_COLORS = ['#1a1a1a', '#26262b', '#3b2a1f'];
-/** Hair colors; the hair textures are pale on purpose, to be tinted. */
-const HAIR_TINTS = ['#2a1d15', '#151110', '#5a3a24', '#a07850', '#6e3220', '#3d2b1f'];
-/** Hairstyles per body; some are a pair (hair plus beard). */
-const HAIRSTYLES: Record<Body, string[][]> = {
-  male: [['Hair_SimpleParted'], ['Hair_Buzzed', 'Hair_Beard'], ['Hair_SimpleParted', 'Hair_Beard'], ['Hair_Buzzed']],
-  female: [['Hair_Buns'], ['Hair_BuzzedFemale']],
-};
+/** Heights the pack's people are kept within (m). */
+const SHORTEST = 1.5;
+const TALLEST = 1.95;
 
 /** Clip names in the animation file, and the ground speed (m/s) each moving one was made for. */
 const IDLE = 'Idle_Loop';
@@ -57,23 +44,24 @@ interface Gait {
 
 type Body = 'male' | 'female';
 
-/** Clothing chosen for a person instead of picked at random (uniforms, costumes). */
+/** Who someone is, rather than picked at random (uniforms, costumes, people with names). */
 export interface Outfit {
-  pants?: string;
-  shoes?: string;
   body?: Body;
-  /** Bald (under a helmet, say). */
-  noHair?: boolean;
+  /** Who they may be, by name (e.g. 'Police_Male_02'): one is picked. Otherwise, someone in everyday clothes. */
+  people?: string[];
 }
 
-interface HumanAssets {
-  bodies: Record<Body, THREE.Object3D>;
-  /** Alternative, lighter skin color map per body. */
-  lightSkin: Partial<Record<Body, THREE.Texture>>;
-  hair: Map<string, THREE.Object3D>;
+/**
+ * The people pack: animations everyone shares, and the people themselves, each one loaded
+ * the first time someone is them.
+ */
+export interface HumanLibrary {
+  people: PersonInfo[];
   clips: Map<string, THREE.AnimationClip>;
   /** Natural ground speed per gait clip. */
   speeds: Map<string, number>;
+  /** A person's model (loaded once, then shared), or null if it won't load. */
+  person(name: string): Promise<THREE.Object3D | null>;
 }
 
 /** Stable per-player choice from a list, from their id. */
@@ -83,88 +71,41 @@ function pick<T>(list: readonly T[], seed: string, salt: number): T {
   return list[h % list.length];
 }
 
-/** Loads the people pack; null if it isn't installed or fails. */
-export async function loadHumans(media: Media): Promise<HumanAssets | null> {
+/** Loads the people pack's animations; null if it isn't installed or fails. */
+export async function loadHumans(media: Media): Promise<HumanLibrary | null> {
   const info = await media.humans();
-  if (!info) return null;
-  const [male, female, anims, maleLight, femaleLight, ...hairs] = await Promise.all([
-    media.gltf('human_male.glb'),
-    media.gltf('human_female.glb'),
-    media.gltf('human_anims.glb'),
-    media.colorTexture('humans/skin_male_light.webp'),
-    media.colorTexture('humans/skin_female_light.webp'),
-    ...info.hair.map((h) => media.gltf(`hair_${h}.glb`)),
-  ]);
-  if (!male || !female || !anims) return null;
-  const hair = new Map<string, THREE.Object3D>();
-  info.hair.forEach((name, i) => {
-    const g = hairs[i];
-    if (g) hair.set(name, g.scene);
-  });
-  for (const body of [male.scene, female.scene]) addClothingMask(body);
+  if (!info?.people?.length) return null;
+  const anims = await media.gltf('human_anims.glb');
+  if (!anims) return null;
+  const models = new Map<string, Promise<THREE.Object3D | null>>();
   return {
-    bodies: { male: male.scene, female: female.scene },
-    lightSkin: { male: maleLight ?? undefined, female: femaleLight ?? undefined },
-    hair,
-    clips: new Map(anims.animations.map((c) => [c.name, c])),
+    people: info.people,
+    clips: new Map(anims.animations.map((c) => [c.name, turnsOnly(c)])),
     speeds: new Map(Object.entries(info.clips).map(([name, c]) => [name, c.speed])),
+    person(name) {
+      let model = models.get(name);
+      if (!model) models.set(name, (model = media.gltf(`person_${name}.glb`).then((g) => g?.scene ?? null)));
+      return model;
+    },
   };
 }
 
-/** Adds a `clothMask` attribute (shirt, pants, shoes) to the body meshes from their skin weights. */
-function addClothingMask(scene: THREE.Object3D): void {
-  scene.traverse((o) => {
-    const mesh = o as THREE.SkinnedMesh;
-    if (!mesh.isSkinnedMesh || !String((mesh.material as THREE.Material).name).includes('Superhero')) return;
-    const bones = mesh.skeleton.bones.map((b) => b.name);
-    const sets = [SHIRT_BONES, PANTS_BONES, SHOE_BONES].map((names) => new Set(names.map((n) => bones.indexOf(n))));
-    const index = mesh.geometry.attributes.skinIndex;
-    const weight = mesh.geometry.attributes.skinWeight;
-    const mask = new Float32Array(index.count * 3);
-    for (let v = 0; v < index.count; v++) {
-      for (let k = 0; k < 4; k++) {
-        const bone = index.getComponent(v, k);
-        const w = weight.getComponent(v, k);
-        sets.forEach((set, r) => {
-          if (set.has(bone)) mask[v * 3 + r] += w;
-        });
-      }
-    }
-    mesh.geometry.setAttribute('clothMask', new THREE.BufferAttribute(mask, 3));
-  });
+/**
+ * A clip's turns of each joint, and where the hips go: the library's clips also set every
+ * bone's length (its mannequin's), but people keep their own.
+ */
+function turnsOnly(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const tracks = clip.tracks.filter((t) => t.name.endsWith('.quaternion') || t.name === 'pelvis.position' || t.name === 'root.position');
+  return new THREE.AnimationClip(clip.name, clip.duration, tracks);
 }
 
-/** Paints a T-shirt, trousers and shoes onto the body's skin material. */
-function dress(material: THREE.MeshStandardMaterial, shirt: string, pants: string, shoes: string): THREE.MeshStandardMaterial {
-  const m = material.clone();
-  const uniforms = {
-    shirtColor: { value: new THREE.Color(shirt) },
-    pantsColor: { value: new THREE.Color(pants) },
-    shoeColor: { value: new THREE.Color(shoes) },
-  };
-  m.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = `attribute vec3 clothMask;\nvarying vec3 vCloth;\n${shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      '#include <begin_vertex>\n\tvCloth = clothMask;',
-    )}`;
-    shader.fragmentShader = `uniform vec3 shirtColor;\nuniform vec3 pantsColor;\nuniform vec3 shoeColor;\nvarying vec3 vCloth;\n${shader.fragmentShader
-      .replace(
-        '#include <map_fragment>',
-        `#include <map_fragment>
-	vec3 cloth = smoothstep( vec3( 0.42 ), vec3( 0.58 ), vCloth );
-	float clothed = clamp( cloth.x + cloth.y + cloth.z, 0.0, 1.0 );
-	vec3 fabric = ( shirtColor * cloth.x + pantsColor * cloth.y + shoeColor * cloth.z ) / max( cloth.x + cloth.y + cloth.z, 1e-4 );
-	// A hint of the skin map's shading reads as folds in the cloth.
-	float shade = dot( diffuseColor.rgb, vec3( 0.299, 0.587, 0.114 ) ) / 0.45;
-	diffuseColor.rgb = mix( diffuseColor.rgb, fabric * mix( 1.0, clamp( shade, 0.7, 1.2 ), 0.25 ), clothed );`,
-      )
-      // Cloth hides most of the body's surface detail (muscles, toes).
-      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n\tnormal = normalize( mix( normal, nonPerturbedNormal, clothed * 0.8 ) );')
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n\troughnessFactor = mix( roughnessFactor, 0.92, clothed );')}`;
-  };
-  m.customProgramCacheKey = () => 'dressed';
-  return m;
+/** Who someone is: one of `outfit.people`, or else someone in everyday clothes (of `outfit.body`). */
+export function choosePerson(library: HumanLibrary, seed: string, outfit: Outfit = {}): PersonInfo {
+  const named = (outfit.people ?? []).flatMap((name) => library.people.filter((p) => p.name === name));
+  if (named.length) return pick(named, seed, 7);
+  const body = outfit.body ?? pick(['male', 'female'] as const, seed, 7);
+  const everyday = library.people.filter((p) => p.everyday && p.body === body);
+  return pick(everyday.length ? everyday : library.people, seed, 6);
 }
 
 /** Workspace for posing, kept to save making new ones every frame. */
@@ -187,7 +128,7 @@ const plantedAt = new Map<string, number>();
  * When the `sore` foot carries the weight, as a fraction of the walk cycle: when it's
  * lowest compared with the other one (which is then mid-swing). Leaves the walk unweighted.
  */
-function soreStep(body: Body, sore: 'l' | 'r', mixer: THREE.AnimationMixer, actions: Map<string, THREE.AnimationAction>, bones: Map<string, THREE.Object3D>, root: THREE.Object3D): number {
+function soreStep(body: string, sore: 'l' | 'r', mixer: THREE.AnimationMixer, actions: Map<string, THREE.AnimationAction>, bones: Map<string, THREE.Object3D>, root: THREE.Object3D): number {
   const key = `${body}:${sore}`;
   const known = plantedAt.get(key);
   if (known !== undefined) return known;
@@ -217,8 +158,8 @@ function soreStep(body: Body, sore: 'l' | 'r', mixer: THREE.AnimationMixer, acti
 }
 
 /**
- * A realistic animated person (Quaternius Universal Base Characters), feet at the origin,
- * facing +Z. Looks (body, skin, hair, clothes) are picked from `seed`; the shirt is `shirtColor`.
+ * A realistic animated person (from Microsoft's Rocketbox avatars, moving with Quaternius's
+ * Universal Animation Library), feet at the origin, facing +Z.
  */
 export class Human {
   readonly root = new THREE.Group();
@@ -266,56 +207,17 @@ export class Human {
   /** Where in the walk cycle the sore foot is planted, most heavily (0..1). */
   private soreStep = 0;
 
-  constructor(
-    private assets: HumanAssets,
-    shirtColor: string,
-    seed: string,
-    outfit: Outfit = {},
-  ) {
-    const body: Body = outfit.body ?? pick(['male', 'female'], seed, 7);
-    const scene = cloneSkinned(assets.bodies[body]);
-    const lightSkin = pick([false, true], seed, 8) ? assets.lightSkin[body] : undefined;
-    const hairTint = pick(HAIR_TINTS, seed, 3);
-
+  constructor(assets: HumanLibrary, model: THREE.Object3D, person: PersonInfo, seed: string) {
+    const scene = cloneSkinned(model);
     scene.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-      if (mat.name.includes('Superhero')) {
-        mesh.material = dress(mat, shirtColor, outfit.pants ?? pick(PANTS_COLORS, seed, 2), outfit.shoes ?? pick(SHOE_COLORS, seed, 4));
-        if (lightSkin) (mesh.material as THREE.MeshStandardMaterial).map = lightSkin;
-      } else if (mat.name.includes('Hair')) {
-        // Eyebrows share the hair material.
-        mesh.material = mat.clone();
-        (mesh.material as THREE.MeshStandardMaterial).color.set(hairTint);
-      }
+      if (!(o as THREE.Mesh).isMesh) return;
+      o.castShadow = true;
+      o.receiveShadow = true;
     });
-
-    // Hair is modeled in the body's space; hang it on the head bone so it follows.
-    scene.updateMatrixWorld(true);
-    const head = scene.getObjectByName('Head');
-    if (head) {
-      const toHead = head.matrixWorld.clone().invert();
-      for (const name of outfit.noHair ? [] : pick(HAIRSTYLES[body], seed, 5)) {
-        const template = assets.hair.get(name);
-        if (!template) continue;
-        const hair = template.clone();
-        hair.traverse((o) => {
-          const mesh = o as THREE.Mesh;
-          if (!mesh.isMesh) return;
-          mesh.castShadow = true;
-          mesh.material = (mesh.material as THREE.MeshStandardMaterial).clone();
-          (mesh.material as THREE.MeshStandardMaterial).color.set(hairTint);
-        });
-        hair.applyMatrix4(toHead);
-        head.add(hair);
-      }
-    }
-
+    // Each as tall as they really are (the pack's people all have the animations' hip height).
     const size = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3());
-    scene.scale.multiplyScalar(HEIGHT / size.y);
+    const scale = THREE.MathUtils.clamp(person.height || HEIGHT, SHORTEST, TALLEST) / size.y;
+    scene.scale.multiplyScalar(scale);
     this.root.add(scene);
 
     this.mixer = new THREE.AnimationMixer(scene);
@@ -329,7 +231,8 @@ export class Human {
       this.actions.set(name, action);
       this.weights.set(name, name === IDLE ? 1 : 0);
     }
-    const gaits = (names: string[]) => names.filter((g) => this.actions.has(g) && assets.speeds.has(g)).map((g) => ({ name: g, speed: assets.speeds.get(g)! }));
+    // Shorter people take shorter steps.
+    const gaits = (names: string[]) => names.filter((g) => this.actions.has(g) && assets.speeds.has(g)).map((g) => ({ name: g, speed: assets.speeds.get(g)! * scale }));
     this.stops = {
       land: [{ name: IDLE, speed: 0 }, ...gaits(GAITS)],
       swim: [{ name: this.actions.has(SWIM_IDLE) ? SWIM_IDLE : IDLE, speed: 0 }, ...gaits([SWIM])],
@@ -339,7 +242,7 @@ export class Human {
       if ((o as THREE.Bone).isBone) this.bones.set(o.name, o);
     });
     this.sore = pick(['l', 'r'], seed, 9);
-    this.soreStep = soreStep(body, this.sore, this.mixer, this.actions, this.bones, this.root);
+    this.soreStep = soreStep(person.name, this.sore, this.mixer, this.actions, this.bones, this.root);
     // Standing at ease (the idle clip's first moment): what a ragdoll's joints bend away from.
     this.mixer.update(0);
     this.root.updateMatrixWorld(true);

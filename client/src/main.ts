@@ -26,6 +26,7 @@ import { touchDevice } from './device.ts';
 import { TouchControls } from './ui/touchControls.ts';
 import { runLobby, setLobbyStatus } from './ui/lobby.ts';
 import { Minimap } from './ui/minimap.ts';
+import { BigMap } from './ui/bigMap.ts';
 import { TitleScene } from './ui/titleScene.ts';
 import { showNotice } from './ui/notices.ts';
 import { CAR } from './vehicles/carPhysics.ts';
@@ -226,6 +227,19 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     input.enabled = !open;
     input.releaseAll();
   };
+  // The big map: click or tap the minimap, or Tab. Game keys pause while it's open, like the menu.
+  const bigMap = new BigMap(minimap, world.town.layout);
+  bigMap.onToggle = (open) => {
+    input.enabled = !open;
+    input.releaseAll();
+    if (open) document.exitPointerLock?.();
+  };
+  document.getElementById('minimap')!.addEventListener('click', () => bigMap.open());
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'Tab' || chat.isOpen || menu.isOpen || e.target instanceof HTMLInputElement) return;
+    e.preventDefault();
+    bigMap.toggle();
+  });
   // Esc while the mouse is captured releases it (the browser's rule), so that opens the
   // menu too, unless chat or the menu itself let the mouse go. Browsers differ on whether
   // that Esc also arrives as a key press, so ignore one that follows right after.
@@ -233,7 +247,7 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   let openedOnUnlock = -Infinity;
   document.addEventListener('pointerlockchange', () => {
     const locked = document.pointerLockElement !== null;
-    if (wasLocked && !locked && !chat.isOpen && !menu.isOpen) {
+    if (wasLocked && !locked && !chat.isOpen && !menu.isOpen && !bigMap.isOpen) {
       menu.open();
       openedOnUnlock = performance.now();
     }
@@ -242,6 +256,10 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   addEventListener('keydown', (e) => {
     if (e.code !== 'Escape' || chat.isOpen || e.target instanceof HTMLInputElement) return;
     e.preventDefault();
+    if (bigMap.isOpen) {
+      bigMap.close();
+      return;
+    }
     if (document.pointerLockElement || performance.now() - openedOnUnlock < 400) return;
     menu.toggle();
   });
@@ -417,14 +435,10 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     if (settings.showFps) renderFps(now);
     world.camera.getWorldDirection(view);
     const focus = player.focus;
-    minimap.update(
-      { x: focus.x, z: focus.z, yaw: player.facing, color: me.color },
-      Math.atan2(view.x, view.z),
-      player.mode === 'car' ? speed : 0,
-      remotes.markers(),
-      missions.nextTarget,
-      dt,
-    );
+    const self = { x: focus.x, z: focus.z, yaw: player.facing, color: me.color };
+    const others = remotes.markers();
+    minimap.update(self, Math.atan2(view.x, view.z), player.mode === 'car' ? speed : 0, others, missions.nextTarget, dt);
+    bigMap.update(self, others, missions.nextTarget);
 
     postfx.render(night);
     labels.render(world.camera);

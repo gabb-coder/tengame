@@ -2,15 +2,15 @@ import { ASPHALT_WIDTH, TOWN_HALF_EXTENT, type TownLayout } from '../../../share
 import { generateWorld, SEA_LEVEL, type Shape, TERRAIN_HALF, TERRAIN_STEP, WORLD_HALF, worldLocationName, zoneAt, type ZoneId } from '../../../shared/world.ts';
 
 /** Resolution of the pre-drawn town map. */
-const PX_PER_M = 2;
-const EXTENT = TOWN_HALF_EXTENT;
+export const PX_PER_M = 2;
+export const EXTENT = TOWN_HALF_EXTENT;
 /** The world map around it: coarser, and covering everything out to the edge. */
-const WORLD_PX_PER_M = 1;
-const WORLD_EXTENT = WORLD_HALF + 60;
+export const WORLD_PX_PER_M = 1;
+export const WORLD_EXTENT = WORLD_HALF + 60;
 /** Meters from the center to the rim: closer when slow, further out at speed. */
 const MIN_RANGE = 70;
 const MAX_RANGE = 190;
-const TARGET_COLOR = '#ffd24a';
+export const TARGET_COLOR = '#ffd24a';
 
 export interface MapPlayer {
   x: number;
@@ -18,6 +18,7 @@ export interface MapPlayer {
   /** Facing, as a yaw where 0 is +Z. */
   yaw: number;
   color: string;
+  name?: string;
 }
 
 /**
@@ -26,8 +27,9 @@ export interface MapPlayer {
  */
 export class Minimap {
   private ctx: CanvasRenderingContext2D;
-  private base: HTMLCanvasElement;
-  private world: HTMLCanvasElement;
+  /** The town (EXTENT around the middle, PX_PER_M) and the world (WORLD_EXTENT, WORLD_PX_PER_M), drawn once; the big map shows them too. */
+  readonly base: HTMLCanvasElement;
+  readonly world: HTMLCanvasElement;
   private range = MIN_RANGE;
   private lastLabel = '';
 
@@ -138,7 +140,7 @@ export class Minimap {
 }
 
 /** A player marker: an arrow at (x, y), pointing along +Y rotated by `angle`. */
-function arrow(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, size: number, color: string): void {
+export function arrow(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, size: number, color: string): void {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);

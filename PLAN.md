@@ -89,9 +89,9 @@ nightstands. All CC0, fetched and shrunk by `npm run assets` (WebP textures, sim
 meshopt-compressed models, ~9 MB total), and loaded in the background: the generated
 versions show until they arrive, and stay if a download fails. Models are only drawn in
 houses near the camera. The car is a detailed sports car (Khronos glTF sample, CC BY 4.0)
-with steering, spinning wheels and working lights; people are rigged, animated characters
-(Quaternius, CC0) with idle/walk/jog/sprint/jump blended by speed and painted-on clothes in
-the player's color. Still generated: beds, wardrobes, bookshelves, kitchens, bathrooms,
+with steering, spinning wheels and working lights; people are realistic, clothed Rocketbox
+avatars (Microsoft, MIT) refitted to the Quaternius animation skeleton (CC0), with
+idle/walk/jog/sprint/jump blended by speed. Still generated: beds, wardrobes, bookshelves, kitchens, bathrooms,
 plants (Poly Haven's are too heavy) and the sky (photo skies have a fixed sun, which would
 fight the day/night cycle).
 
@@ -154,6 +154,22 @@ fight the day/night cycle).
   "Open door" can be tapped. All of it presses the same keys the keyboard does (Input), so
   everything works the same. Words that name keys ("Press J") name the buttons instead,
   and these devices start on Low graphics.
+
+## Realistic people, the big map, a new car where you are
+
+- People are 24 realistic, clothed Rocketbox avatars (Microsoft, MIT): twelve in everyday
+  clothes for players and passers-by, and named ones for the characters (a suit for the
+  mayor, work overalls for the smith, a safari vest for Dr. Jones, riot gear under the
+  knights' armor, white suits under the astronauts' helmets). `scripts/people.mjs` refits
+  each one to the animation library's skeleton: the skeleton is posed on the person (each
+  bone turned along the same limb and moved to the same joint), bound there, and the
+  person's own bones hand their skin weights to the matching ones. The clips' bone lengths
+  are dropped, so each person keeps their own proportions and height. Each person loads
+  the first time someone in view is them.
+- The minimap opens into a big map (click or tap it, or Tab): the whole world north up,
+  lands, places and town streets named, players and the mission target on it; drag, scroll
+  or pinch, Find me, Close.
+- T gives a new car right where you are (upright, same heading) instead of back at the start.
 
 ## Possible next steps
 

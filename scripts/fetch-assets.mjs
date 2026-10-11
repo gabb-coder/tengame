@@ -1,12 +1,13 @@
-// Downloads the free textures, furniture and car models the game uses, shrinks them for
+// Downloads the free textures, furniture, car and people the game uses, shrinks them for
 // the web and writes them to client/public/media, along with media/manifest.json.
 //
-//   npm run assets
+//   npm run assets            everything
+//   npm run assets -- people  just the people and their animations
 //
 // Sources: Poly Haven (polyhaven.com) and ambientCG (ambientcg.com), both CC0 (public
 // domain). Raw downloads are cached in .asset-cache/ so re-running is quick.
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getBounds, NodeIO } from '@gltf-transform/core';
@@ -14,6 +15,7 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { dedup, meshopt, prune, resample, simplify, textureCompress, weld } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
+import { readSkeleton, rebindPerson } from './people.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'client/public/media');
@@ -96,19 +98,13 @@ const CAR = {
 };
 
 /**
- * People: Quaternius "Universal Base Characters" and "Universal Animation Library" (CC0).
- * itch.io doesn't allow scripted downloads, so get the two free [Standard] zips from
- * https://quaternius.itch.io/universal-base-characters and
- * https://quaternius.itch.io/universal-animation-library and put them in .asset-cache/humans
- * as ubc.zip and ual.zip. Without them, people keep their generated look.
+ * How people move: Quaternius "Universal Animation Library" (CC0). itch.io doesn't allow
+ * scripted downloads, so get the free [Standard] zip from
+ * https://quaternius.itch.io/universal-animation-library and put it in .asset-cache/humans
+ * as ual.zip. Without it, people keep their simple stand-in bodies.
  */
 const HUMANS = {
   dir: 'humans',
-  bodies: { male: 'Superhero_Male_FullBody', female: 'Superhero_Female_FullBody' },
-  /** Alternative (lighter) skin color maps for each body. */
-  lightSkin: { male: 'T_Superhero_Male_Ligh.png', female: 'T_Superhero_Female_Light_BaseColor.png' },
-  // (Hair_Long is only side strands, made to go with scalp hair this version lacks.)
-  hair: ['Hair_SimpleParted', 'Hair_Buzzed', 'Hair_Beard', 'Hair_Buns', 'Hair_BuzzedFemale'],
   /** Clips kept from the 43 in the library; walk/jog/sprint speeds are measured from its root-motion version. */
   clips: [
     ...['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Loop', 'Sitting_Idle_Loop', 'Swim_Fwd_Loop', 'Swim_Idle_Loop'],
@@ -119,6 +115,23 @@ const HUMANS = {
     ...['Fixing_Kneeling', 'Crouch_Idle_Loop', 'Spell_Simple_Idle_Loop', 'Spell_Simple_Shoot', 'Driving_Loop', 'Hit_Chest'],
   ],
   moving: ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Swim_Fwd_Loop'],
+};
+
+/**
+ * Who people are: realistic, clothed men and women from the Microsoft Rocketbox avatar
+ * library (MIT license, https://github.com/microsoft/Microsoft-Rocketbox), refitted to the
+ * animation library's skeleton (see people.mjs). Everyday clothes for players and passers-by;
+ * the rest are people the game dresses by name (uniforms, costumes under armor).
+ */
+const PEOPLE = {
+  url: 'https://raw.githubusercontent.com/microsoft/Microsoft-Rocketbox/master/Assets/Avatars',
+  everyday: ['Male_Adult_01', 'Male_Adult_04', 'Male_Adult_06', 'Male_Adult_08', 'Male_Adult_10', 'Male_Adult_12', 'Female_Adult_01', 'Female_Adult_04', 'Female_Adult_05', 'Female_Adult_08', 'Female_Adult_12', 'Female_Adult_17'].map((n) => `Adults/${n}`),
+  named: [
+    ...['Male_Adult_03', 'Male_Adult_05', 'Male_Adult_14', 'Female_Adult_06', 'Female_Party_01', 'Female_Party_02'].map((n) => `Adults/${n}`),
+    ...['Police_Male_02', 'Medical_Male_02', 'Medical_Female_03', 'Delivery_Male_01', 'Gardener_Male_01', 'Business_Female_01'].map((n) => `Professions/${n}`),
+  ],
+  /** Texture sizes: the body's clothes, the face, normal maps, and cut-outs (hair, lashes). */
+  sizes: { body: 1024, head: 512, normal: 512, cutout: 512 },
 };
 
 const DEFAULT_TEXTURE_SIZE = 1024;
@@ -277,59 +290,23 @@ function findFile(dir, name, prefer = '') {
   return hits.find((p) => p.includes(prefer)) ?? hits[0];
 }
 
-/** Some of the pack's .gltf files point at "X_png.png" where the file is "X.png". */
-function fixImageNames(gltfPath) {
-  const dir = dirname(gltfPath);
-  const json = JSON.parse(readFileSync(gltfPath, 'utf8'));
-  for (const img of json.images ?? []) {
-    const want = join(dir, img.uri);
-    const alt = join(dir, img.uri.replace('_png.png', '.png'));
-    if (!existsSync(want) && existsSync(alt)) copyFileSync(alt, want);
-  }
-}
-
+/** The animations people share, and how fast each moving one goes. */
 async function processHumans(io) {
   const cache = join(CACHE, HUMANS.dir);
-  const zips = ['ubc.zip', 'ual.zip'].map((z) => join(cache, z));
-  if (!zips.every(existsSync)) {
-    console.log('people: skipped (put ubc.zip and ual.zip in .asset-cache/humans, see HUMANS in this script)');
+  const zip = join(cache, 'ual.zip');
+  if (!existsSync(zip)) {
+    console.log('people: skipped (put ual.zip in .asset-cache/humans, see HUMANS in this script)');
     return null;
   }
-  for (const [zip, sub] of [[zips[0], 'ubc'], [zips[1], 'ual']]) {
-    if (!existsSync(join(cache, sub))) execFileSync('unzip', ['-o', '-q', zip, '-d', join(cache, sub)]);
-  }
+  if (!existsSync(join(cache, 'ual'))) execFileSync('unzip', ['-o', '-q', zip, '-d', join(cache, 'ual')]);
   const out = join(OUT, 'models');
-  const texOut = join(OUT, 'textures', 'humans');
   mkdirSync(out, { recursive: true });
-  mkdirSync(texOut, { recursive: true });
-  const shrink = textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], quality: 85 });
-  const result = { source: 'https://quaternius.com/packs/universalbasecharacters.html', bodies: {}, hair: [], clips: {} };
-
-  for (const [key, name] of Object.entries(HUMANS.bodies)) {
-    const file = findFile(join(cache, 'ubc'), `${name}.gltf`);
-    fixImageNames(file);
-    const doc = await io.read(file);
-    await doc.transform(prune(), dedup(), shrink, meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
-    await io.write(join(out, `human_${key}.glb`), doc);
-    const { min, max } = getBounds(doc.getRoot().getDefaultScene() ?? doc.getRoot().listScenes()[0]);
-    result.bodies[key] = { min, max };
-    await sharp(findFile(join(cache, 'ubc'), HUMANS.lightSkin[key], 'Textures'))
-      .resize(1024, 1024)
-      .webp({ quality: 85 })
-      .toFile(join(texOut, `skin_${key}_light.webp`));
-  }
-  for (const name of HUMANS.hair) {
-    const file = findFile(join(cache, 'ubc'), `${name}.gltf`, 'Origin at 0');
-    fixImageNames(file);
-    const doc = await io.read(file);
-    await doc.transform(prune(), dedup(), shrink, meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
-    await io.write(join(out, `hair_${name}.glb`), doc);
-    result.hair.push(name);
-  }
+  const result = { license: 'People: MIT, Microsoft (Rocketbox). Animations: CC0, Quaternius.', source: 'https://github.com/microsoft/Microsoft-Rocketbox', people: [], clips: {} };
 
   // Animations: just the clips we use, without the library's mannequin mesh.
   const library = findFile(join(cache, 'ual'), 'UAL1_Standard.glb');
   const anims = await io.read(library);
+  const skeleton = readSkeleton(anims.getRoot().listNodes().find((n) => n.getName() === 'root'));
   const all = anims.getRoot().listAnimations();
   const kept = new Set(all.filter((a) => HUMANS.clips.includes(a.getName())).flatMap((a) => a.listSamplers().flatMap((s) => [s.getInput(), s.getOutput()])));
   for (const a of all) {
@@ -357,6 +334,34 @@ async function processHumans(io) {
     const dist = Math.hypot(v[n * 3] - v[0], v[n * 3 + 2] - v[2], v[n * 3 + 1] - v[1]);
     result.clips[a.getName()] = { speed: Math.round((dist / (t[n] - t[0])) * 1000) / 1000 };
   }
+
+  // The people, on that skeleton.
+  for (const path of [...PEOPLE.everyday, ...PEOPLE.named]) {
+    const name = path.split('/').pop();
+    const dir = join(CACHE, 'people', name);
+    const fetchOnce = async (file, from) => {
+      const at = join(dir, file);
+      if (existsSync(at)) return readFileSync(at);
+      const res = await fetch(`${PEOPLE.url}/${path}/${from}/${file}`, { headers: HEADERS });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`${res.status} for ${path}/${file}`);
+      mkdirSync(dir, { recursive: true });
+      const data = Buffer.from(await res.arrayBuffer());
+      writeFileSync(at, data);
+      return data;
+    };
+    const { doc, height } = await rebindPerson({
+      fbx: await fetchOnce(`${name}.fbx`, 'Export'),
+      texture: (file) => fetchOnce(file, 'Textures'),
+      skeleton,
+      sizes: PEOPLE.sizes,
+      name,
+    });
+    await doc.transform(dedup(), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+    await io.write(join(out, `person_${name}.glb`), doc);
+    result.people.push({ name, body: name.includes('Female') ? 'female' : 'male', height, everyday: PEOPLE.everyday.includes(path) });
+    console.log('person', name, `${height} m`);
+  }
   return result;
 }
 
@@ -367,6 +372,17 @@ function sourceUrl(from, id) {
 await MeshoptEncoder.ready;
 await MeshoptSimplifier.ready;
 const io = new NodeIO(fetch).registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
+
+if (process.argv[2] === 'people') {
+  // Just the people: the rest of the media stays as it is.
+  const manifest = JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8'));
+  for (const old of readdirSync(join(OUT, 'models'))) if (/^(person_|human_|hair_)/.test(old)) rmSync(join(OUT, 'models', old));
+  rmSync(join(OUT, 'textures', 'humans'), { recursive: true, force: true });
+  manifest.humans = (await processHumans(io)) ?? undefined;
+  writeFileSync(join(OUT, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  console.log('people:', manifest.humans?.people.length ?? 0, JSON.stringify(manifest.humans?.clips));
+  process.exit(0);
+}
 
 rmSync(OUT, { recursive: true, force: true });
 const manifest = { license: 'CC0 1.0 (public domain) unless an entry says otherwise', textures: {}, models: {} };
@@ -383,7 +399,7 @@ console.log('model car');
 const humans = await processHumans(io);
 if (humans) {
   manifest.humans = humans;
-  console.log('people:', Object.keys(humans.bodies).join(', '), `${humans.hair.length} hairstyles`, JSON.stringify(humans.clips));
+  console.log('people:', humans.people.length, JSON.stringify(humans.clips));
 }
 writeFileSync(join(OUT, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 const total = execFileSync('du', ['-sh', OUT]).toString().split('\t')[0];

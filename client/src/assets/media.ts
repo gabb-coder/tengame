@@ -11,9 +11,19 @@ interface Manifest {
 
 /** The people pack, if it was installed (see scripts/fetch-assets.mjs). */
 export interface HumansInfo {
-  hair: string[];
+  people: PersonInfo[];
   /** Ground speed (m/s) each moving animation was made for. */
   clips: Record<string, { speed: number }>;
+}
+
+/** One of the people in the pack (models/person_<name>.glb). */
+export interface PersonInfo {
+  name: string;
+  body: 'male' | 'female';
+  /** How tall they are (m). */
+  height: number;
+  /** In everyday clothes, for anyone; otherwise a uniform or costume the game asks for by name. */
+  everyday: boolean;
 }
 
 /** A photo-scanned surface: color, normal and AO/roughness maps, covering `size` meters. */

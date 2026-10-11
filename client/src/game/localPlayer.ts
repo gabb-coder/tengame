@@ -292,7 +292,7 @@ export class LocalPlayer {
     if (this.mount && !this.mount.ride && input.wasPressed('KeyR')) this.useRemote();
     if (this.mode === 'car' && !this.frozen) {
       if (input.wasPressed('KeyR')) this.car.reset();
-      if (input.wasPressed('KeyT')) this.car.respawn();
+      if (input.wasPressed('KeyT')) this.car.replace();
     }
 
     this.car.update(dt);

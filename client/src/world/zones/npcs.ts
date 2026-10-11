@@ -182,7 +182,8 @@ export class Npcs {
   ) {
     const c = MEDIEVAL.castle;
     const tabards = [red, new THREE.MeshStandardMaterial({ color: '#1d3c8a', roughness: 0.8 })];
-    const knightOutfit: Outfit = { pants: '#6a6e76', shoes: '#2a2a2e', noHair: true, body: 'male' };
+    // Dark armor: riot gear under the helm and tabard.
+    const knightOutfit: Outfit = { people: ['Police_Male_02'] };
     const guard: Role = {
       name: 'Sir Roderick',
       idle: 'Sword_Idle',
@@ -227,8 +228,9 @@ export class Npcs {
     // Villagers at the market, the smith at his anvil, and a wizard in the courtyard.
     const sq = MEDIEVAL.square;
     const villagers = ['Martha the Baker', 'Old Tom', 'Rosalind'];
+    const villageFolk = ['Female_Adult_06', 'Male_Adult_14', 'Female_Adult_05'];
     for (let i = 0; i < 3; i++) {
-      this.add(`villager${i}`, ['#7a5a3a', '#4a6a3a', '#8a3a3a'][i], { pants: '#4a3a2a' }, () => {}, {
+      this.add(`villager${i}`, ['#7a5a3a', '#4a6a3a', '#8a3a3a'][i], { people: [villageFolk[i]] }, () => {}, {
         loop: [[sq.x - 22, sq.z - 22 + i * 3], [sq.x - 8, sq.z - 22], [sq.x - 10, sq.z - 8], [sq.x - 24, sq.z - 10]],
         speed: 1,
         offset: i * 12,
@@ -236,11 +238,12 @@ export class Npcs {
       });
     }
     const s = MEDIEVAL.smithy;
-    this.add('smith', '#3a2a22', { pants: '#2a2220', body: 'male' }, () => {}, { spot: { x: s.x + 1.2, z: s.z + 1.6, yaw: Math.PI }, role: { name: 'Bram the Smith', idle: 'Fixing_Kneeling', lines: ['*clang* *clang* Busy, busy!', 'Every knight’s sword in Eldermoor came from this anvil.'] } });
-    this.add('wizard', '#3a2a6a', { pants: '#2a1e4a', body: 'male' }, wizard, { spot: { x: c.x - 20, z: c.z + 8, yaw: 0.6 }, role: { name: 'Merlin', idle: 'Spell_Simple_Idle_Loop', lines: ['Ah, a visitor. The stars told me you would come.', 'Eight lands surround the town. Find all their relics and something marvelous happens.', 'Press J to read your journal. Its riddles will guide you.'] } });
+    this.add('smith', '#3a2a22', { people: ['Gardener_Male_01'] }, () => {}, { spot: { x: s.x + 1.2, z: s.z + 1.6, yaw: Math.PI }, role: { name: 'Bram the Smith', idle: 'Fixing_Kneeling', lines: ['*clang* *clang* Busy, busy!', 'Every knight’s sword in Eldermoor came from this anvil.'] } });
+    this.add('wizard', '#3a2a6a', { people: ['Male_Adult_03'] }, wizard, { spot: { x: c.x - 20, z: c.z + 8, yaw: 0.6 }, role: { name: 'Merlin', idle: 'Spell_Simple_Idle_Loop', lines: ['Ah, a visitor. The stars told me you would come.', 'Eight lands surround the town. Find all their relics and something marvelous happens.', 'Press J to read your journal. Its riddles will guide you.'] } });
 
     // The outpost's astronauts.
-    const astro: Outfit = { pants: '#f2f2f0', shoes: '#c8ccd2', noHair: true };
+    // Blue flight suits under the bubble helmets.
+    const astro: Outfit = { people: ['Medical_Male_02', 'Medical_Female_03'] };
     const hab = SPACE.habitat;
     this.add('astro1', '#f2f2f0', astro, astronaut, { loop: [[hab.x - 30, hab.z + 28], [hab.x + 20, hab.z + 40], [hab.x + 40, hab.z + 10]], speed: 1, role: { name: 'Commander Vega', lines: ['Welcome to Outpost Nova! Gravity here is a third of home. Jump!', 'Borrow a jetpack from the rack by the habitat. Hold Space to fly!'] } });
     this.add('astro2', '#f2f2f0', astro, astronaut, { spot: { x: SPACE.dock.x - 10, z: SPACE.dock.z + 8, yaw: 2 }, role: { name: 'Pilot Okafor', lines: ['She’s a beauty, isn’t she? Fastest ship in the sector.', 'Somebody dropped a meteorite at the bottom of the Great Crater.'] } });
@@ -249,7 +252,7 @@ export class Npcs {
     this.add('astro5', '#f2f2f0', astro, astronaut, { spot: { x: hab.x - 26, z: hab.z + 22, yaw: 1.2 }, role: { name: 'Mechanic Jo', idle: 'Fixing_Kneeling', lines: ['These rovers never stop breaking. Hand me that spanner?', 'Low gravity is great until you drop a bolt. Then it floats off.'] } });
 
     // Legionaries guarding the Colosseum's gates.
-    const leg: Outfit = { pants: '#a8201a', shoes: '#5a3a1e', body: 'male', noHair: true };
+    const leg: Outfit = { people: ['Male_Adult_06'] };
     const col = ANCIENT.colosseum;
     for (const side of [-1, 1]) {
       this.add('legion' + side, '#a8201a', leg, legionary, {
@@ -258,17 +261,15 @@ export class Npcs {
       });
     }
     this.add('legion-march', '#a8201a', leg, legionary, { loop: [[-40, 250], [-40, 380], [-30, 380], [-30, 250]], speed: 1.4, role: { name: 'Legionary Titus', lines: ['Left, right, left, right…', 'Climb the step pyramid. The view from the top is worth it.'] } });
-    this.add('merchant', '#d8b05a', { pants: '#f0e8d8' }, () => {}, { spot: { x: ANCIENT.oasis.x - 6, z: ANCIENT.oasis.z - ANCIENT.oasis.r - 7, yaw: Math.PI }, role: { name: 'Nefret the Merchant', idle: 'Idle_Talking_Loop', lines: ['Dates! Figs! Finest silks from the east!', 'They say the Sphinx guards a golden scarab at its feet.'] } });
+    this.add('merchant', '#d8b05a', { people: ['Female_Adult_06'] }, () => {}, { spot: { x: ANCIENT.oasis.x - 6, z: ANCIENT.oasis.z - ANCIENT.oasis.r - 7, yaw: Math.PI }, role: { name: 'Nefret the Merchant', idle: 'Idle_Talking_Loop', lines: ['Dates! Figs! Finest silks from the east!', 'They say the Sphinx guards a golden scarab at its feet.'] } });
 
     // Explorers by the igloos, and at the lost temple.
-    const parka: Outfit = { pants: '#2a3442', shoes: '#3a2a1e' };
-    this.add('explorer1', '#d8501a', parka, explorer, { spot: { x: ARCTIC.camp.x + 3, z: ARCTIC.camp.z + 2, yaw: -2 }, role: { name: 'Musher Anja', lines: ['Brrr! Stay near a fire or you’ll freeze solid.', 'The dog sleds leave from the camp. Hop on and hold tight!', 'There’s an ice-fishing hole by the red hut on the lake.'] } });
-    this.add('explorer2', '#2a6ad8', parka, explorer, { loop: [[ARCTIC.camp.x - 20, ARCTIC.camp.z], [ARCTIC.camp.x, ARCTIC.camp.z + 20], [ARCTIC.camp.x + 20, ARCTIC.camp.z]], speed: 0.9, role: { name: 'Professor Frost', lines: ['The northern lights are best around midnight.', 'Lost? Fire the signal flare at the outpost.'] } });
+    this.add('explorer1', '#d8501a', { people: ['Female_Adult_04'] }, explorer, { spot: { x: ARCTIC.camp.x + 3, z: ARCTIC.camp.z + 2, yaw: -2 }, role: { name: 'Musher Anja', lines: ['Brrr! Stay near a fire or you’ll freeze solid.', 'The dog sleds leave from the camp. Hop on and hold tight!', 'There’s an ice-fishing hole by the red hut on the lake.'] } });
+    this.add('explorer2', '#2a6ad8', { people: ['Delivery_Male_01'] }, explorer, { loop: [[ARCTIC.camp.x - 20, ARCTIC.camp.z], [ARCTIC.camp.x, ARCTIC.camp.z + 20], [ARCTIC.camp.x + 20, ARCTIC.camp.z]], speed: 0.9, role: { name: 'Professor Frost', lines: ['The northern lights are best around midnight.', 'Lost? Fire the signal flare at the outpost.'] } });
     const jt = JUNGLE.temple;
-    const safari: Outfit = { pants: '#8a7a5a', shoes: '#4a3a2a' };
-    this.add('adventurer1', '#c8b48a', safari, adventurer, { loop: [[jt.x - 25, jt.z + 22], [jt.x + 25, jt.z + 22], [jt.x + 25, jt.z + 26]], speed: 1.1, role: { name: 'Dr. Jones', lines: ['The temple has a hidden chamber. The way in is on the east side.', 'Take the zipline from the top of the temple down to the lagoon!'] } });
-    this.add('adventurer2', '#a89a72', safari, adventurer, { spot: { x: jt.x + 6, z: jt.z + jt.base / 2 + 4, yaw: Math.PI }, role: { name: 'Lara', lines: ['Strike the gong at the top. The whole jungle hears it.', 'Something glitters in the pool under the waterfall…'] } });
-    this.add('torchbearer', '#8a6a3a', safari, adventurer, { spot: { x: jt.x - 3, z: jt.z - 2, yaw: 1.2 }, role: { name: 'Guide Mateo', idle: 'Idle_Torch_Loop', lines: ['Shh! This chamber hasn’t been opened in a thousand years.', 'The idol glows on its own. Spooky, no?'] } });
+    this.add('adventurer1', '#c8b48a', { people: ['Male_Adult_05'] }, adventurer, { loop: [[jt.x - 25, jt.z + 22], [jt.x + 25, jt.z + 22], [jt.x + 25, jt.z + 26]], speed: 1.1, role: { name: 'Dr. Jones', lines: ['The temple has a hidden chamber. The way in is on the east side.', 'Take the zipline from the top of the temple down to the lagoon!'] } });
+    this.add('adventurer2', '#a89a72', { people: ['Female_Adult_04'] }, adventurer, { spot: { x: jt.x + 6, z: jt.z + jt.base / 2 + 4, yaw: Math.PI }, role: { name: 'Lara', lines: ['Strike the gong at the top. The whole jungle hears it.', 'Something glitters in the pool under the waterfall…'] } });
+    this.add('torchbearer', '#8a6a3a', { people: ['Male_Adult_10'] }, adventurer, { spot: { x: jt.x - 3, z: jt.z - 2, yaw: 1.2 }, role: { name: 'Guide Mateo', idle: 'Idle_Torch_Loop', lines: ['Shh! This chamber hasn’t been opened in a thousand years.', 'The idol glows on its own. Spooky, no?'] } });
 
     // City folk walking the neon sidewalks, and dancers at the night market.
     const jackets = ['#ff2a8a', '#2af0ff', '#b44aff', '#ffe02a', '#1a1a20', '#2aff8a'];
@@ -287,11 +288,12 @@ export class Npcs {
         [x1 - 1.2, z1 - 1.2],
         [x0 + 1.2, z1 - 1.2],
       ];
-      this.add(`citizen${i}`, jackets[i % jackets.length], { pants: '#1a1a22' }, cyber, { loop: i % 4 ? path : [...path].reverse(), speed: 1.4, offset: i * 20, floor: 0.15, role: { name: cityNames[i / 2], lines: [cityLines[(i / 2) % 4], cityLines[(i / 2 + 1) % 4]] } });
+      this.add(`citizen${i}`, jackets[i % jackets.length], {}, cyber, { loop: i % 4 ? path : [...path].reverse(), speed: 1.4, offset: i * 20, floor: 0.15, role: { name: cityNames[i / 2], lines: [cityLines[(i / 2) % 4], cityLines[(i / 2 + 1) % 4]] } });
     });
     const mk = CYBERPUNK.market;
+    const clubbers = ['Male_Adult_10', 'Female_Party_02', 'Female_Party_01'];
     for (let i = 0; i < 3; i++) {
-      this.add(`dancer${i}`, jackets[(i + 2) % jackets.length], { pants: '#1a1a22' }, cyber, { spot: { x: mk.x - 8 + i * 4, z: mk.z + 8 + (i % 2) * 2, yaw: Math.PI }, floor: 0.15, role: { name: ['DJ Volt', 'Glitch', 'Neon'][i], idle: 'Dance_Loop', lines: ['Can you feel the bass? Press G and dance with us!', 'The night market never closes.'] } });
+      this.add(`dancer${i}`, jackets[(i + 2) % jackets.length], { people: [clubbers[i]] }, cyber, { spot: { x: mk.x - 8 + i * 4, z: mk.z + 8 + (i % 2) * 2, yaw: Math.PI }, floor: 0.15, role: { name: ['DJ Volt', 'Glitch', 'Neon'][i], idle: 'Dance_Loop', lines: ['Can you feel the bass? Press G and dance with us!', 'The night market never closes.'] } });
     }
 
     // Townsfolk: out for a walk round the blocks, a jogger in the park, the mayor by the fireworks.
@@ -303,6 +305,7 @@ export class Npcs {
       [r.minX - 1, r.maxZ + 1],
     ];
     const townsfolk = ['Mrs. Patel', 'Mr. Okoye', 'Lily', 'Sam', 'Grandpa Joe', 'Maria', 'Ben'];
+    const townPeople = ['Female_Adult_05', 'Male_Adult_04', 'Female_Adult_17', 'Male_Adult_08', 'Male_Adult_14', 'Female_Adult_08', 'Male_Adult_06'];
     const shirts = ['#5a8ad8', '#d85a5a', '#5ad88a', '#e8c040', '#a07ad8', '#e8e8e8', '#3a3a3a'];
     const townLines = [
       'Lovely day for a drive.',
@@ -317,12 +320,12 @@ export class Npcs {
       if (i >= townsfolk.length + 1 || r === town.park) return;
       const n = i > 4 ? i - 1 : i;
       const loop = sidewalk(r);
-      this.add(`townsfolk${i}`, shirts[n % shirts.length], {}, () => {}, { loop: i % 2 ? loop : [...loop].reverse(), speed: 1.1 + (i % 3) * 0.15, offset: i * 37, floor: CURB, role: { name: townsfolk[n], lines: [townLines[n], townLines[(n + 3) % townLines.length]] } });
+      this.add(`townsfolk${i}`, shirts[n % shirts.length], { people: [townPeople[n]] }, () => {}, { loop: i % 2 ? loop : [...loop].reverse(), speed: 1.1 + (i % 3) * 0.15, offset: i * 37, floor: CURB, role: { name: townsfolk[n], lines: [townLines[n], townLines[(n + 3) % townLines.length]] } });
     });
     const p = town.park;
-    this.add('jogger', '#ff7a2a', { pants: '#1a1a1a' }, () => {}, { loop: [[p.minX + 3, p.minZ + 3], [p.maxX - 3, p.minZ + 3], [p.maxX - 3, p.maxZ - 3], [p.minX + 3, p.maxZ - 3]], speed: 3.2, floor: CURB, role: { name: 'Jess', lines: ['Can’t stop! Training for the chariot races!', 'Three more laps!'] } });
-    this.add('dancer-town', '#e84ad8', {}, () => {}, { spot: { x: PARK_FOUNTAIN.x + 5, z: PARK_FOUNTAIN.z + 5, yaw: -2.4 }, floor: CURB, role: { name: 'Zoe', idle: 'Dance_Loop', lines: ['The music’s in my head! Press G and dance with me!'] } });
-    this.add('mayor', '#2a3a5a', { pants: '#2a2a30' }, () => {}, {
+    this.add('jogger', '#ff7a2a', { people: ['Female_Adult_12'] }, () => {}, { loop: [[p.minX + 3, p.minZ + 3], [p.maxX - 3, p.minZ + 3], [p.maxX - 3, p.maxZ - 3], [p.minX + 3, p.maxZ - 3]], speed: 3.2, floor: CURB, role: { name: 'Jess', lines: ['Can’t stop! Training for the chariot races!', 'Three more laps!'] } });
+    this.add('dancer-town', '#e84ad8', { people: ['Female_Party_01'] }, () => {}, { spot: { x: PARK_FOUNTAIN.x + 5, z: PARK_FOUNTAIN.z + 5, yaw: -2.4 }, floor: CURB, role: { name: 'Zoe', idle: 'Dance_Loop', lines: ['The music’s in my head! Press G and dance with me!'] } });
+    this.add('mayor', '#2a3a5a', { people: ['Business_Female_01'] }, () => {}, {
       spot: { x: 3, z: -11, yaw: Math.PI * 0.8 },
       floor: CURB,
       role: {

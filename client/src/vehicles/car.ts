@@ -106,7 +106,14 @@ export class Car {
     this.impactCooldown = IMPACT_COOLDOWN; // stopping dead here isn't a crash
   }
 
-  /** Teleports the car back to its spawn point, good as new. */
+  /** A new car, good as new, right where this one is: upright, facing the same way. */
+  replace(): void {
+    this.reset();
+    this.damage.repair();
+    this.showDamage();
+  }
+
+  /** Teleports the car back to its spawn point, good as new (for when where it is won't do). */
   respawn(): void {
     this.teleport(this.spawn.position, this.spawn.yaw);
     this.damage.repair();

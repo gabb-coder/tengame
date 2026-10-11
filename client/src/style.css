@@ -857,6 +857,7 @@ button:disabled {
 
 .hud-room button.secondary,
 .menu button.secondary,
+.bigmap button.secondary,
 #disconnected button.secondary {
   background: rgba(255, 255, 255, 0.12);
   color: var(--panel-text);
@@ -1603,4 +1604,64 @@ body:not(.touch) .touch-only,
     top: 34%;
     width: 60vw;
   }
+}
+
+/* ---- The big map (the minimap opened up) ---- */
+#minimap {
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.bigmap {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  background: #10151b;
+}
+
+#bigmap-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+
+#bigmap-canvas:active {
+  cursor: grabbing;
+}
+
+.bigmap-bar {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  padding: 10px 14px;
+  font-size: 14px;
+}
+
+#bigmap-where {
+  color: var(--muted);
+  min-width: 12em;
+  text-align: center;
+}
+
+.bigmap-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.bigmap-buttons button {
+  min-width: 40px;
+  padding: 6px 12px;
+  touch-action: manipulation;
 }
