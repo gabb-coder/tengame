@@ -1,12 +1,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { TICK_RATE, type PlayerInfo, type WelcomeMessage } from '../../shared/protocol.ts';
+import { TICK_RATE, type PlayerInfo, type StrikeKind, type WelcomeMessage } from '../../shared/protocol.ts';
 import { Media } from './assets/media.ts';
 import { Sounds } from './audio/sounds.ts';
 import { Labels } from './render/labels.ts';
 import { PostFX } from './render/postfx.ts';
 import { LocalPlayer } from './game/localPlayer.ts';
 import { Input } from './input.ts';
+import { keyOf, keyWords, labelOf, normalizeCode, onKeys, useCustomKeys } from './keys.ts';
 import { MissionClient } from './game/missions.ts';
 import { Connection } from './net/connection.ts';
 import { RemotePlayers } from './net/remotePlayers.ts';
@@ -161,6 +162,14 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   const streetLights = new StreetLights(world.lights, lampPositions(world.town.layout), world.materials.lampGlow, (i) => world.breakables.isBroken(`lamp:${i}`));
   for (const [id, ago] of welcome.smashed) world.breakables.alreadySmashed(id, ago);
 
+  // Free roam and missions play on the player's own keys (racing keeps the usual ones).
+  useCustomKeys(true);
+  if (!touchDevice) {
+    onKeys(() => {
+      document.querySelector('.fuel-row span:last-child')!.textContent = keyWords('Jetpack fuel · hold Space to fly');
+      document.getElementById('hud-clock-hint')!.textContent = labelOf('skipTime') ? `${labelOf('skipTime')}: skip 2 h` : '';
+    });
+  }
   const me = welcome.players.find((p) => p.id === welcome.id)!;
   // Separate spawn points so players don't start inside each other.
   const spawns = world.town.layout.spawns;
@@ -186,6 +195,7 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     trigger: (id: string) => conn.send({ type: 'trigger', id }),
     notice: showNotice,
     knock: (target: string, v: THREE.Vector3Like) => conn.send({ type: 'knock', target, v: [v.x, v.y, v.z] }),
+    strike: (target: string, kind: StrikeKind, v: THREE.Vector3Like) => conn.send({ type: 'strike', target, kind, v: [v.x, v.y, v.z] }),
     smash: (id: string, v: THREE.Vector3Like) => conn.send({ type: 'smash', id, v: [v.x, v.y, v.z] }),
     sounds,
   });
@@ -244,7 +254,7 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   if (touch && innerHeight > innerWidth && innerWidth < 600) showNotice('Tip: turn your phone sideways to see more');
 
   // The in-game menu: Esc (or the Menu button). Game keys pause while it's open.
-  const menu = new Menu(welcome.room);
+  const menu = new Menu(welcome.room, { keys: !touchDevice });
   menu.onToggle = (open) => {
     input.enabled = !open;
     input.releaseAll();
@@ -258,7 +268,7 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   };
   document.getElementById('minimap')!.addEventListener('click', () => bigMap.open());
   addEventListener('keydown', (e) => {
-    if (e.code !== 'Tab' || chat.isOpen || menu.isOpen || e.target instanceof HTMLInputElement) return;
+    if (normalizeCode(e.code) !== keyOf('map') || chat.isOpen || menu.isOpen || e.target instanceof HTMLInputElement) return;
     e.preventDefault();
     bigMap.toggle();
   });
@@ -336,6 +346,21 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
         } else game.knockables.get(msg.target)?.(v);
         break;
       }
+      case 'strike': {
+        // Someone punched or kicked us (we reel, or fall), or someone else.
+        const v = { x: msg.v[0], y: msg.v[1], z: msg.v[2] };
+        const kick = msg.kind === 'kick';
+        if (msg.target === welcome.id) {
+          if (!player.struck(msg.kind, v)) break;
+          sounds.smack(player.focus.clone().setY(player.focus.y + (kick ? 0.8 : 1.4)), kick);
+          if (kick) showNotice(`${players.get(msg.by)?.name ?? 'Someone'} kicked you over!`);
+        } else {
+          const victim = remotes.locate(msg.target);
+          if (victim?.walking) sounds.smack(victim.position.clone().setY(victim.position.y + (kick ? 0.8 : 1.4)), kick);
+          game.strikeables.get(msg.target)?.(msg.kind, v);
+        }
+        break;
+      }
       case 'smash':
         world.breakables.smash(msg.id, { x: msg.v[0], y: msg.v[1], z: msg.v[2] });
         break;
@@ -359,14 +384,14 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     accumulator += dt;
     last = now;
 
-    if (input.wasPressed('KeyN') && welcome.mode === 'freeroam') conn.send({ type: 'time', skip: 2 });
-    if (input.wasPressed('KeyM')) {
+    if (input.pressed('skipTime') && welcome.mode === 'freeroam') conn.send({ type: 'time', skip: 2 });
+    if (input.pressed('mute')) {
       muted = !muted;
       applyVolume();
     }
-    if (input.wasPressed('KeyH')) toggleHelp();
-    if (input.wasPressed('KeyJ')) menu.open('journal');
-    if (input.wasPressed('KeyF')) {
+    if (input.pressed('help')) toggleHelp();
+    if (input.pressed('journal')) menu.open('journal');
+    if (input.pressed('fullscreen')) {
       if (document.fullscreenElement) void document.exitFullscreen();
       else void document.documentElement.requestFullscreen?.().catch(() => {});
     }

@@ -9,11 +9,13 @@ import { CYBERPUNK } from '../../../../shared/zones/cyberpunk.ts';
 import { JUNGLE } from '../../../../shared/zones/jungle.ts';
 import { MEDIEVAL } from '../../../../shared/zones/medieval.ts';
 import { SPACE } from '../../../../shared/zones/space.ts';
-import { fingerWords } from '../../device.ts';
+import { keyWords } from '../../keys.ts';
 import { game } from '../../game/link.ts';
 import { AvatarModel } from '../../player/avatarModel.ts';
 import type { Human, Outfit } from '../../player/humanModel.ts';
 import { flingFrom } from '../../player/ragdoll.ts';
+import { strikePush } from '../../game/impacts.ts';
+import type { StrikeKind } from '../../../../shared/protocol.ts';
 import type { Terrain } from '../terrain.ts';
 
 /** People are only animated (and drawn) this close to the camera. */
@@ -37,11 +39,28 @@ const OUCH = [
   'Somebody take that driver’s license away!',
 ];
 
-/** Knocked flying by a car: thrown limp, then lying there, getting up and limping back. */
+/** What people say, getting up after being kicked or punched over. */
+const FLOORED = [
+  'What did I ever do to you?',
+  'Ow! That’s no way to make friends!',
+  'I’m telling the mayor about this!',
+  'Okay, okay! You win!',
+  'My head’s spinning…',
+];
+/** What people say when punched. */
+const HEY = ['Hey! What was that for?', 'Ow! Stop it!', 'Ouch! Do you mind?', 'Help! Somebody stop them!', 'That really hurt!', 'Watch it!'];
+/** How long someone reels from a punch (s); three punches this close together and they go down. */
+const REEL_SECONDS = 0.6;
+const PUNCHES_TO_FLOOR = 3;
+const PUNCH_MEMORY = 4;
+
+/** Knocked flying (by a car, or a kick): thrown limp, then lying there, getting up and limping back. */
 interface Knock {
   phase: 'fly' | 'down' | 'up' | 'back';
   /** Seconds in this phase. */
   t: number;
+  /** What knocked them over, for what they say about it. */
+  by: 'car' | 'fist';
 }
 
 type Gear = (human: Human) => void;
@@ -75,6 +94,12 @@ interface Npc {
   knock: Knock | null;
   /** Seconds left of limping after being knocked over. */
   hurt: number;
+  /** Reeling from a punch: seconds left, and which way they turn to (toward whoever threw it). */
+  reel: number;
+  reelYaw: number;
+  /** Punches taken lately, and when the last landed (s). */
+  punches: number;
+  punchedAt: number;
 }
 
 const metal = new THREE.MeshStandardMaterial({ color: '#b8bcc4', metalness: 0.9, roughness: 0.3 });
@@ -345,7 +370,7 @@ export class Npcs {
     avatar.onHuman = gear;
     const path = loop ? new THREE.CatmullRomCurve3(loop.map(([x, z]) => new THREE.Vector3(x, 0, z)), true, 'catmullrom', 0.1) : null;
     this.group.add(avatar.root);
-    const npc: Npc = { id: seed, avatar, role, path, spot, speed, walked: offset, floor, talking: 0, line: 0, bubble: null, saying: 0, knock: null, hurt: 0 };
+    const npc: Npc = { id: seed, avatar, role, path, spot, speed, walked: offset, floor, talking: 0, line: 0, bubble: null, saying: 0, knock: null, hurt: 0, reel: 0, reelYaw: 0, punches: 0, punchedAt: -Infinity };
     this.npcs.push(npc);
     // Walk up and press E to chat.
     game.activities.add({
@@ -365,17 +390,47 @@ export class Npcs {
       mass: 80,
       harm: 0.03,
       hit: (car) => this.knockOver(npc, flingFrom(car), true),
+      struck: (kind, dir) => this.struck(npc, kind, dir, true),
     });
-    // Another player's car knocking them over reaches them here (if they're anywhere near us).
+    // Another player's car (or kick) knocking them over reaches them here (if they're anywhere near us).
     game.knockables.set(`npc:${seed}`, (v) => {
-      if (!npc.knock && avatar.root.visible) this.knockOver(npc, v, false);
+      if (!npc.knock && avatar.root.visible) this.knockOver(npc, v, false, 'car');
+    });
+    game.strikeables.set(`npc:${seed}`, (kind, v) => {
+      const length = Math.hypot(v.x, v.z) || 1;
+      this.struck(npc, kind, { x: v.x / length, y: 0, z: v.z / length }, false);
     });
   }
 
-  /** Sends someone flying at `v` (m/s); if it was our car, the other players are told. */
-  private knockOver(n: Npc, v: THREE.Vector3Like, mine: boolean): void {
+  /**
+   * Punched or kicked (by someone facing `dir`): a kick knocks them over; a punch makes
+   * them reel and complain, and one too many floors them. If it was us, the other players
+   * are told.
+   */
+  private struck(n: Npc, kind: StrikeKind, dir: THREE.Vector3Like, mine: boolean): void {
+    if (n.knock || !n.avatar.root.visible) return;
+    // The others work out the same from the same punches (and hear them, as we did ours).
+    if (mine) game.strike(`npc:${n.id}`, kind, strikePush(kind, dir));
+    else game.sounds?.smack(n.avatar.root.position.clone().setY(n.avatar.root.position.y + (kind === 'kick' ? 0.8 : 1.4)), kind === 'kick');
+    n.punches = this.time - n.punchedAt < PUNCH_MEMORY ? n.punches + 1 : 1;
+    n.punchedAt = this.time;
+    if (kind === 'kick' || n.punches >= PUNCHES_TO_FLOOR) {
+      n.punches = 0;
+      n.reel = 0;
+      this.knockOver(n, strikePush('kick', dir), false, 'fist');
+      return;
+    }
+    n.talking = 0;
+    n.reel = REEL_SECONDS;
+    n.reelYaw = Math.atan2(-dir.x, -dir.z);
+    n.avatar.action = 'Hit_Head';
+    this.say(n, HEY[Math.floor(Math.random() * HEY.length)]);
+  }
+
+  /** Sends someone flying at `v` (m/s); if it was us, the other players are told. */
+  private knockOver(n: Npc, v: THREE.Vector3Like, mine: boolean, by: Knock['by'] = 'car'): void {
     n.avatar.fling(this.physics, v);
-    n.knock = { phase: 'fly', t: 0 };
+    n.knock = { phase: 'fly', t: 0, by };
     n.talking = n.saying = 0;
     this.hideBubble(n);
     if (mine) game.knock(`npc:${n.id}`, v);
@@ -415,7 +470,8 @@ export class Npcs {
       if (!a.rising) {
         k.phase = 'back';
         k.t = 0;
-        this.say(n, OUCH[Math.floor(Math.random() * OUCH.length)]);
+        const lines = k.by === 'fist' ? FLOORED : OUCH;
+        this.say(n, lines[Math.floor(Math.random() * lines.length)]);
       }
     } else {
       const p = a.root.position;
@@ -477,7 +533,7 @@ export class Npcs {
     el.replaceChildren();
     const who = document.createElement('strong');
     who.textContent = n.role.name;
-    el.append(who, fingerWords(line));
+    el.append(who, keyWords(line));
     n.bubble.visible = true;
   }
 
@@ -504,18 +560,22 @@ export class Npcs {
       }
       // Still sore after being knocked over: slower, limping.
       if (n.hurt > 0) n.hurt -= dt;
+      // Reeling from a punch: stopped, turned toward whoever threw it.
+      if (n.reel > 0) n.reel -= dt;
+      const stopped = n.talking > 0 || n.reel > 0;
       const pace = n.hurt > 0 ? Math.min(n.speed, LIMP_SPEED) : n.speed;
       if (n.path) {
-        if (n.talking <= 0) n.walked += pace * dt;
+        if (!stopped) n.walked += pace * dt;
         const length = n.path.getLength();
         const u = ((n.walked % length) + length) % length / length;
         n.path.getPointAt(u, p);
         n.path.getPointAt((u + 0.5 / length) % 1, ahead);
         [x, z] = [p.x, p.z];
         yaw = Math.atan2(ahead.x - p.x, ahead.z - p.z);
-        speed = n.talking > 0 ? 0 : pace;
+        speed = stopped ? 0 : pace;
       }
       if (n.talking > 0) yaw = Math.atan2(me.x - x, me.z - z);
+      if (n.reel > 0) yaw = n.reelYaw;
       const near = (x - camera.x) ** 2 + (z - camera.z) ** 2 < RANGE * RANGE;
       // Far away, skip them entirely: each person is some eighty bones and parts to place.
       n.avatar.root.visible = n.avatar.root.matrixWorldAutoUpdate = near;
@@ -525,7 +585,8 @@ export class Npcs {
       // Turn smoothly (toward the player, or along the path).
       const cur = n.avatar.root.rotation.y;
       n.avatar.root.rotation.y = cur + Math.atan2(Math.sin(yaw - cur), Math.cos(yaw - cur)) * Math.min(1, dt * 6);
-      n.avatar.action = n.talking > 0 ? 'Idle_Talking_Loop' : speed > 0 ? null : (n.role.idle ?? null);
+      // (Reeling, the punch's flinch plays out by itself.)
+      if (n.reel <= 0) n.avatar.action = n.talking > 0 ? 'Idle_Talking_Loop' : speed > 0 ? null : (n.role.idle ?? null);
       n.avatar.limp = n.hurt > 0 ? Math.min(1, n.hurt / 5) : 0;
       n.avatar.animate(speed, dt);
     }

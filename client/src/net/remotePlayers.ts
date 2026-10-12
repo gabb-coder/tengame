@@ -5,7 +5,7 @@ import type { Act, AvatarState, CarState, PlayerInfo, PlayerTransform } from '..
 import { CAR_SHAPE_GROUPS, REMOTE_CAR_GROUPS, WALKER_GROUPS } from '../game/groups.ts';
 import { groundUnder } from '../game/limp.ts';
 import { game } from '../game/link.ts';
-import type { Target } from '../game/impacts.ts';
+import { strikePush, type Target } from '../game/impacts.ts';
 import { showAct } from '../player/acts.ts';
 import { AvatarModel } from '../player/avatarModel.ts';
 import { AVATAR, CAPSULE_CENTER } from '../player/character.ts';
@@ -123,10 +123,22 @@ export class RemotePlayers {
         this.fling(info.id, v);
         game.sounds?.thud(avatar.root.position, Math.min(1, car.length() / 15));
       },
+      // Punched, they reel in their own game (and we see it); kicked, they fly here at once too.
+      struck: (kind, dir) => {
+        const v = strikePush(kind, dir);
+        game.strike(info.id, kind, v);
+        if (kind === 'kick') {
+          hittableAt = performance.now() + KNOCK_AGAIN_MS;
+          this.fling(info.id, v);
+        }
+      },
     };
     game.impacts.addMoving(target);
-    // Someone else's car hit them: they fly here too.
+    // Someone else's car hit them, or someone kicked them: they fly here too.
     game.knockables.set(info.id, (v) => this.fling(info.id, v));
+    game.strikeables.set(info.id, (kind, v) => {
+      if (kind === 'kick') this.fling(info.id, v);
+    });
     this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0, act: null, carBody, avatarBody, target, flungAt: -Infinity });
   }
 
@@ -154,6 +166,7 @@ export class RemotePlayers {
     remote.avatar.unfling();
     game.impacts.removeMoving(remote.target);
     game.knockables.delete(id);
+    game.strikeables.delete(id);
     this.remotes.delete(id);
   }
 
@@ -256,6 +269,8 @@ export class RemotePlayers {
     const there = new THREE.Vector3(...from.p).lerp(new THREE.Vector3(...to.p), k);
     const dy = Math.atan2(Math.sin(to.yaw - from.yaw), Math.cos(to.yaw - from.yaw));
     const yaw = from.yaw + dy * k;
+    // Their punches and kicks swish, as ours do.
+    if (act !== remote.act && (act === 'jab' || act === 'cross' || act === 'kick')) game.sounds?.swing(there.clone().setY(there.y + 1.2), act === 'kick');
     showAct(avatar, act, to.gear, !!to.swim, remote.act, performance.now() / 1000);
     remote.act = act;
     avatar.limp = to.hurt ? 1 : 0;

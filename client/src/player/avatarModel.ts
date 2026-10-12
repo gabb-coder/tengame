@@ -11,6 +11,13 @@ const SKIN_TONES = ['#f1c7a5', '#e0ac85', '#c68863', '#9a6646', '#6e4a33', '#f5d
 const HAIR_COLORS = ['#2a1d14', '#4a3020', '#7a5230', '#1b1b1b', '#a87a4a', '#5b4636'];
 const PANTS_COLORS = ['#2d3a4f', '#3a3a3a', '#4b4234', '#2f4637'];
 
+/** Punches and kicks the simple body can do: which limb (arms and legs right then left), and for how long (s). */
+const SIMPLE_STRIKES: Record<string, { limb: 'arm' | 'leg'; side: 0 | 1; seconds: number }> = {
+  Punch_Jab: { limb: 'arm', side: 1, seconds: 0.4 },
+  Punch_Cross: { limb: 'arm', side: 0, seconds: 0.45 },
+  Kick: { limb: 'leg', side: 0, seconds: 0.6 },
+};
+
 const HIP_HEIGHT = 0.9;
 const SHOULDER_HEIGHT = 1.42;
 const LEG_LENGTH = 0.86;
@@ -57,6 +64,8 @@ export class AvatarModel {
   action: string | null = null;
   /** Hobbling on a hurt leg, 0..1. */
   limp = 0;
+  /** The simple body's punch or kick, and how far into it (s). */
+  private simpleStrike: { name: string; t: number } | null = null;
   /** Knocked flying and gone limp: the body physics throws about (see fling). */
   private ragdoll: Ragdoll | null = null;
   /** The simple body has no bones to go limp with: it just lies flat. */
@@ -286,8 +295,14 @@ export class AvatarModel {
       this.body.position.y = 0.15;
       return;
     }
-    // The simple body can't dance or wave; one-shots end at once.
-    if (this.action && !this.action.endsWith('_Loop')) this.action = null;
+    // The simple body can't dance or wave; one-shots end at once, but for a punch or kick.
+    const strike = this.action ? SIMPLE_STRIKES[this.action] : undefined;
+    if (!strike) this.simpleStrike = null;
+    else if (this.simpleStrike?.name !== this.action) this.simpleStrike = { name: this.action!, t: 0 };
+    else if ((this.simpleStrike.t += dt) >= strike.seconds) {
+      this.action = this.simpleStrike = null;
+    }
+    if (this.action && !strike) this.action = null;
     if (this.seated) {
       // Thighs forward, arms resting: as close to sitting as this simple body gets.
       for (const leg of this.legs) leg.rotation.x = -1.45;
@@ -311,5 +326,11 @@ export class AvatarModel {
     // Bob twice per stride, and lean slightly into a run.
     this.body.position.y = Math.abs(Math.cos(this.phase)) * this.swing * 0.06;
     this.body.rotation.x = Math.min(speed / 5.5, 1) * 0.12;
+    // Out and back: an arm straight ahead, or a leg up in front.
+    if (strike && this.simpleStrike) {
+      const k = Math.sin(Math.PI * Math.min(1, this.simpleStrike.t / strike.seconds));
+      if (strike.limb === 'arm') this.arms[strike.side].rotation.x = -1.5 * k;
+      else this.legs[strike.side].rotation.x = -1.3 * k;
+    }
   }
 }

@@ -109,10 +109,12 @@ const HUMANS = {
   clips: [
     ...['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Loop', 'Sitting_Idle_Loop', 'Swim_Fwd_Loop', 'Swim_Idle_Loop'],
     // Emotes and things people do: dancing, talking, pressing buttons, picking things up,
-    // fencing, holding a torch, fixing things, casting spells, driving, getting hit.
+    // fencing, holding a torch, fixing things, casting spells, driving, getting hit, punching.
     ...['Dance_Loop', 'Idle_Talking_Loop', 'Sitting_Talking_Loop', 'Interact', 'PickUp_Table', 'Sword_Idle', 'Sword_Attack', 'Idle_Torch_Loop'],
     // (Kneeling is also the halfway point of getting up after being knocked flat.)
-    ...['Fixing_Kneeling', 'Crouch_Idle_Loop', 'Spell_Simple_Idle_Loop', 'Spell_Simple_Shoot', 'Driving_Loop', 'Hit_Chest'],
+    ...['Fixing_Kneeling', 'Crouch_Idle_Loop', 'Spell_Simple_Idle_Loop', 'Spell_Simple_Shoot', 'Driving_Loop', 'Hit_Chest', 'Hit_Head'],
+    // (The library has no kick: that one is made up from the standing pose, see Human.)
+    ...['Punch_Jab', 'Punch_Cross'],
   ],
   moving: ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Swim_Fwd_Loop'],
 };

@@ -138,6 +138,41 @@ export class Sounds {
     src.stop(t + length + 0.05);
   }
 
+  /** A fist or a foot swishing through the air (a kick is lower and longer). */
+  swing(position: THREE.Vector3Like, kick: boolean): void {
+    const out = this.at(position, 2, 1);
+    const t = this.ctx.currentTime;
+    const length = kick ? 0.32 : 0.2;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 2.5;
+    filter.frequency.setValueAtTime(kick ? 500 : 900, t);
+    filter.frequency.exponentialRampToValueAtTime(kick ? 1600 : 3200, t + length * 0.55);
+    filter.frequency.exponentialRampToValueAtTime(kick ? 600 : 1200, t + length);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.32, t + length * 0.5);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + length);
+    src.connect(filter).connect(gain).connect(out);
+    src.start(t, Math.random() * 0.3, length + 0.05);
+  }
+
+  /** A punch or kick landing on someone: a meaty smack. On something solid, just a dull knock. */
+  smack(position: THREE.Vector3Like, kick: boolean, solid = false): void {
+    const out = this.at(position, 3, 1);
+    const t = this.ctx.currentTime;
+    if (solid) {
+      this.burst(out, t, 'lowpass', 140, 0.16, 0.9);
+      this.burst(out, t, 'bandpass', 700, 0.05, 0.25);
+      return;
+    }
+    this.burst(out, t, 'lowpass', kick ? 160 : 220, kick ? 0.22 : 0.15, kick ? 1.5 : 1.1);
+    this.burst(out, t, 'bandpass', kick ? 900 : 1500, 0.07, kick ? 0.7 : 0.8);
+    this.burst(out, t + 0.004, 'highpass', 3500, 0.03, 0.35);
+  }
+
   /** A firework rocket whistling up. */
   whistle(position: THREE.Vector3Like, length: number): void {
     const out = this.at(position, 25, 3);

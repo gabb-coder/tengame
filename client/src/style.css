@@ -1092,6 +1092,104 @@ body.hide-names .name-tag {
   color: var(--muted);
 }
 
+/* Changing keys: a row per action, its key in a box to click. */
+.menu .settings-keys {
+  margin-top: 2px;
+}
+
+.menu-card:has(#menu-keys:not([hidden])) {
+  width: min(520px, 100%);
+}
+
+.keys-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(112px, auto);
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.menu .key-row button {
+  min-width: 112px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--panel-text);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.menu .key-row button:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.menu .key-row button.changed {
+  border-color: rgba(255, 210, 74, 0.55);
+}
+
+.menu .key-row button.unset {
+  color: var(--error);
+  border-style: dashed;
+}
+
+.menu .key-row button.listening {
+  background: rgba(255, 210, 74, 0.18);
+  border-color: #ffd24a;
+  color: #ffd24a;
+  animation: key-listen 1s ease-in-out infinite;
+}
+
+.menu .key-row button.flash {
+  animation: key-flash 0.9s ease-out;
+}
+
+@keyframes key-listen {
+  50% {
+    border-color: rgba(255, 210, 74, 0.35);
+  }
+}
+
+@keyframes key-flash {
+  from {
+    background: rgba(255, 210, 74, 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu .key-row button.listening,
+  .menu .key-row button.flash {
+    animation: none;
+  }
+}
+
+/* What just changed, and the buttons: always in view at the bottom, however far down the list is scrolled. */
+.keys-footer {
+  position: sticky;
+  bottom: -24px;
+  margin: 4px -24px -24px;
+  padding: 10px 24px 20px;
+  background: rgba(16, 20, 26, 0.97);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.keys-note {
+  min-height: 1.4em;
+  margin: 0;
+  color: #ffd24a;
+}
+
+.keys-note:empty {
+  display: none;
+}
+
 /* The explorer's journal: relics and fish. */
 .menu-card:has(#menu-journal:not([hidden])) {
   width: min(560px, 100%);
@@ -1433,6 +1531,13 @@ body:not(.touch) .touch-only,
 .touch-button.slot-3 {
   right: 31px;
   bottom: 129px;
+}
+
+.touch-button.slot-4 {
+  right: 35px;
+  bottom: 199px;
+  width: 54px;
+  height: 54px;
 }
 
 /* Chat, journal, sound and full screen, under the menu button; skipping time by the clock. */

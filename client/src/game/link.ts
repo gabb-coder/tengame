@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Act } from '../../../shared/protocol.ts';
+import type { Act, StrikeKind } from '../../../shared/protocol.ts';
 import type { Sounds } from '../audio/sounds.ts';
 import { Activities, type Mount } from './activities.ts';
 import { Impacts } from './impacts.ts';
@@ -19,6 +19,11 @@ export const game = {
    * (`npc:<id>`): another player's car hitting one reaches it through here.
    */
   knockables: new Map<string, (v: THREE.Vector3Like) => void>(),
+  /**
+   * People walking about the world and other players, by id as above, that someone
+   * else punched or kicked (pushing them at `v`, m/s): reaches them through here.
+   */
+  strikeables: new Map<string, (kind: StrikeKind, v: THREE.Vector3Like) => void>(),
   /** The local player: feet (or the car), and whether they're walking. */
   player: { id: '', position: new THREE.Vector3(), onFoot: false, grounded: true },
   ride(mount: Mount): void {
@@ -64,6 +69,12 @@ export const game = {
   /** Tells the server (and so the others) that our car knocked `target` flying at `v` (m/s). */
   knock(target: string, v: THREE.Vector3Like): void {
     void target;
+    void v;
+  },
+  /** Tells the server (and so the others) that we punched or kicked `target`, pushing them at `v` (m/s). */
+  strike(target: string, kind: StrikeKind, v: THREE.Vector3Like): void {
+    void target;
+    void kind;
     void v;
   },
   /** Tells the server (and so the others) that our car smashed street thing `id`, knocking it off at `v`. */

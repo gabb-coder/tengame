@@ -12,6 +12,8 @@ import {
   DOOR_REACH,
   GEARS,
   MAX_KNOCK_SPEED,
+  MAX_STRIKE_SPEED,
+  STRIKES,
   type ServerMessage,
   TICK_RATE,
   type Vec3,
@@ -39,9 +41,17 @@ const DOOR_REACH_SLACK = 1.5;
  */
 const KNOCK_REACH = 10;
 const KNOCK_COOLDOWN = 1;
+/**
+ * A punch or kick only reaches someone this close (meters, with room for lag), and the
+ * same person can be hit this often at most (seconds).
+ */
+const STRIKE_REACH = 3.5;
+const STRIKE_COOLDOWN = 0.3;
 /** People walking about the world, and the street things a car can smash. */
 const NPC_ID = /^npc:[a-z0-9-]{1,40}$/;
 const SMASH_ID = /^[a-z]+:[A-Za-z0-9:_.,-]{1,60}$/;
+/** Street things light enough to kick over (a car smashes anything). */
+const KICKABLE = /^(bin|mailbox|fence):/;
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -255,15 +265,17 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         if (!room.fire(trigger.id, trigger.cooldown)) return;
         room.broadcast({ type: 'trigger', id: trigger.id, by: player.id });
       } else if (msg.type === 'knock') {
-        // Only a driver can run someone over: a player standing by their car, or one of the
-        // people walking about the world (everyone else sees them fly too).
-        if (!room || !player || player.avatar || !isVec(msg.v, 3)) return;
+        // The people and animals walking about the world can be knocked over by a car or a
+        // kick (everyone else sees them fly too); only a driver can run over a player
+        // standing by their car.
+        if (!room || !player || !isVec(msg.v, 3)) return;
         const target = String(msg.target ?? '');
         const v = capSpeed(msg.v, MAX_KNOCK_SPEED);
         if (NPC_ID.test(target)) {
           if (room.allow(`${player.id}:knock`, 10, 1000)) room.broadcast({ type: 'knock', target, v, by: player.id }, player.id);
           return;
         }
+        if (player.avatar) return;
         const victim = room.players.get(target);
         if (!victim?.avatar || victim === player) return;
         const [x, y, z] = victim.avatar.p;
@@ -272,11 +284,31 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         if (!room.fire(`knock:${victim.id}`, KNOCK_COOLDOWN)) return;
         // They fly in their own game; everyone else sees their body fly too.
         room.broadcast({ type: 'knock', target, v, by: player.id }, player.id);
+      } else if (msg.type === 'strike') {
+        // A punch or a kick: only on foot, at someone in reach (a player on foot, or one of
+        // the people about the world). They react in their own game; everyone sees it.
+        const target = String(msg.target ?? '');
+        const kind = msg.kind;
+        if (!room || !player?.avatar || !isVec(msg.v, 3) || !(STRIKES as readonly unknown[]).includes(kind)) return;
+        if (!room.allow(`${player.id}:strike`, 6, 1000)) return;
+        const v = capSpeed(msg.v, MAX_STRIKE_SPEED);
+        if (NPC_ID.test(target)) {
+          room.broadcast({ type: 'strike', target, kind, v, by: player.id }, player.id);
+          return;
+        }
+        const victim = room.players.get(target);
+        if (!victim?.avatar || victim === player) return;
+        const [x, y, z] = victim.avatar.p;
+        const [ax, ay, az] = player.avatar.p;
+        if (Math.hypot(x - ax, z - az) > STRIKE_REACH || Math.abs(y - ay) > 2) return;
+        if (!room.fire(`strike:${victim.id}`, STRIKE_COOLDOWN)) return;
+        room.broadcast({ type: 'strike', target, kind, v, by: player.id }, player.id);
       } else if (msg.type === 'smash') {
-        // A driver knocked over a lamp, a bin, a fence...: it stays down for everyone until
-        // it's put back.
+        // A car (or a kick) knocked over a lamp, a bin, a fence...: it stays down for
+        // everyone until it's put back.
         const id = String(msg.id ?? '');
-        if (!room || !player || player.avatar || !isVec(msg.v, 3) || !SMASH_ID.test(id)) return;
+        if (!room || !player || !isVec(msg.v, 3) || !SMASH_ID.test(id)) return;
+        if (player.avatar && !KICKABLE.test(id)) return;
         if (!room.allow(`${player.id}:smash`, 20, 1000) || !room.smash(id)) return;
         room.broadcast({ type: 'smash', id, v: capSpeed(msg.v, MAX_KNOCK_SPEED), by: player.id }, player.id);
       }

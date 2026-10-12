@@ -260,9 +260,25 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 | E | Whatever you're looking at: get in the car, open/close a door, sit on a sofa, chair or bed, turn a TV, floor lamp or stove on/off, light or put out a campfire |
 | E or move | Stand up |
 | R (sitting) | TV remote: turn the nearest TV on/off |
+| Left click | Punch (a jab, then a cross: they take turns) |
+| Right click | Kick |
+| G | Dance |
 
 M, N, F, H, Enter and Esc work on foot too. Switched-on TVs, lamps, stoves and fires, and
 who's sitting where, are shared with everyone in the room.
+
+**Punching and kicking.** You turn to face where the camera looks, and hit whoever is right
+in front of you. People about the world reel back and complain when punched; a third punch
+in a row, or one kick, knocks them over. Other players reel too, losing a little health
+(a kick knocks them down, and enough punches knock them out). A kick also topples bins,
+mailboxes and fences, and penguins (gently). Everyone in the room sees it all.
+
+**Your own keys.** Every key above can be changed in Esc → Settings → **Change keys**
+(free roam and missions): click a box, then press the key you want, or click the box with
+the mouse button you want (Esc cancels). If that key was already doing something at the
+same time, the two swap. Walking and driving can share keys, since you never do both at
+once. Changes are remembered in your browser, the help line and hints follow them, and
+**Reset keys** puts them back. Racing keeps its usual keys.
 
 **On a phone or tablet** the game shows on-screen controls instead (computers never do):
 
@@ -272,7 +288,7 @@ who's sitting where, are shared with everyone in the room.
 | Drag anywhere else | Look around |
 | Brake / Jump (big button, right) | Handbrake; jump (hold it with a jetpack to fly) |
 | Get out, New car, Flip | E, T and R from the keyboard |
-| Use, Dance | E (shows when something's in reach) and G |
+| Use, Punch, Kick, Dance | E (shows when something's in reach), left and right click, and G |
 | The prompt, e.g. **Open door** | Tap it to do it |
 | Chat, Journal, Sound, Full screen, +2 h | Under the menu button and by the clock |
 
@@ -280,7 +296,7 @@ Phones and tablets start on the Low graphics setting; turn it up in Menu → Set
 yours is fast. The game plays best with the phone sideways.
 
 **Settings** (Esc → Settings, remembered in your browser): volume, mouse sensitivity (look
-sensitivity on a phone), invert mouse, graphics quality, field of view, km/h or mph, and showing the minimap, key help,
+sensitivity on a phone), invert mouse, your own keys (on a computer), graphics quality, field of view, km/h or mph, and showing the minimap, key help,
 player names and frame rate. **Leave room** in the same menu goes back to the title screen.
 
 `npm run dev` starts the game server on port 8080 and the Vite dev server on 5173
@@ -289,7 +305,7 @@ player names and frame rate. **Leave room** in the same menu goes back to the ti
 ## Other commands
 
 ```sh
-npm test          # car handling, walking, touch controls, town/zone/floor-plan, relics, missions, racing
+npm test          # car handling, walking, touch controls, keys, punches and kicks, town/zone/floor-plan, relics, missions, racing
                   # (computer drivers lapping real circuits, a 12-car race) and server tests
 npm run typecheck # client + server
 npm run build     # build client into client/dist (plus compressed copies)

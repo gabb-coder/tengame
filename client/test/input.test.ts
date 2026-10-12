@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 // No browser here: listening for keys and the mouse goes nowhere.
-Object.assign(globalThis, { addEventListener: () => {} });
+Object.assign(globalThis, { addEventListener: () => {}, document: { addEventListener: () => {} } });
 const { Input } = await import('../src/input.ts');
 
 const still = (look: { yaw: number; pitch: number }) => look.yaw === 0 && look.pitch === 0;
@@ -60,16 +60,35 @@ test('buttons hold and tap keys like the keyboard', () => {
   assert.equal(i.wasPressed('KeyE'), false);
 });
 
+test('buttons can press an action itself, whatever key it is on', () => {
+  const i = input();
+  i.hold('@jump', true);
+  assert.equal(i.foot.jump, true);
+  assert.equal(i.car.handbrake, false, 'jumping is not the handbrake, though both start on Space');
+  i.hold('@jump', false);
+  i.tap('@punch');
+  assert.equal(i.pressed('kick'), false);
+  assert.equal(i.pressed('punch'), true);
+  assert.equal(i.pressed('punch'), false, 'each press is taken once');
+  // The key and the button both count, once each frame.
+  i.tap('KeyE');
+  i.tap('@use');
+  assert.equal(i.pressed('use'), true);
+  assert.equal(i.pressed('use'), false);
+});
+
 test('with a menu open, fingers do nothing', () => {
   const i = input();
   i.enabled = false;
   i.setStick(0, 1);
   i.hold('Space', true);
   i.tap('KeyE');
+  i.tap('@punch');
   i.drag(100, 0);
   assert.equal(i.car.throttle, 0);
   assert.equal(i.foot.jump, false);
   assert.equal(i.wasPressed('KeyE'), false);
+  assert.equal(i.pressed('punch'), false);
   assert.ok(still(i.takeLook(0)));
 });
 

@@ -1,6 +1,6 @@
 import type { GameMode, PlayerInfo } from '../../../shared/protocol.ts';
 import type { Interaction, Mode } from '../game/localPlayer.ts';
-import { fingerWords } from '../device.ts';
+import { type Action, keysWord, keyWords, labelOf } from '../keys.ts';
 import { type Settings, settings, updateSettings } from '../settings.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -83,8 +83,38 @@ export function renderFps(now: number): void {
   fpsSince = now;
 }
 
-const CAR_HELP = ['W accelerate', 'S brake/reverse', 'A D steer', 'Space handbrake', 'E get out', 'R flip upright', 'T new car'];
-const COMMON_HELP = ['Tab map', 'M mute', 'F fullscreen', 'Enter chat', 'Esc menu', 'H hide help'];
+/** What each key does, as the help line puts it: one action, or several sharing a word ('WASD walk'). */
+type Help = [Action[], string];
+const CAR_HELP: Help[] = [
+  [['accelerate'], 'accelerate'],
+  [['brake'], 'brake/reverse'],
+  [['steerLeft', 'steerRight'], 'steer'],
+  [['handbrake'], 'handbrake'],
+  [['getOut'], 'get out'],
+  [['flip'], 'flip upright'],
+  [['newCar'], 'new car'],
+];
+const FOOT_HELP: Help[] = [
+  [['forward', 'left', 'back', 'right'], 'walk'],
+  [['run'], 'run'],
+  [['jump'], 'jump'],
+  [['use'], 'interact'],
+  [['punch'], 'punch'],
+  [['kick'], 'kick'],
+  [['dance'], 'dance'],
+  [['journal'], 'journal'],
+];
+const COMMON_HELP: Help[] = [
+  [['map'], 'map'],
+  [['mute'], 'mute'],
+  [['fullscreen'], 'fullscreen'],
+  [['chat'], 'chat'],
+];
+
+/** The help line's words for `help`, leaving out actions without a key. */
+function helpWords(help: Help[]): string[] {
+  return help.map(([actions, what]) => [keysWord(...actions), what]).filter(([keys]) => keys).map(([keys, what]) => `${keys} ${what}`);
+}
 
 /** Shows the speedometer and driving help in the car, walking help on foot. */
 export function renderMode(mode: Mode, pointerLocked: boolean): void {
@@ -93,8 +123,9 @@ export function renderMode(mode: Mode, pointerLocked: boolean): void {
   const foot = $('help-foot');
   foot.hidden = !settings.showHelp || mode !== 'foot';
   const look = pointerLocked ? 'Mouse or arrows look' : 'Click to look with the mouse';
-  setHelp(car, [...CAR_HELP, ...COMMON_HELP]);
-  setHelp(foot, ['WASD walk', 'Shift run', 'Space jump', look, 'E interact', 'G dance', 'J journal', ...COMMON_HELP]);
+  const common = [...helpWords(COMMON_HELP), 'Esc menu', ...(labelOf('help') ? [`${labelOf('help')} hide help`] : [])];
+  setHelp(car, [...helpWords(CAR_HELP), ...common]);
+  setHelp(foot, [...helpWords(FOOT_HELP.slice(0, 3)), look, ...helpWords(FOOT_HELP.slice(3)), ...common]);
   document.querySelector<HTMLElement>('.hud-speed')!.hidden = mode !== 'car';
 }
 
@@ -117,18 +148,18 @@ let lastPrompt = '';
 /** The "press E to ..." hint for whatever is in reach (on a phone or tablet, tap it). */
 export function renderPrompt(i: Interaction, remote: { on: boolean } | null = null): void {
   let html = '';
-  if (i?.kind === 'enter-car') html = action('E', 'Get in');
-  else if (i?.kind === 'door') html = action('E', `${i.open ? 'Close' : 'Open'} door`, escapeHtml(i.address));
-  else if (i?.kind === 'sit') html = action('E', 'Sit down', i.seat.label);
-  else if (i?.kind === 'stand') html = remote ? action('E', 'Stand up') + action('R', `TV ${remote.on ? 'off' : 'on'}`) : action('E', 'Stand up', 'or move');
-  else if (i?.kind === 'switch' && i.appliance === 'fire') html = action('E', `${i.on ? 'Put out' : 'Light'} the fire`);
-  else if (i?.kind === 'switch') html = action('E', `Turn ${i.on ? 'off' : 'on'} the ${i.appliance === 'tv' ? 'TV' : i.appliance}`);
-  else if (i?.kind === 'leave') html = i.blocked ? `<span class="waiting">${escapeHtml(i.blocked)}</span>` : action('E', 'Get off', escapeHtml(i.label));
+  if (i?.kind === 'enter-car') html = action('use', 'Get in');
+  else if (i?.kind === 'door') html = action('use', `${i.open ? 'Close' : 'Open'} door`, escapeHtml(i.address));
+  else if (i?.kind === 'sit') html = action('use', 'Sit down', i.seat.label);
+  else if (i?.kind === 'stand') html = remote ? action('use', 'Stand up') + action('remote', `TV ${remote.on ? 'off' : 'on'}`) : action('use', 'Stand up', 'or move');
+  else if (i?.kind === 'switch' && i.appliance === 'fire') html = action('use', `${i.on ? 'Put out' : 'Light'} the fire`);
+  else if (i?.kind === 'switch') html = action('use', `Turn ${i.on ? 'off' : 'on'} the ${i.appliance === 'tv' ? 'TV' : i.appliance}`);
+  else if (i?.kind === 'leave') html = i.blocked ? `<span class="waiting">${escapeHtml(i.blocked)}</span>` : action('use', 'Get off', escapeHtml(i.label));
   else if (i?.kind === 'activity') {
     const { action: label, waiting } = i.prompt;
-    const detail = i.prompt.detail && escapeHtml(fingerWords(i.prompt.detail));
+    const detail = i.prompt.detail && escapeHtml(keyWords(i.prompt.detail));
     if (waiting) html = `<span class="waiting">${escapeHtml(label)}</span>${detail ? `<small>${detail}</small>` : ''}`;
-    else html = action('E', escapeHtml(label), detail);
+    else html = action('use', escapeHtml(label), detail);
   }
   if (html === lastPrompt) return;
   lastPrompt = html;
@@ -137,9 +168,10 @@ export function renderPrompt(i: Interaction, remote: { on: boolean } | null = nu
   el.innerHTML = html;
 }
 
-/** Something to do: press `key` (`label`, then a word on what, if `detail`). Tapping it presses the key too. */
-function action(key: 'E' | 'R', label: string, detail?: string): string {
-  return `<span class="act" data-key="Key${key}"><kbd>${key}</kbd>${label}${detail ? `<small>${detail}</small>` : ''}</span>`;
+/** Something to do: press `does`'s key (`label`, then a word on what, if `detail`). Tapping it does it too. */
+function action(does: Action, label: string, detail?: string): string {
+  const key = labelOf(does);
+  return `<span class="act" data-key="@${does}">${key ? `<kbd>${escapeHtml(key)}</kbd>` : ''}${label}${detail ? `<small>${detail}</small>` : ''}</span>`;
 }
 
 function escapeHtml(text: string): string {

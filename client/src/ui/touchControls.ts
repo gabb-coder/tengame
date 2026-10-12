@@ -5,25 +5,30 @@ const STICK_RADIUS = 56;
 /** Where a finger can pick up the stick: this much of the screen from the left and the bottom. */
 const STICK_ZONE = { width: 0.42, height: 0.72 };
 
-/** One of the round buttons by the right thumb. `key` is the key it presses; held, or tapped. */
+/**
+ * One of the round buttons by the right thumb. `key` is what it presses: an action
+ * ('@jump', see Input) or, racing, a key; held, or tapped.
+ */
 interface Button {
   label: string;
   key: string;
   hold?: boolean;
   /** When it shows: driving, on foot, or on foot with something in reach to use. */
   when: 'car' | 'foot' | 'use';
-  /** Its place in the arc around the big button: 0 the big one, 1 left, 2 up-left, 3 up. */
-  slot: 0 | 1 | 2 | 3;
+  /** Its place around the big button: 0 the big one, 1 left, 2 up-left, 3 up; 4 above that. */
+  slot: 0 | 1 | 2 | 3 | 4;
 }
 
 const BUTTONS: Button[] = [
-  { label: 'Jump', key: 'Space', hold: true, when: 'foot', slot: 0 },
-  { label: 'Use', key: 'KeyE', when: 'use', slot: 1 },
-  { label: 'Dance', key: 'KeyG', when: 'foot', slot: 3 },
-  { label: 'Brake', key: 'Space', hold: true, when: 'car', slot: 0 },
-  { label: 'Get out', key: 'KeyE', when: 'car', slot: 1 },
-  { label: 'New car', key: 'KeyT', when: 'car', slot: 2 },
-  { label: 'Flip', key: 'KeyR', when: 'car', slot: 3 },
+  { label: 'Jump', key: '@jump', hold: true, when: 'foot', slot: 0 },
+  { label: 'Use', key: '@use', when: 'use', slot: 1 },
+  { label: 'Punch', key: '@punch', when: 'foot', slot: 2 },
+  { label: 'Kick', key: '@kick', when: 'foot', slot: 3 },
+  { label: 'Dance', key: '@dance', when: 'foot', slot: 4 },
+  { label: 'Brake', key: '@handbrake', hold: true, when: 'car', slot: 0 },
+  { label: 'Get out', key: '@getOut', when: 'car', slot: 1 },
+  { label: 'New car', key: '@newCar', when: 'car', slot: 2 },
+  { label: 'Flip', key: '@flip', when: 'car', slot: 3 },
 ];
 
 /** Racing: brake, the rear wing, the camera, and back onto the track after an off. */
@@ -107,15 +112,15 @@ export class TouchControls {
       el.addEventListener('click', use);
       return el;
     };
-    this.soundButton = tool('Sound on', 'Sound on or off', () => input.tap('KeyM'));
+    this.soundButton = tool('Sound on', 'Sound on or off', () => input.tap('@mute'));
     const row = document.createElement('div');
     row.className = 'hud-buttons touch-tools';
     row.append(tool('Chat', 'Chat', tools.chat));
-    if (!tools.racing) row.append(tool('Journal', 'Journal', () => input.tap('KeyJ')));
+    if (!tools.racing) row.append(tool('Journal', 'Journal', () => input.tap('@journal')));
     row.append(this.soundButton);
-    if (document.fullscreenEnabled) row.append(tool('Full screen', 'Full screen', () => input.tap('KeyF')));
+    if (document.fullscreenEnabled) row.append(tool('Full screen', 'Full screen', () => input.tap('@fullscreen')));
     document.querySelector('.hud-room .hud-buttons')!.after(row);
-    if (!tools.racing) document.getElementById('hud-clock-hint')!.replaceChildren(tool('+2 h', 'Skip ahead two hours', () => input.tap('KeyN')));
+    if (!tools.racing) document.getElementById('hud-clock-hint')!.replaceChildren(tool('+2 h', 'Skip ahead two hours', () => input.tap('@skipTime')));
 
     // Words that name keys say what to tap instead.
     const fuel = document.querySelector('.fuel-row span:last-child');

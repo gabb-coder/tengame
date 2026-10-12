@@ -441,7 +441,7 @@ test('a driver can knock over a player standing by their car, and everyone sees 
   const bob = (await b.next('welcome')).id;
   const c = await TestClient.connect();
   c.send({ type: 'join', name: 'Cat', room: welcome.room });
-  await c.next('welcome');
+  const cat = (await c.next('welcome')).id;
   const knock = { type: 'knock', target: bob, v: [30, 8, 0] };
 
   // Bob is walking far from Alice's car: nothing. Next to it: Bob and Cat are told, flying no faster than allowed.
@@ -467,14 +467,84 @@ test('a driver can knock over a player standing by their car, and everyone sees 
   await b.next('chat');
   assert.equal(b.inbox.filter((m) => m.type === 'knock').length, 0);
   assert.equal(c.inbox.filter((m) => m.type === 'knock').length, 0);
-  // People walking about the world: everyone else sees them fly. Walkers can't knock anyone.
+  // People walking about the world: everyone else sees them fly, run over or kicked.
   a.send({ type: 'knock', target: 'npc:mayor', v: [10, 5, 0] });
   assert.deepEqual(await c.next('knock'), { type: 'knock', target: 'npc:mayor', v: [10, 5, 0], by: welcome.id });
-  b.send({ type: 'knock', target: 'npc:mayor', v: [10, 5, 0] });
+  b.send({ type: 'knock', target: 'npc:mayor', v: [4, 2, 0] });
+  assert.deepEqual(await c.next('knock'), { type: 'knock', target: 'npc:mayor', v: [4, 2, 0], by: bob });
+  // But only a car runs over a player, and only real ids.
+  c.send({ type: 'state', p: [50, 1, 50], q: [0, 0, 0, 1], car, avatar: { p: [3.5, 0, 1], yaw: 0, speed: 0 } });
+  await c.next('snapshot');
+  await c.next('snapshot');
+  b.send({ type: 'knock', target: cat, v: [10, 5, 0] });
   a.send({ type: 'knock', target: 'npc:<b>', v: [10, 5, 0] });
   b.send({ type: 'chat', text: 'done' });
   await c.next('chat');
   assert.equal(c.inbox.filter((m) => m.type === 'knock').length, 0);
+  for (const client of [a, b, c]) client.close();
+});
+
+test('players on foot can punch and kick someone in reach, and everyone sees it', async () => {
+  const car = { steer: 0, rpm: 800, load: 0, speed: 0, braking: false };
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const welcome = await a.next('welcome');
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room: welcome.room });
+  const bob = (await b.next('welcome')).id;
+  const c = await TestClient.connect();
+  c.send({ type: 'join', name: 'Cat', room: welcome.room });
+  await c.next('welcome');
+  const walk = (client: TestClient, x: number) => client.send({ type: 'state', p: [0, 1, 20], q: [0, 0, 0, 1], car, avatar: { p: [x, 0, 0], yaw: 0, speed: 0 } });
+  const settle = async () => {
+    await c.next('snapshot');
+    await c.next('snapshot');
+  };
+  const done = async () => {
+    a.send({ type: 'chat', text: 'done' });
+    await b.next('chat');
+    await c.next('chat');
+  };
+  const strikes = (client: TestClient) => client.inbox.filter((m) => m.type === 'strike').length;
+
+  // Too far away: nothing.
+  walk(a, 0);
+  walk(b, 10);
+  await settle();
+  a.send({ type: 'strike', target: bob, kind: 'punch', v: [3, 0, 0] });
+  await done();
+  assert.equal(strikes(b) + strikes(c), 0);
+
+  // Close: Bob and Cat are told, pushed no harder than allowed; Alice already knows.
+  walk(b, 1.5);
+  await settle();
+  a.send({ type: 'strike', target: bob, kind: 'punch', v: [30, 0, 0] });
+  const hit = await b.next('strike');
+  assert.equal(hit.target, bob);
+  assert.equal(hit.kind, 'punch');
+  assert.equal(hit.by, welcome.id);
+  assert.ok(Math.abs(Math.hypot(...hit.v) - 9) < 0.01, 'the push is capped');
+  assert.deepEqual(await c.next('strike'), hit);
+  // Straight away again: too soon. Made-up moves, themselves, or from a car: nothing.
+  a.send({ type: 'strike', target: bob, kind: 'kick', v: [3, 1, 0] });
+  b.send({ type: 'strike', target: welcome.id, kind: 'headbutt', v: [3, 1, 0] });
+  b.send({ type: 'strike', target: bob, kind: 'kick', v: [3, 1, 0] });
+  await done();
+  assert.equal(strikes(a) + strikes(b) + strikes(c), 0);
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  a.send({ type: 'strike', target: bob, kind: 'kick', v: [3, 1, 0] });
+  assert.equal((await b.next('strike')).kind, 'kick');
+  assert.equal((await c.next('strike')).kind, 'kick');
+  // People about the world: everyone else sees them hit.
+  b.send({ type: 'strike', target: 'npc:mayor', kind: 'punch', v: [2, 0, 0] });
+  assert.deepEqual(await c.next('strike'), { type: 'strike', target: 'npc:mayor', kind: 'punch', v: [2, 0, 0], by: bob });
+  assert.equal((await a.next('strike')).target, 'npc:mayor');
+  // Back in the car, no more punching.
+  a.send({ type: 'state', p: [0, 1, 20], q: [0, 0, 0, 1], car, avatar: null });
+  await settle();
+  a.send({ type: 'strike', target: 'npc:mayor', kind: 'punch', v: [2, 0, 0] });
+  await done();
+  assert.equal(strikes(b) + strikes(c), 0);
   for (const client of [a, b, c]) client.close();
 });
 
@@ -486,7 +556,7 @@ test('smashed street things stay smashed for everyone, newcomers included, and c
   assert.deepEqual(welcome.smashed, []);
   const b = await TestClient.connect();
   b.send({ type: 'join', name: 'Bob', room: welcome.room });
-  await b.next('welcome');
+  const bob = (await b.next('welcome')).id;
 
   a.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car: { ...car, dmg: [0.5, 0, 0.25, 2] }, avatar: null });
   a.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car: { ...car, dmg: [0.5, 0, 0.25, 0] }, avatar: null });
@@ -496,21 +566,23 @@ test('smashed street things stay smashed for everyone, newcomers included, and c
 
   a.send({ type: 'smash', id: 'lamp:12', v: [8, 3, 0] });
   assert.deepEqual(await b.next('smash'), { type: 'smash', id: 'lamp:12', v: [8, 3, 0], by: welcome.id });
-  // Already down; nonsense ids; on foot: nothing.
+  // Already down; nonsense ids; on foot, something too heavy to kick over: nothing.
   a.send({ type: 'smash', id: 'lamp:12', v: [8, 3, 0] });
   a.send({ type: 'smash', id: '<script>', v: [8, 3, 0] });
   b.send({ type: 'state', p: [0, 1, 0], q: [0, 0, 0, 1], car, avatar: { p: [1, 0, 1], yaw: 0, speed: 0 } });
-  b.send({ type: 'smash', id: 'bin:h3:0', v: [1, 1, 0] });
+  b.send({ type: 'smash', id: 'lamp:3', v: [1, 1, 0] });
   b.send({ type: 'chat', text: 'done' });
   await a.next('chat');
   assert.equal(a.inbox.filter((m) => m.type === 'smash').length + b.inbox.filter((m) => m.type === 'smash').length, 0);
+  // A bin, though, kicks over.
+  b.send({ type: 'smash', id: 'bin:h3:0', v: [1, 1, 0] });
+  assert.deepEqual(await a.next('smash'), { type: 'smash', id: 'bin:h3:0', v: [1, 1, 0], by: bob });
 
   const c = await TestClient.connect();
   c.send({ type: 'join', name: 'Cat', room: welcome.room });
   const late = await c.next('welcome');
-  assert.equal(late.smashed.length, 1);
-  assert.equal(late.smashed[0][0], 'lamp:12');
-  assert.ok(late.smashed[0][1] >= 0 && late.smashed[0][1] < 5);
+  assert.deepEqual(late.smashed.map(([id]) => id).sort(), ['bin:h3:0', 'lamp:12']);
+  assert.ok(late.smashed.every(([, ago]) => ago >= 0 && ago < 5));
   for (const client of [a, b, c]) client.close();
 });
 

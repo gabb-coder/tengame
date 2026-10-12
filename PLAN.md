@@ -215,6 +215,27 @@ fight the day/night cycle).
   timing points every 100 m, start lights, DRS light, banners, results; a circuit
   minimap; chase and onboard cameras; watching when joining mid-race.
 
+## Your own keys, punching and kicking
+
+- Keys (client/src/keys.ts): every key in free roam and missions is a named action with
+  a default key (mouse buttons count, as Mouse0..Mouse4). The player's changes are saved
+  with the other settings; racing keeps the defaults. Actions on foot, driving and "any
+  time" can share a key only if they never happen together; putting one on a taken key
+  swaps the two (or leaves the other without a key if that would clash too). Esc is kept
+  for the menu, and chat and the map need a keyboard key. On-screen buttons press the
+  action itself, so they keep working whatever the keys are. Hints and NPC lines that
+  name a key ("Press J") show the player's key.
+- The Keys page (ui/keysPage.ts): a box per action; click it, press a key (or click it
+  with a mouse button); Esc cancels; changes flash and say what moved.
+- Punches and kicks (game/localPlayer.ts): left click jabs and crosses in turn, right
+  click kicks, facing where the camera looks. The punches are the animation library's;
+  the kick is made from the guard pose by aiming the leg's bones (player/humanModel.ts).
+  Each lands partway through, on the nearest thing right in front at the height it lands
+  at (game/impacts.ts, strikeHit). People reel and complain, and fall at the third punch
+  or a kick; other players are told through the server (`strike`, checked: on foot,
+  within reach, not too often), reel or fall in their own game, and lose some health;
+  a kick topples bins, mailboxes and fences, and small animals.
+
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.

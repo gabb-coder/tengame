@@ -1,13 +1,14 @@
 import type { ChatMessage } from '../../../shared/protocol.ts';
-import { fingerWords, touchDevice } from '../device.ts';
+import { touchDevice } from '../device.ts';
+import { keyOf, keyWords, normalizeCode } from '../keys.ts';
 
 const VISIBLE_LINES = 8;
 /** Lines fade after this long unless the chat box is open. */
 const FADE_MS = 12_000;
 
 /**
- * Text chat: Enter opens the box, Enter sends, Esc cancels. Recent lines show
- * bottom-left and fade out after a while.
+ * Text chat: Enter (or the player's own chat key) opens the box, Enter sends, Esc
+ * cancels. Recent lines show bottom-left and fade out after a while.
  */
 export class Chat {
   private log = document.getElementById('chat-log')!;
@@ -22,7 +23,8 @@ export class Chat {
   constructor() {
     if (touchDevice) this.input.placeholder = 'Say something';
     addEventListener('keydown', (e) => {
-      if (e.code !== 'Enter' || !this.enabled || this.isOpen || e.target instanceof HTMLInputElement) return;
+      if (normalizeCode(e.code) !== keyOf('chat') || !this.enabled || this.isOpen || e.target instanceof HTMLInputElement) return;
+      // (So a letter that opens chat isn't typed into it, too.)
       e.preventDefault();
       this.open();
     });
@@ -72,7 +74,7 @@ export class Chat {
   system(text: string): void {
     const li = document.createElement('li');
     li.className = 'system';
-    li.textContent = fingerWords(text);
+    li.textContent = keyWords(text);
     this.push(li);
   }
 

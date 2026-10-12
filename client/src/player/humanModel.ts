@@ -10,13 +10,33 @@ const TALLEST = 1.95;
 
 /** Clip names in the animation file, and the ground speed (m/s) each moving one was made for. */
 const IDLE = 'Idle_Loop';
+/** The kick isn't a clip (see KICK_STEPS), but plays like one. */
+const KICK = 'Kick';
 const JUMP = 'Jump_Loop';
 const SIT = 'Sitting_Idle_Loop';
 const GAITS = ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'];
 const SWIM_IDLE = 'Swim_Idle_Loop';
 const SWIM = 'Swim_Fwd_Loop';
 /** Clips that play once and then hand back to walking or standing. */
-const ONCE = new Set(['Interact', 'PickUp_Table', 'Sword_Attack', 'Spell_Simple_Shoot', 'Hit_Chest']);
+const ONCE = new Set(['Interact', 'PickUp_Table', 'Sword_Attack', 'Spell_Simple_Shoot', 'Hit_Chest', 'Hit_Head', 'Punch_Jab', 'Punch_Cross', KICK]);
+/**
+ * A front kick, which the library doesn't have: made from standing with fists up (the
+ * jab's first moment), by swinging the right leg and leaning the back. Each step: seconds
+ * in; how much of the kick's pose to take over from the standing one (0..1); how far
+ * forward of straight down the right thigh points, and how bent its knee is; how far the
+ * body leans back; and how much the other knee gives (radians). The knee comes up, the
+ * foot snaps out straight at hip height at about 0.3 s, and comes back.
+ */
+const GUARD = 'Punch_Jab';
+const KICK_STEPS: [number, number, number, number, number, number][] = [
+  [0, 0, 0.6, 1.4, 0, 0],
+  [0.16, 1, 1.3, 1.9, 0.1, 0.15],
+  [0.3, 1, 1.5, 0.05, 0.24, 0.2],
+  [0.42, 1, 1.4, 0.2, 0.22, 0.2],
+  [0.6, 1, 1.0, 1.6, 0.1, 0.15],
+  [0.82, 0, 0.4, 0.8, 0, 0],
+];
+export const KICK_SECONDS = KICK_STEPS[KICK_STEPS.length - 1][0];
 /**
  * Getting up off the ground: from however the body lies, onto one knee (a moment of the
  * kneeling clip), then up to standing; seconds for each.
@@ -29,6 +49,9 @@ const TO_FEET = 0.9;
 const HOBBLE_HURRY = 0.45;
 const HOBBLE_STIFF = 0.6;
 const HOBBLE_LEAN = 0.1;
+
+/** The body's sideways axis (its left), which legs swing about and the back bends about. */
+const SIDEWAYS = new THREE.Vector3(1, 0, 0);
 
 /** Eases in and out, 0..1. */
 const ease = (t: number) => {
@@ -400,8 +423,13 @@ export class Human {
       this.actionClock = 0;
     }
     const act = this.action && this.actions.get(this.action);
-    if (act && ONCE.has(this.action!) && this.actionClock >= act.getClip().duration - 0.15) this.action = this.playing = null;
-    if (this.action && act && !this.seated) {
+    const kicking = this.action === KICK;
+    // (A one-shot clip this pack doesn't have ends at once.)
+    const length = act ? act.getClip().duration - 0.15 : kicking ? KICK_SECONDS : 0;
+    if (this.action && ONCE.has(this.action) && this.actionClock >= length) this.action = this.playing = null;
+    if (this.action === KICK && !this.seated) {
+      target.set(this.actions.has(GUARD) ? GUARD : IDLE, 1);
+    } else if (this.action && act && !this.seated) {
       target.set(this.action, 1);
     } else if (this.seated && this.actions.has(SIT)) {
       target.set(this.action === 'Sitting_Talking_Loop' ? this.action : SIT, 1);
@@ -440,10 +468,57 @@ export class Human {
       const duration = action.getClip().duration;
       if (GAITS.includes(name) || name === SWIM) action.time = this.phase * duration;
       else if (name === this.playing) action.time = ONCE.has(name) ? Math.min(this.actionClock, duration - 0.01) : this.actionClock % duration;
+      // Kicking, fists up as at the start of a jab.
+      else if (name === GUARD && this.playing === KICK) action.time = 0;
       else action.time = (action.time + dt) % duration;
     }
     this.mixer.update(0);
+    if (this.playing === KICK) this.kickBones(this.actionClock);
     if (!this.swimming && !this.seated && !this.action) this.hobbleBones(speed);
+  }
+
+  /** Poses the made-up front kick, `t` seconds in (see KICK_STEPS). */
+  private kickBones(t: number): void {
+    let i = 0;
+    while (i < KICK_STEPS.length - 2 && t > KICK_STEPS[i + 1][0]) i++;
+    const [a, b] = [KICK_STEPS[i], KICK_STEPS[i + 1]];
+    const k = ease((t - a[0]) / (b[0] - a[0]));
+    const [w, thigh, knee, lean, give] = [1, 2, 3, 4, 5].map((j) => a[j] + (b[j] - a[j]) * k);
+    this.root.updateMatrixWorld(true);
+    scratch.toRoot.copy(this.root.matrixWorld).invert();
+    // About the sideways axis, a negative turn leans the back back, or swings a leg forward.
+    this.turnBone('spine_01', -lean * 0.6);
+    this.turnBone('spine_02', -lean * 0.4);
+    // The kicking leg: the thigh, then the shin to the knee's bend, each part of the way there.
+    const thighNow = this.legAngle('thigh_r', 'calf_r');
+    this.turnBone('thigh_r', -(thigh - thighNow) * w);
+    const shinNow = this.legAngle('calf_r', 'foot_r');
+    const thighThen = this.legAngle('thigh_r', 'calf_r');
+    this.turnBone('calf_r', -(thighThen - knee - shinNow) * w);
+    this.turnBone('thigh_l', -give * 0.6);
+    this.turnBone('calf_l', give);
+  }
+
+  /** How far forward of straight down a bone points (toward the joint below it), as seen from the side, in `root`'s frame. */
+  private legAngle(name: string, below: string): number {
+    const from = this.bones.get(name)!.getWorldPosition(scratch.p).applyMatrix4(scratch.toRoot);
+    const to = this.bones.get(below)!.getWorldPosition(scratch.target).applyMatrix4(scratch.toRoot);
+    return Math.atan2(to.z - from.z, from.y - to.y);
+  }
+
+  /**
+   * Turns a bone by `angle` about the body's sideways axis (as seen from `root`), on top of
+   * however the animations turned it. Bones above it must be turned first.
+   */
+  private turnBone(name: string, angle: number): void {
+    const bone = this.bones.get(name);
+    if (!bone || !angle) return;
+    this.keep(bone);
+    // The parent's turn relative to `root`, P: the bone turns by P⁻¹ R P in its own frame.
+    relative.multiplyMatrices(scratch.toRoot, bone.parent!.matrixWorld).decompose(scratch.p, scratch.parentQ, scratch.s);
+    scratch.q.setFromAxisAngle(SIDEWAYS, angle).premultiply(scratch.parentQ.clone().invert()).multiply(scratch.parentQ);
+    bone.quaternion.premultiply(scratch.q);
+    bone.updateMatrixWorld(true);
   }
 
   /**

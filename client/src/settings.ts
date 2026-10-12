@@ -17,6 +17,8 @@ export interface Settings {
   showHelp: boolean;
   showNames: boolean;
   showFps: boolean;
+  /** Keys moved from where they start, by action (see keys.ts); '' for none. */
+  keys: Partial<Record<string, string>>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -32,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showHelp: true,
   showNames: true,
   showFps: false,
+  keys: {},
 };
 
 const KEY = 'tengame.settings';

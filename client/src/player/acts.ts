@@ -11,6 +11,12 @@ const ACT_CLIPS: Record<Act, string | null> = {
   // Arm out in front, as if holding a torch: just right for holding a rod.
   fish: 'Idle_Torch_Loop',
   hit: 'Hit_Chest',
+  // Punched: the head snaps back.
+  flinch: 'Hit_Head',
+  jab: 'Punch_Jab',
+  cross: 'Punch_Cross',
+  // Made up from the standing pose (see Human).
+  kick: 'Kick',
   jet: null,
   // Knocked flying by a car: physics throws the limp body about, then it gets up (see AvatarModel.fling).
   tumble: null,
@@ -19,7 +25,7 @@ const ACT_CLIPS: Record<Act, string | null> = {
 };
 
 /** Acts that play once (the player's state keeps naming them only while they play). */
-export const ONE_SHOT_ACTS = new Set<Act>(['interact', 'pickup', 'hit', 'getup']);
+export const ONE_SHOT_ACTS = new Set<Act>(['interact', 'pickup', 'hit', 'flinch', 'jab', 'cross', 'kick', 'getup']);
 
 const graphite = new THREE.MeshStandardMaterial({ color: '#2a2c30', roughness: 0.4, metalness: 0.6 });
 const cork = new THREE.MeshStandardMaterial({ color: '#b08a5a', roughness: 0.9 });

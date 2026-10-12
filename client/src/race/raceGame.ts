@@ -402,12 +402,12 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
     const time = raceTime();
     const go = race.phase === 'racing' || race.phase === 'finished';
 
-    if (input.wasPressed('KeyM')) {
+    if (input.pressed('mute')) {
       muted = !muted;
       applyVolume();
     }
-    if (input.wasPressed('KeyH')) toggleHelp();
-    if (input.wasPressed('KeyF')) {
+    if (input.pressed('help')) toggleHelp();
+    if (input.pressed('fullscreen')) {
       if (document.fullscreenElement) void document.exitFullscreen();
       else void document.documentElement.requestFullscreen?.().catch(() => {});
     }

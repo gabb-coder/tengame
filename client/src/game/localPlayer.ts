@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { APPLIANCE_REACH, type ApplianceKind, TV_REMOTE_REACH } from '../../../shared/appliances.ts';
-import { type Act, type AvatarState, DOOR_REACH } from '../../../shared/protocol.ts';
+import { type Act, type AvatarState, DOOR_REACH, type StrikeKind } from '../../../shared/protocol.ts';
 import { zoneAt } from '../../../shared/world.ts';
 import { doorPosition } from '../../../shared/town.ts';
 import type { Sounds } from '../audio/sounds.ts';
@@ -12,6 +12,7 @@ import { CAMERA_RAY_GROUPS } from '../net/remotePlayers.ts';
 import { rodTip, showAct } from '../player/acts.ts';
 import { AvatarModel } from '../player/avatarModel.ts';
 import { AVATAR, CharacterPhysics } from '../player/character.ts';
+import { KICK_SECONDS } from '../player/humanModel.ts';
 import { Car } from '../vehicles/car.ts';
 import { CAR, type CarControls } from '../vehicles/carPhysics.ts';
 import type { Appliances } from '../world/appliances.ts';
@@ -20,7 +21,7 @@ import { nearestSeat, type Seat } from '../world/seats.ts';
 import type { World } from '../world/world.ts';
 import { placeEffects } from '../world/zones/index.ts';
 import type { Activities, Activity, Mount, Prompt } from './activities.ts';
-import { carHits, type CarShape } from './impacts.ts';
+import { carHits, type CarShape, STRIKE_LIFTS, strikeHit } from './impacts.ts';
 import { game } from './link.ts';
 import { groundUnder } from './limp.ts';
 
@@ -49,7 +50,19 @@ const HEAL_RATE = 4;
 /** Below this much health you limp. */
 const LIMPING_BELOW = 60;
 /** How long one-shot moves take to play. */
-const ONE_SHOT_SECONDS: Partial<Record<Act, number>> = { interact: 1.4, pickup: 1.8, hit: 1.1 };
+const ONE_SHOT_SECONDS: Partial<Record<Act, number>> = { interact: 1.4, pickup: 1.8, hit: 1.1, flinch: 0.45 };
+/**
+ * Punches (a jab, then a cross, taking turns) and kicks: when each lands (seconds in),
+ * how long it's shown, and how soon the next can start.
+ */
+type StrikeAct = 'jab' | 'cross' | 'kick';
+const STRIKE_MOVES: Record<StrikeAct, { lands: number; shows: number; next: number }> = {
+  jab: { lands: 0.2, shows: 0.55, next: 0.38 },
+  cross: { lands: 0.25, shows: 0.62, next: 0.42 },
+  kick: { lands: 0.3, shows: KICK_SECONDS, next: 0.75 },
+};
+/** Health a punch and a kick from another player take off. */
+const STRUCK_HARM: Record<StrikeKind, number> = { punch: 7, kick: 14 };
 
 export type Mode = 'car' | 'foot';
 
@@ -91,7 +104,7 @@ export class LocalPlayer {
   private mount: Mount | null = null;
   /** Walking speed as a fraction of normal (slowed when freezing). */
   speedScale = 1;
-  /** Dancing (G): until you move. */
+  /** Dancing (G, see keys.ts): until you move. */
   dancing = false;
   /** Typing in chat: shown to others as talking. */
   chatting = false;
@@ -103,6 +116,10 @@ export class LocalPlayer {
   private task: { act: Act; yaw: number; stop: () => void } | null = null;
   /** A quick move playing (pressing a button, picking something up), and time left. */
   private oneShot: { act: Act; left: number } | null = null;
+  /** A punch or kick under way: which, how far in (s), and whether it has landed yet. */
+  private striking: { act: StrikeAct; t: number; landed: boolean } | null = null;
+  /** Punches take turns: a jab with the left, then a cross with the right. */
+  private nextPunch: 'jab' | 'cross' = 'jab';
   private shownAct: Act | null = null;
   private time = 0;
   /** 0..100: a car knocks some off, and it slowly comes back. */
@@ -159,7 +176,7 @@ export class LocalPlayer {
     if (this.task && (c.forward || c.strafe || c.jump)) this.stopTask();
     // Limp, the body is all physics; the walking capsule waits until we're up.
     if (this.knockdown && this.knockdown.phase !== 'up') return;
-    if (this.mount || this.task || this.knockdown) {
+    if (this.mount || this.task || this.knockdown || this.rooted) {
       if (this.task) this.character.yaw = this.task.yaw;
       this.character.step(STILL, false, false, dt, place);
       return;
@@ -182,28 +199,58 @@ export class LocalPlayer {
     this.character.step(move, c.run && !this.hurt, c.jump, dt, place, thrust);
   }
 
+  /** Planted mid punch or kick, until the next one could start. */
+  private get rooted(): boolean {
+    return this.striking !== null && this.striking.t < STRIKE_MOVES[this.striking.act].next;
+  }
+
   /** Limping after being hit by a car, until health comes back. */
   get hurt(): boolean {
     return this.health < LIMPING_BELOW;
   }
 
-  /** Hit by a car: thrown at `v` (m/s) and hurt by how hard; down for a moment, then up. */
-  knockedBy(v: THREE.Vector3Like): void {
+  /**
+   * Hit by a car (or kicked): thrown at `v` (m/s) and hurt by how hard (or by `harm`); down
+   * for a moment, then up.
+   */
+  knockedBy(v: THREE.Vector3Like, harm?: number): void {
     // Already flying or lying there: one knock at a time.
     if (this.mode !== 'foot' || this.knockdown) return;
     if (this.mount) this.leave(true);
     this.stopTask();
     this.dancing = false;
     this.oneShot = null;
+    this.striking = null;
     this.knockedFrom.copy(this.character.feet);
     this.avatar.fling(this.world.physics, v);
     this.character.setEnabled(false);
     const speed = Math.hypot(v.x, v.y, v.z);
-    this.health = Math.max(0, this.health - (HIT_HARM + speed * HARM_PER_MS));
+    this.health = Math.max(0, this.health - (harm ?? HIT_HARM + speed * HARM_PER_MS));
     this.sinceHurt = 0;
     this.flash = 1;
     this.knockdown = { phase: 'fly', left: 0, out: this.health <= 0 };
     this.sounds.thud(this.knockedFrom, Math.min(1, speed / 15));
+  }
+
+  /**
+   * Punched or kicked by another player, pushed at `v` (m/s). A kick knocks you down; a
+   * punch makes you reel, unless it's one too many. Returns whether it reached you (not
+   * in a car, say).
+   */
+  struck(kind: StrikeKind, v: THREE.Vector3Like): boolean {
+    if (this.mode !== 'foot' || this.knockdown) return false;
+    if (kind === 'kick' || this.health <= STRUCK_HARM.punch) {
+      this.knockedBy(kind === 'kick' ? v : { x: v.x, y: 1.5, z: v.z }, STRUCK_HARM[kind]);
+      return true;
+    }
+    this.health -= STRUCK_HARM.punch;
+    this.sinceHurt = 0;
+    this.flash = Math.max(this.flash, 0.6);
+    this.striking = null;
+    this.stopTask();
+    this.dancing = false;
+    this.playOnce('flinch');
+    return true;
   }
 
   /** Healing over time, and the knockdown: flying, lying there, getting up. */
@@ -283,16 +330,27 @@ export class LocalPlayer {
     const moving = c.forward || c.strafe || c.jump;
     if (this.mount && !this.mount.ride && moving) this.leave();
     if (this.mount?.done?.()) this.leave(true);
-    if (this.mode === 'foot' && input.wasPressed('KeyG') && !this.mount && !this.task) this.dancing = !this.dancing;
+    if (this.mode === 'foot' && input.pressed('dance') && !this.mount && !this.task) this.dancing = !this.dancing;
     if (moving || this.mode !== 'foot' || this.mount || this.task) this.dancing = false;
     if (this.oneShot && (this.oneShot.left -= dt) <= 0) this.oneShot = null;
     this.recover(dt);
+    if (this.mode === 'foot') {
+      if (input.pressed('punch')) this.strike('punch');
+      if (input.pressed('kick')) this.strike('kick');
+    }
+    this.followThrough(dt);
+    // Once it's landed, walking off cuts the rest of it short.
+    const s = this.striking;
+    if (s && moving && !this.rooted) {
+      this.striking = null;
+      if (this.oneShot?.act === s.act) this.oneShot = null;
+    }
     this.interaction = this.findInteraction();
-    if (input.wasPressed('KeyE')) this.interact();
-    if (this.mount && !this.mount.ride && input.wasPressed('KeyR')) this.useRemote();
+    if (input.pressed(this.mode === 'car' ? 'getOut' : 'use')) this.interact();
+    if (this.mount && !this.mount.ride && input.pressed('remote')) this.useRemote();
     if (this.mode === 'car' && !this.frozen) {
-      if (input.wasPressed('KeyR')) this.car.reset();
-      if (input.wasPressed('KeyT')) this.car.replace();
+      if (input.pressed('flip')) this.car.reset();
+      if (input.pressed('newCar')) this.car.replace();
     }
 
     this.car.update(dt);
@@ -344,6 +402,58 @@ export class LocalPlayer {
     if (this.dancing) return 'dance';
     if (this.chatting && !this.mount?.ride) return 'talk';
     return null;
+  }
+
+  /** Throws a punch or a kick, turning to face where the camera looks. */
+  private strike(kind: StrikeKind): void {
+    const s = this.striking;
+    if (s && s.t < STRIKE_MOVES[s.act].next) return;
+    if (this.mount || this.task || this.knockdown || this.swimming || this.jetpack?.thrusting) return;
+    if (kind === 'kick' && !this.character.grounded) return;
+    const act: StrikeAct = kind === 'kick' ? 'kick' : this.nextPunch;
+    if (kind === 'punch') this.nextPunch = this.nextPunch === 'jab' ? 'cross' : 'jab';
+    this.dancing = false;
+    const { forward } = this.orbit.basis;
+    this.character.yaw = Math.atan2(forward.x, forward.z);
+    this.striking = { act, t: 0, landed: false };
+    this.oneShot = { act, left: STRIKE_MOVES[act].shows };
+    this.sounds.swing(this.character.feet.clone().setY(this.character.feet.y + 1.2), kind === 'kick');
+  }
+
+  /** A punch or kick under way: lands partway through, on whatever is right in front. */
+  private followThrough(dt: number): void {
+    const s = this.striking;
+    if (!s) return;
+    if (this.mode !== 'foot' || this.mount || this.knockdown) {
+      this.striking = null;
+      return;
+    }
+    s.t += dt;
+    if (!s.landed && s.t >= STRIKE_MOVES[s.act].lands) {
+      s.landed = true;
+      this.land(s.act === 'kick' ? 'kick' : 'punch');
+    }
+    if (s.t >= STRIKE_MOVES[s.act].shows) this.striking = null;
+  }
+
+  /** What the punch or kick hits, if anything: people and players react; light things get knocked flying. */
+  private land(kind: StrikeKind): void {
+    const feet = this.character.feet;
+    const yaw = this.character.yaw;
+    const target = strikeHit(game.impacts, kind, feet, yaw);
+    if (!target) return;
+    const at = target.at(new THREE.Vector3())!;
+    at.y = feet.y + (kind === 'kick' ? 0.8 : 1.4);
+    const dir = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    if (target.struck) {
+      target.struck(kind, dir);
+      this.sounds.smack(at, kind === 'kick');
+      return;
+    }
+    // Things that don't mind being hit: knocked flying if they're light enough (a bin), otherwise just a knock.
+    const lift = STRIKE_LIFTS[kind];
+    if (!target.solid && target.mass <= lift.mass) target.hit(dir.multiplyScalar(lift.speed));
+    else this.sounds.smack(at, kind === 'kick', true);
   }
 
   /** Plays a quick move: pressing a button, picking something up, being knocked back. */
@@ -523,7 +633,7 @@ export class LocalPlayer {
     } else if (i?.kind === 'activity' && !i.prompt.waiting) i.activity.use();
   }
 
-  /** R while seated: the TV remote. */
+  /** R (see keys.ts) while seated: the TV remote. */
   private useRemote(): void {
     const tv = this.remoteTv;
     if (tv) this.requestSwitch(tv.id, !tv.on);
@@ -548,6 +658,7 @@ export class LocalPlayer {
     this.stopTask();
     this.dancing = false;
     this.oneShot = null;
+    this.striking = null;
     this.mode = 'car';
     this.car.engineOn = true;
     this.character.teleport(HIDDEN_FEET);

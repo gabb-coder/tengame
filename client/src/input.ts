@@ -1,4 +1,5 @@
 import { touchDevice } from './device.ts';
+import { type Action, isBound, keyOf, normalizeCode } from './keys.ts';
 import { settings } from './settings.ts';
 import type { CarControls } from './vehicles/carPhysics.ts';
 
@@ -24,12 +25,15 @@ const STICK_RUN = 0.9;
 const STICK_FULL = 0.7;
 
 /**
- * Tracks held keys and mouse movement, and on phones and tablets the on-screen stick,
- * buttons and finger drags (see TouchControls). Ignores keys typed into form fields.
+ * Tracks held keys, mouse buttons and mouse movement, and on phones and tablets the
+ * on-screen stick, buttons and finger drags (see TouchControls). Ignores keys typed into
+ * form fields. Most things are asked for by action ('jump', 'punch'), on whichever key
+ * the player has put it (see keys.ts); on-screen buttons press an action itself, as
+ * '@jump' and so on.
  */
 export class Input {
   private held = new Set<string>();
-  private pressed = new Set<string>();
+  private presses = new Set<string>();
   private mouse = { x: 0, y: 0 };
   private dragged = { x: 0, y: 0 };
   /** Where the on-screen stick is pushed: x right, y forward, within the unit circle. */
@@ -42,13 +46,30 @@ export class Input {
   constructor(private pointerTarget: HTMLElement) {
     addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || !this.enabled) return;
-      if (!e.repeat) this.pressed.add(e.code);
-      this.held.add(e.code);
-      // Keep Space/arrows from scrolling or clicking focused buttons.
-      if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+      const code = normalizeCode(e.code);
+      if (!e.repeat) this.presses.add(code);
+      this.held.add(code);
+      // Keep game keys from doing what they'd do on a page (Space and arrows scroll or
+      // click focused buttons, F5 reloads, Alt opens the browser's menu...).
+      if (code === 'Space' || code.startsWith('Arrow') || isBound(code)) e.preventDefault();
     });
-    addEventListener('keyup', (e) => this.held.delete(e.code));
+    addEventListener('keyup', (e) => this.held.delete(normalizeCode(e.code)));
     addEventListener('blur', () => this.held.clear());
+    // Mouse buttons count once the mouse is captured (the first click only captures it).
+    document.addEventListener('mousedown', (e) => {
+      if (!this.pointerLocked || !this.enabled) return;
+      const code = `Mouse${e.button}`;
+      this.presses.add(code);
+      this.held.add(code);
+      // The side buttons would go back a page, out of the game.
+      if (e.button > 2) e.preventDefault();
+    });
+    document.addEventListener('mouseup', (e) => {
+      this.held.delete(`Mouse${e.button}`);
+      if (e.button > 2 && this.pointerLocked) e.preventDefault();
+    });
+    // The right button kicks; it shouldn't open the page's menu too.
+    pointerTarget.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // Click the game to capture the mouse for looking around; Esc releases it. (Fingers drag to look instead.)
     pointerTarget.addEventListener('click', () => {
@@ -68,10 +89,10 @@ export class Input {
   get car(): CarControls {
     const { x, y } = this.stick;
     return {
-      throttle: Math.max(this.any('KeyW', 'ArrowUp') ? 1 : 0, push(y)),
-      brake: Math.max(this.any('KeyS', 'ArrowDown') ? 1 : 0, push(-y)),
-      steer: clamp((this.any('KeyD', 'ArrowRight') ? 1 : 0) - (this.any('KeyA', 'ArrowLeft') ? 1 : 0) + push(x) - push(-x)),
-      handbrake: this.any('Space'),
+      throttle: Math.max(this.isDown('accelerate') || this.arrow('ArrowUp') ? 1 : 0, push(y)),
+      brake: Math.max(this.isDown('brake') || this.arrow('ArrowDown') ? 1 : 0, push(-y)),
+      steer: clamp((this.isDown('steerRight') || this.arrow('ArrowRight') ? 1 : 0) - (this.isDown('steerLeft') || this.arrow('ArrowLeft') ? 1 : 0) + push(x) - push(-x)),
+      handbrake: this.isDown('handbrake'),
     };
   }
 
@@ -81,10 +102,10 @@ export class Input {
     const length = Math.hypot(x, y);
     const k = length > STICK_DEAD ? Math.min(1, (length - STICK_DEAD) / (1 - STICK_DEAD)) / length : 0;
     return {
-      forward: clamp((this.any('KeyW') ? 1 : 0) - (this.any('KeyS') ? 1 : 0) + y * k),
-      strafe: clamp((this.any('KeyD') ? 1 : 0) - (this.any('KeyA') ? 1 : 0) + x * k),
-      run: this.any('ShiftLeft', 'ShiftRight') || length >= STICK_RUN,
-      jump: this.any('Space'),
+      forward: clamp((this.isDown('forward') ? 1 : 0) - (this.isDown('back') ? 1 : 0) + y * k),
+      strafe: clamp((this.isDown('right') ? 1 : 0) - (this.isDown('left') ? 1 : 0) + x * k),
+      run: this.isDown('run') || length >= STICK_RUN,
+      jump: this.isDown('jump'),
     };
   }
 
@@ -108,18 +129,18 @@ export class Input {
     this.dragged.y += dy;
   }
 
-  /** An on-screen button held down or let go: just as if `code` were a key on the keyboard. */
+  /** An on-screen button held down or let go: just as if `code` were a key on the keyboard ('@jump' for an action). */
   hold(code: string, down: boolean): void {
     if (!down) this.held.delete(code);
     else if (this.enabled && !this.held.has(code)) {
-      this.pressed.add(code);
+      this.presses.add(code);
       this.held.add(code);
     }
   }
 
-  /** An on-screen button tapped: a quick press of `code`. */
+  /** An on-screen button tapped: a quick press of `code` ('@journal' for an action). */
   tap(code: string): void {
-    if (this.enabled) this.pressed.add(code);
+    if (this.enabled) this.presses.add(code);
   }
 
   /**
@@ -131,8 +152,8 @@ export class Input {
     const drag = DRAG_SENSITIVITY * settings.mouseSensitivity;
     const x = this.mouse.x * sensitivity + this.dragged.x * drag;
     const y = this.mouse.y * sensitivity + this.dragged.y * drag;
-    const yaw = -x + ((this.any('ArrowLeft') ? 1 : 0) - (this.any('ArrowRight') ? 1 : 0)) * KEY_LOOK_SPEED * dt;
-    const pitch = y * (settings.invertY ? -1 : 1) + ((this.any('ArrowDown') ? 1 : 0) - (this.any('ArrowUp') ? 1 : 0)) * KEY_LOOK_SPEED * dt * 0.6;
+    const yaw = -x + ((this.arrow('ArrowLeft') ? 1 : 0) - (this.arrow('ArrowRight') ? 1 : 0)) * KEY_LOOK_SPEED * dt;
+    const pitch = y * (settings.invertY ? -1 : 1) + ((this.arrow('ArrowDown') ? 1 : 0) - (this.arrow('ArrowUp') ? 1 : 0)) * KEY_LOOK_SPEED * dt * 0.6;
     this.mouse.x = this.mouse.y = 0;
     this.dragged.x = this.dragged.y = 0;
     return { yaw, pitch };
@@ -140,13 +161,27 @@ export class Input {
 
   /** True once per key press; call once per frame per key. */
   wasPressed(code: string): boolean {
-    return this.pressed.delete(code);
+    return this.presses.delete(code);
+  }
+
+  /** True once per press of `action`'s key (or its on-screen button). */
+  pressed(action: Action): boolean {
+    const code = keyOf(action);
+    // Both, so neither press is left over for later.
+    const button = this.presses.delete(`@${action}`);
+    return (code !== '' && this.presses.delete(code)) || button;
+  }
+
+  /** Whether `action`'s key (or its on-screen button) is held down. */
+  isDown(action: Action): boolean {
+    const code = keyOf(action);
+    return (code !== '' && this.held.has(code)) || this.held.has(`@${action}`);
   }
 
   /** Let go of everything, e.g. when focus moves to the chat box. */
   releaseAll(): void {
     this.held.clear();
-    this.pressed.clear();
+    this.presses.clear();
     this.mouse.x = this.mouse.y = 0;
     this.dragged.x = this.dragged.y = 0;
     this.stick.x = this.stick.y = 0;
@@ -154,11 +189,12 @@ export class Input {
 
   /** Forget presses nobody asked about this frame. */
   endFrame(): void {
-    this.pressed.clear();
+    this.presses.clear();
   }
 
-  private any(...codes: string[]): boolean {
-    return codes.some((k) => this.held.has(k));
+  /** An arrow key held: they look around on foot and drive in the car, unless they've been given something else to do. */
+  private arrow(code: string): boolean {
+    return this.held.has(code) && !isBound(code);
   }
 }
 

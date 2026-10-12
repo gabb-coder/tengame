@@ -55,8 +55,17 @@ export const SMASH_REPAIR_SECONDS = 180;
 /** Nobody hit by a car flies off faster than this (m/s). */
 export const MAX_KNOCK_SPEED = 45;
 
-/** Something a player's character is doing, shown to everyone. */
-export const ACTS = ['dance', 'talk', 'interact', 'pickup', 'fish', 'hit', 'jet', 'tumble', 'down', 'getup'] as const;
+/** A punch or kick sends someone off no faster than this (m/s). */
+export const MAX_STRIKE_SPEED = 9;
+/** How a player can hit someone on foot. */
+export const STRIKES = ['punch', 'kick'] as const;
+export type StrikeKind = (typeof STRIKES)[number];
+
+/**
+ * Something a player's character is doing, shown to everyone. Punches alternate between
+ * a jab and a cross (so two in a row show as two).
+ */
+export const ACTS = ['dance', 'talk', 'interact', 'pickup', 'fish', 'hit', 'flinch', 'jab', 'cross', 'kick', 'jet', 'tumble', 'down', 'getup'] as const;
 export type Act = (typeof ACTS)[number];
 /** Things a player can carry or wear. */
 export const GEARS = ['jetpack'] as const;
@@ -190,7 +199,8 @@ export interface TriggerRequestMessage {
 
 /**
  * Our car hit someone, sending them flying at `v` (m/s). `target` is a player's id, or
- * `npc:<id>` for one of the people walking about the world (everyone sees them fly).
+ * `npc:<id>` for one of the people or animals about the world (everyone sees them fly);
+ * those can be knocked over on foot too, with a kick.
  */
 export interface KnockRequestMessage {
   type: 'knock';
@@ -198,7 +208,19 @@ export interface KnockRequestMessage {
   v: Vec3;
 }
 
-/** Our car smashed a street thing (`lamp:12`, `bin:<house>:1`...), knocking it off at `v` (m/s). */
+/**
+ * We punched or kicked `target` (a player's id, or `npc:<id>` for one of the people
+ * walking about the world), pushing them at `v` (m/s). Only on foot, and only someone
+ * within reach.
+ */
+export interface StrikeRequestMessage {
+  type: 'strike';
+  target: string;
+  kind: StrikeKind;
+  v: Vec3;
+}
+
+/** Our car (or a kick) smashed a street thing (`lamp:12`, `bin:<house>:1`...), knocking it off at `v` (m/s). */
 export interface SmashRequestMessage {
   type: 'smash';
   id: string;
@@ -214,6 +236,7 @@ export type ClientMessage =
   | ChatRequestMessage
   | TimeRequestMessage
   | KnockRequestMessage
+  | StrikeRequestMessage
   | SmashRequestMessage
   | LapRequestMessage
   | BotsRequestMessage
@@ -355,6 +378,16 @@ export interface KnockMessage {
   by: string;
 }
 
+/** Someone punched or kicked `target` (a player, or one of the people walking about), pushing them at `v`. Sent to everyone but them. */
+export interface StrikeMessage {
+  type: 'strike';
+  target: string;
+  kind: StrikeKind;
+  v: Vec3;
+  /** Who did it. */
+  by: string;
+}
+
 /** Someone's car smashed a street thing (sent to everyone else). */
 export interface SmashMessage {
   type: 'smash';
@@ -458,6 +491,7 @@ export type ServerMessage =
   | SwitchMessage
   | TriggerMessage
   | KnockMessage
+  | StrikeMessage
   | SmashMessage
   | ChatMessage
   | NoticeMessage

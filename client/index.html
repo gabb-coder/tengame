@@ -147,7 +147,7 @@
           <h2 id="menu-heading">Menu</h2>
           <p class="menu-note">The game keeps going for everyone else while this is open.</p>
           <button type="button" id="menu-resume" class="primary">Resume</button>
-          <button type="button" id="menu-open-journal" class="secondary">Journal <small>(J)</small></button>
+          <button type="button" id="menu-open-journal" class="secondary">Journal <small id="menu-journal-key">(J)</small></button>
           <button type="button" id="menu-change-gp" class="secondary" hidden>Change Grand Prix</button>
           <button type="button" id="menu-open-settings" class="secondary">Settings</button>
           <button type="button" id="menu-leave" class="danger">Leave room</button>
@@ -161,6 +161,7 @@
           <h3>Controls</h3>
           <label class="setting">Mouse sensitivity <input type="range" id="set-mouseSensitivity" min="0.25" max="3" step="0.05" /><output></output></label>
           <label class="setting toggle">Invert mouse up/down <input type="checkbox" id="set-invertY" /></label>
+          <button type="button" id="settings-keys" class="secondary keys-only settings-keys" hidden>Change keys…</button>
           <h3>Display</h3>
           <label class="setting">Graphics
             <select id="set-quality">
@@ -183,6 +184,19 @@
           <div class="menu-row">
             <button type="button" id="settings-reset" class="secondary">Reset to defaults</button>
             <button type="button" id="settings-back" class="primary">Done</button>
+          </div>
+        </section>
+
+        <section id="menu-keys" class="keys" hidden>
+          <h2>Keys</h2>
+          <p class="menu-note">Click a box, then press the key you want for it. To use a mouse button, click the box with that button. Esc cancels.</p>
+          <div id="keys-list"></div>
+          <div class="keys-footer">
+            <p class="menu-note keys-note" id="keys-note" role="status"></p>
+            <div class="menu-row">
+              <button type="button" id="keys-reset" class="secondary">Reset keys</button>
+              <button type="button" id="keys-back" class="primary">Done</button>
+            </div>
           </div>
         </section>
 
