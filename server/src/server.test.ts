@@ -513,3 +513,47 @@ test('smashed street things stay smashed for everyone, newcomers included, and c
   assert.ok(late.smashed[0][1] >= 0 && late.smashed[0][1] < 5);
   for (const client of [a, b, c]) client.close();
 });
+
+test('racing rooms race what the lobby chose, relay the computer cars, and check settings', async () => {
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice', mode: 'racing', race: { circuit: 'monaco', laps: 3, bots: 5, difficulty: 'hard' } });
+  const welcome = await a.next('welcome');
+  assert.equal(welcome.mode, 'racing');
+  assert.deepEqual(welcome.race?.setup, { circuit: 'monaco', laps: 3, bots: 5, difficulty: 'hard' });
+  assert.equal(welcome.race?.phase, 'grid');
+  assert.equal(welcome.race?.host, welcome.id);
+  assert.equal(welcome.race?.cars.length, 6);
+
+  // A friend joins the grid; Alice's game drives the computer cars and the friend sees them
+  // once their game has built the circuit (the start waits for that too).
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room: welcome.room });
+  const welcomeB = await b.next('welcome');
+  assert.equal(welcomeB.race?.cars.length, 7);
+  assert.equal(welcomeB.race?.cars.find((c) => c.id === welcomeB.id)?.loading, true);
+  a.send({ type: 'race_ready' });
+  await new Promise((done) => setTimeout(done, 300));
+  assert.ok(!b.inbox.some((m) => m.type === 'snapshot'), 'no snapshots while loading');
+  b.send({ type: 'race_ready' });
+  const car = { steer: 0, rpm: 9000, load: 1, speed: 60, braking: false, drs: true };
+  a.send({ type: 'bots', race: 1, bots: [{ n: 0, p: [1, 2, 3], q: [0, 0, 0, 1], car }, { n: 99, p: [0, 0, 0], q: [0, 0, 0, 1], car }] });
+  b.send({ type: 'bots', race: 1, bots: [{ n: 1, p: [9, 9, 9], q: [0, 0, 0, 1], car }] });
+  let bots;
+  for (let i = 0; i < 10 && !bots; i++) bots = (await b.next('snapshot')).bots;
+  assert.deepEqual(bots, [{ n: 0, p: [1, 2, 3], q: [0, 0, 0, 1], car }]);
+  // Only the host may start it early.
+  b.send({ type: 'race_start' });
+  a.send({ type: 'race_start' });
+  let race;
+  for (let i = 0; i < 10 && race?.phase !== 'lights'; i++) race = (await b.next('race')).race;
+  assert.equal(race?.phase, 'lights');
+  a.close();
+  b.close();
+
+  // Nonsense settings fall back to sensible ones.
+  const c = await TestClient.connect();
+  c.send({ type: 'join', name: 'Cy', mode: 'racing', race: { circuit: 'moon', laps: 999, bots: -4, difficulty: 'godlike' } });
+  const odd = await c.next('welcome');
+  assert.deepEqual(odd.race?.setup, { circuit: 'sepang', laps: 30, bots: 0, difficulty: 'normal' });
+  c.close();
+});

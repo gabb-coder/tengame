@@ -48,6 +48,7 @@ import { syncClock, worldSeconds } from './game/clock.ts';
 import { game, playTrigger } from './game/link.ts';
 import { Limp } from './game/limp.ts';
 import { markFired, zoneSeats } from './world/zones/buttons.ts';
+import { startRace } from './race/raceGame.ts';
 
 const SEND_INTERVAL_MS = 1000 / TICK_RATE;
 const PHYSICS_STEP = 1 / 60;
@@ -82,18 +83,37 @@ const titleReady = physicsReady.then(nextPaint).then(() => {
   return { world, title };
 });
 
-runLobby(async ({ name, room, mode }) => {
+runLobby(async ({ name, room, mode, race }) => {
   // Browsers only allow audio to start from a user gesture, like this click.
   const listener = new THREE.AudioListener();
   void listener.context.resume();
-  const [{ conn, welcome }, { world, title }] = await Promise.all([Connection.join(name, room, mode), titleReady]);
+  const [{ conn, welcome }, { world, title }] = await Promise.all([Connection.join(name, room, mode, race), titleReady]);
   history.replaceState(null, '', `?room=${welcome.room}`);
+  if (welcome.mode === 'racing') {
+    // A racing room races on its circuit: the town behind the title screen makes way.
+    title.stop();
+    clearWorld(world);
+    await startRace({ conn, welcome, listener, renderer: world.renderer, container, media });
+    return;
+  }
   setLobbyStatus('Loading textures…');
   await Promise.race([media.textures, new Promise((done) => setTimeout(done, TEXTURE_WAIT_MS))]);
   title.stop();
   setLobbyStatus('Preparing graphics…');
   await startGame(conn, welcome, listener, world);
 });
+
+/** Frees the town and the lands (their meshes and physics), keeping the renderer for the race. */
+function clearWorld(world: World): void {
+  world.scene.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    mesh.geometry?.dispose();
+    for (const m of Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) m.dispose();
+  });
+  world.scene.clear();
+  world.physics.free();
+  world.renderer.renderLists.dispose();
+}
 
 async function startGame(conn: Connection, welcome: WelcomeMessage, listener: THREE.AudioListener, world: World): Promise<void> {
   syncClock(welcome.now);

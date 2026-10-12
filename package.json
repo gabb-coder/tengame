@@ -12,7 +12,8 @@
     "start": "npm run start -w server",
     "test": "npm test --workspaces",
     "typecheck": "npm run typecheck -w client && npm run typecheck -w server",
-    "assets": "node scripts/fetch-assets.mjs"
+    "assets": "node scripts/fetch-assets.mjs",
+    "circuits": "node scripts/circuits.mjs"
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.5.1",

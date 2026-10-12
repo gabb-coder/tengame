@@ -26,6 +26,14 @@ const BUTTONS: Button[] = [
   { label: 'Flip', key: 'KeyR', when: 'car', slot: 3 },
 ];
 
+/** Racing: brake, the rear wing, the camera, and back onto the track after an off. */
+const RACE_BUTTONS: Button[] = [
+  { label: 'Brake', key: 'Space', hold: true, when: 'car', slot: 0 },
+  { label: 'DRS', key: 'KeyQ', when: 'car', slot: 1 },
+  { label: 'Camera', key: 'KeyC', when: 'car', slot: 2 },
+  { label: 'Back on track', key: 'KeyT', when: 'car', slot: 3 },
+];
+
 /** What the controls need to know each frame. */
 export interface TouchState {
   driving: boolean;
@@ -54,7 +62,7 @@ export class TouchControls {
 
   constructor(
     private input: Input,
-    tools: { chat: () => void },
+    tools: { chat: () => void; racing?: boolean },
   ) {
     // The stick and looking around, on a layer under the HUD: fingers reach it wherever there's no panel.
     this.pad.className = 'touch-pad';
@@ -71,7 +79,7 @@ export class TouchControls {
 
     const cluster = document.createElement('div');
     cluster.className = 'touch-buttons';
-    for (const spec of BUTTONS) {
+    for (const spec of tools.racing ? RACE_BUTTONS : BUTTONS) {
       const el = document.createElement('button');
       el.type = 'button';
       el.className = `touch-button ${spec.when} slot-${spec.slot}`;
@@ -102,10 +110,12 @@ export class TouchControls {
     this.soundButton = tool('Sound on', 'Sound on or off', () => input.tap('KeyM'));
     const row = document.createElement('div');
     row.className = 'hud-buttons touch-tools';
-    row.append(tool('Chat', 'Chat', tools.chat), tool('Journal', 'Journal', () => input.tap('KeyJ')), this.soundButton);
+    row.append(tool('Chat', 'Chat', tools.chat));
+    if (!tools.racing) row.append(tool('Journal', 'Journal', () => input.tap('KeyJ')));
+    row.append(this.soundButton);
     if (document.fullscreenEnabled) row.append(tool('Full screen', 'Full screen', () => input.tap('KeyF')));
     document.querySelector('.hud-room .hud-buttons')!.after(row);
-    document.getElementById('hud-clock-hint')!.replaceChildren(tool('+2 h', 'Skip ahead two hours', () => input.tap('KeyN')));
+    if (!tools.racing) document.getElementById('hud-clock-hint')!.replaceChildren(tool('+2 h', 'Skip ahead two hours', () => input.tap('KeyN')));
 
     // Words that name keys say what to tap instead.
     const fuel = document.querySelector('.fuel-row span:last-child');

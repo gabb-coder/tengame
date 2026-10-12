@@ -13,3 +13,8 @@ export function syncClock(serverNow: number): void {
 export function worldSeconds(): number {
   return (Date.now() + offset) / 1000;
 }
+
+/** Milliseconds on the shared clock (server time). */
+export function serverNow(): number {
+  return Date.now() + offset;
+}

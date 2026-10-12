@@ -171,6 +171,43 @@ fight the day/night cycle).
   or pinch, Find me, Close.
 - T gives a new car right where you are (upright, same heading) instead of back at the start.
 
+## Racing mode
+
+- A third mode: Grand Prix racing on ten real circuits (shared/circuits.ts): Sepang, Marina
+  Bay (night, streets), Silverstone, Monza, Spa, Monaco (streets), Suzuka (figure of eight
+  with a bridge), Interlagos, Sakhir (night, desert) and Spielberg.
+- Circuits (scripts/circuits.mjs → media/circuits/*.json): each real shape (bacinger/
+  f1-circuits, MIT) through a smooth spline every 4 m, the ground's heights along it and
+  around it from NASA SRTM (via OpenTopoData), smoothed and with gentle crests (a survey's
+  ripples throw a car in the air at 300 km/h), a bridge where Suzuka crosses itself.
+- From the shape (race/track.ts, racingLine.ts, layout.ts): projection onto the lap, the
+  minimum-curvature racing line and the speed a car can carry round it (grip with
+  downforce, measured acceleration, braking), the DRS zones on the longest flat-out
+  straights, the grid, the pit straight, kerbs where the line touches the edge, run-off
+  (wide on the outside of fast corners, never into another part of the track) and the
+  grandstands.
+- Built in code (race/circuit/): the track rubbered in along the line, lines, kerbs, grass,
+  gravel, asphalt run-off and sand; walls with catch fencing, armco and tyre walls; pits
+  with every team's garage; the start gantry and its lights; grandstands with crowds;
+  marshal posts, boards, floodlights for night races; the land levelled round the track
+  and blended into the real hills; woods, palms or city blocks; the sea by Monaco and
+  Marina Bay. One trimesh per surface kind tells the cars what they're on.
+- The car (race/f1.ts, f1Model.ts): CarPhysics with a spec per car; the F1 one has
+  downforce, grip-limited brakes and traction control, a speed-dependent steering lock,
+  eight gears, wider rear tires, DRS and slipstream (race/racer.ts, drs.ts), and a V6
+  voice. The model is lofted in code and painted per team in the shader.
+- Computer drivers (race/ai.ts): pure pursuit on the racing line, speed control to their
+  skill's profile, passing on the side with room, yielding side by side into corners,
+  following without rear-ending, DRS, rescue when stuck. Headless tests lap all ten
+  circuits within 1% of the plan and race twelve cars (and get past a much slower one).
+- The server referees (server/src/race.ts): grid (its countdown waits for the host's game, the lights for everyone's),
+  five lights and a random hold, lap reports checked (the right lap, a possible time, the
+  right moment), the chequered flag, results, and the next race. One player's game drives
+  the computer cars and relays them; another takes over if that player leaves.
+- The race screens (race/raceHud.ts): timing tower, position, laps and lap times, gaps from
+  timing points every 100 m, start lights, DRS light, banners, results; a circuit
+  minimap; chase and onboard cameras; watching when joining mid-race.
+
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.
@@ -179,5 +216,7 @@ fight the day/night cycle).
 - Boats and horses you steer yourself, not just ride.
 - Doors inside houses (two-story houses currently have open doorways only).
 - More mission types (e.g. a cross-zone rally), more car choices.
+- Racing: qualifying, pit stops and tyre wear, rain, a choice of the next circuit between
+  races, the pit lane open to drive in.
 - Real CC0 models for some zone props (ships, rocks, statues) instead of shapes.
 - Server-side sanity checks on player positions (not needed among friends).

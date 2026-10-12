@@ -3,7 +3,7 @@
 A browser-based 3D multiplayer driving game (up to 4 players per room).
 See [PLAN.md](PLAN.md) for the roadmap.
 
-**Current status: all 8 milestones done.** Drive a car with suspension, steering, tire grip, an
+**Current status: all 8 milestones done, plus a racing mode on ten real circuits.** Drive a car with suspension, steering, tire grip, an
 automatic gearbox and engine sound around a small town of 48 houses. Get out to walk around,
 open front doors and explore furnished rooms (two-story houses have stairs). Cars and people
 are solid, so you can bump into your friends.
@@ -84,7 +84,7 @@ big map: the whole world, north up, with every land, place and street named and 
 on it. Drag to move around, scroll or pinch to zoom, **Find me** to jump back to yourself;
 **Tab**, **Esc** or **Close** to go back to the game.
 
-Two modes, chosen when you create a room:
+Three modes, chosen when you create a room:
 
 - **Free roam**: explore at your own pace.
 - **Missions**: the server runs one mission after another for everyone in the room, and
@@ -92,9 +92,10 @@ Two modes, chosen when you create a room:
   - *Special delivery*: pick up a package and walk it to another house's front door.
   - *Street race*: everyone lines up on a grid and races through checkpoints.
   - *Lost and found*: find an item left on a table, bed or counter inside a house.
+- **Racing**: Grand Prix cars on real circuits (see [Racing](#racing) below).
 
-A yellow arrow at the top of the screen points to your next target, and beams of light
-mark targets around town. Press **Enter** to chat in either mode.
+In missions, a yellow arrow at the top of the screen points to your next target, and beams
+of light mark targets around town. Press **Enter** to chat in any mode.
 
 Time of day is shared by everyone in a room: a full day takes 24 minutes, with sunrise,
 sunset and night (street lamps, lit windows, headlights, stars). In free roam, press **N**
@@ -128,6 +129,80 @@ first time someone in view is them (about 0.35 MB each). `npm run assets -- peop
 just them; it fetches the people itself, but itch.io doesn't allow scripted downloads, so
 first download the free "[Standard]" animation zip from itch.io into `.asset-cache/humans/`
 as `ual.zip`.
+
+## Racing
+
+Pick **Racing** in the lobby, then the circuit, the number of laps (3, 5, 10 or 20), how
+many computer cars (none, 5, 9 or 19) and how good they are (Easy, Normal, Hard). Friends
+who join take places on the grid; computer drivers fill the rest (up to 20 cars).
+
+**The circuits** are ten real Grand Prix tracks, built from their real shapes and the real
+rise and fall of the ground:
+
+| Circuit | What it's like |
+|---|---|
+| **Sepang**, Malaysia | Two long straights for overtaking, slow hairpins and fast sweepers, palms all round. |
+| **Marina Bay**, Singapore | A night race through the city's streets under floodlights, walls close on both sides, the bay beside it. |
+| **Silverstone**, Great Britain | Very fast and flowing, through the famous S-bends; open English countryside. |
+| **Monza**, Italy | The "temple of speed": long straights, tight chicanes, in a park of tall trees. |
+| **Spa-Francorchamps**, Belgium | Seven kilometers through the Ardennes forest, 100 m of climb, and the Eau Rouge compression at the bottom of the hill. |
+| **Monaco** | The tightest and slowest: streets between apartment blocks, up the hill and down to the harbor. |
+| **Suzuka**, Japan | A figure of eight: the track crosses over itself on a bridge. |
+| **Interlagos**, Brazil | Anticlockwise, in a bowl: downhill into the first corner, a long climb back up. |
+| **Sakhir**, Bahrain | A night race in the desert, with wide asphalt run-off and sand beyond. |
+| **Spielberg**, Austria | A short lap up and down a hillside, with mountains and pine forest round it. |
+
+Each has kerbs on the corners, gravel traps and grass (they slow you down and cost grip),
+tyre walls, armco and concrete walls with catch fencing, grandstands full of spectators, a
+pit building with every team's garage, the start gantry with its five red lights, the grid
+boxes and the chequered line, marshal posts, advertising boards and the country round it.
+
+**The car** is a modern Grand Prix car: 800 kg with its driver, close to 1000 hp, eight
+gears, and wings that press it onto the road harder the faster it goes (nearly three times
+its weight at 300 km/h). So it brakes from 300 km/h at over 5 g and corners at over 5 g in
+the fast corners, but slow corners need much more care. It does 0–100 km/h in about 3 s
+and tops out at about 340 km/h. Traction control and anti-lock brakes help (no wheelspin
+or locked wheels), and full steering is the most the tires can take at that speed, so a
+keyboard can drive it. Ten made-up teams paint the cars (no real teams or sponsors).
+
+**A race**: everyone lines up on the grid (the host can start early with **Space**; the
+lights wait for any friend still loading the circuit, up to half a minute), the five red
+lights come on one a second, and when they all go out, it's on. Positions, lap
+times and gaps update live in the timing tower on the left. Like real races:
+- **Slipstream**: right behind another car its wake cuts your drag, so you're faster on
+  the straights (a little less grip in the corners, though).
+- **DRS**: from the second lap, cross a detection line within a second of the car ahead
+  and you may open your rear wing (press **Q**) on the straight after it: less drag, more
+  speed. It closes when you brake. The light by the speedometer shows when you can.
+- When the winner takes the chequered flag, everyone else finishes as they next cross the
+  line. Then the results, the fastest lap, and the next race lines up.
+
+The computer drivers follow the fastest line round each circuit, brake for each corner,
+use the slipstream and DRS, pass on whichever side has room, and leave room side by side.
+One player's game drives them (it moves on to someone else's if that player leaves). If
+you join mid-race, you watch until the next start.
+
+**Racing controls**
+
+| Key | Action |
+|---|---|
+| W / ↑ | Throttle |
+| S / ↓, Space | Brake (hold when stopped to reverse) |
+| A D / ← → | Steer |
+| Q | Open the rear wing (DRS) where allowed |
+| C | Chase camera / onboard camera (while watching: the next car) |
+| T | Back onto the track, if you go off or spin |
+| Space (on the grid) | Start the race now (the player running the race) |
+| M, F, H, Enter, Esc | Mute, fullscreen, key help, chat, menu |
+
+On a phone or tablet: the stick drives, and the buttons are Brake, DRS, Camera and Back
+on track.
+
+The circuits' shapes come from [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits)
+(MIT license) and the heights of the ground from NASA's SRTM survey (public domain),
+through [OpenTopoData](https://www.opentopodata.org). `npm run circuits` rebuilds
+`client/public/media/circuits` from them (the list of circuits is in `shared/circuits.ts`).
+The cars, the tracks and everything around them are made in code.
 
 ## Run locally
 
@@ -200,7 +275,8 @@ player names and frame rate. **Leave room** in the same menu goes back to the ti
 ## Other commands
 
 ```sh
-npm test          # car handling, walking, touch controls, town/zone/floor-plan, relics, missions and server tests
+npm test          # car handling, walking, touch controls, town/zone/floor-plan, relics, missions, racing
+                  # (computer drivers lapping real circuits, a 12-car race) and server tests
 npm run typecheck # client + server
 npm run build     # build client into client/dist (plus compressed copies)
 npm start         # serve client/dist + WebSocket server on $PORT (default 8080)
@@ -209,10 +285,11 @@ npm start         # serve client/dist + WebSocket server on $PORT (default 8080)
 ## Project layout
 
 ```
-client/   Three.js + Rapier game (Vite)
-server/   Node WebSocket room server; also serves the built client
-shared/   Message types, the town and zone layouts, the shape of the ground, and house floor
-          plans, shared by client and server (shared/zones/ has one file per zone)
+client/   Three.js + Rapier game (Vite); client/src/race/ is the racing mode
+server/   Node WebSocket room server; also serves the built client and referees races
+shared/   Message types, the town and zone layouts, the shape of the ground, house floor
+          plans, the circuits and the racing rules, shared by client and server
+          (shared/zones/ has one file per zone)
 ```
 
 ## Put it online with Render

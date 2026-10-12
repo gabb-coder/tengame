@@ -1,12 +1,20 @@
 import * as THREE from 'three';
 import { CAR } from './carPhysics.ts';
 
-const CYLINDERS = 4;
+/** What an engine sounds like: how many cylinders, and how high it revs. */
+export interface EngineVoice {
+  cylinders: number;
+  redline: number;
+  /** Overall loudness. */
+  volume: number;
+}
+
+const ROAD_CAR: EngineVoice = { cylinders: 4, redline: CAR.redlineRpm, volume: 1 };
 
 /**
- * Synthesized four-cylinder engine: harmonics of the firing frequency through a
- * load-dependent low-pass filter, plus a little intake noise. No audio files needed.
- * Connect `output` to a destination (or a PannerNode for other players' cars).
+ * Synthesized engine: harmonics of the firing frequency through a load-dependent low-pass
+ * filter, plus a little intake noise. No audio files needed. Connect `output` to a
+ * destination (or a PannerNode for other players' cars).
  */
 export class EngineSound {
   readonly output: GainNode;
@@ -15,7 +23,10 @@ export class EngineSound {
   private noiseGain: GainNode;
   private noise: AudioBufferSourceNode;
 
-  constructor(private ctx: AudioContext) {
+  constructor(
+    private ctx: AudioContext,
+    private voice: EngineVoice = ROAD_CAR,
+  ) {
     this.output = ctx.createGain();
     this.output.gain.value = 0;
 
@@ -61,14 +72,16 @@ export class EngineSound {
   /** `rpm` engine speed, `load` 0..1 throttle, `volume` 0..1 overall level. */
   update(rpm: number, load: number, volume = 1): void {
     const t = this.ctx.currentTime;
-    const firing = (rpm / 60) * (CYLINDERS / 2);
+    const { cylinders, redline } = this.voice;
+    const firing = (rpm / 60) * (cylinders / 2);
     for (const { osc, multiple } of this.oscillators) {
       osc.frequency.setTargetAtTime(firing * multiple, t, 0.02);
     }
-    const rev = Math.min(rpm / CAR.redlineRpm, 1);
-    this.filter.frequency.setTargetAtTime(300 + rev * 1500 + load * 1800, t, 0.05);
+    const rev = Math.min(rpm / redline, 1);
+    const high = Math.max(1, cylinders / 4);
+    this.filter.frequency.setTargetAtTime((300 + rev * 1500 + load * 1800) * high, t, 0.05);
     this.noiseGain.gain.setTargetAtTime((0.02 + load * 0.08) * rev, t, 0.05);
-    this.output.gain.setTargetAtTime((0.1 + load * 0.12 + rev * 0.08) * volume, t, 0.05);
+    this.output.gain.setTargetAtTime((0.1 + load * 0.12 + rev * 0.08) * volume * this.voice.volume, t, 0.05);
   }
 
   dispose(): void {
@@ -88,7 +101,10 @@ export class TireSound {
   private filter: BiquadFilterNode;
   private source: AudioBufferSourceNode;
 
-  constructor(private ctx: AudioContext) {
+  constructor(
+    private ctx: AudioContext,
+    private voice: EngineVoice = ROAD_CAR,
+  ) {
     this.source = ctx.createBufferSource();
     this.source.buffer = noiseBuffer(ctx);
     this.source.loop = true;

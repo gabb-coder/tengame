@@ -5,6 +5,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import {
   ACTS,
   type AvatarState,
+  type BotState,
   type CarDamage,
   type CarState,
   type ClientMessage,
@@ -21,6 +22,8 @@ import { generateInterior } from '../../shared/interior.ts';
 import { doorPosition } from '../../shared/town.ts';
 import { generateWorld } from '../../shared/world.ts';
 import { RoomManager, type Player, type Room } from './rooms.ts';
+import { CIRCUIT_IDS } from '../../shared/circuits.ts';
+import { type Difficulty, DIFFICULTIES, MAX_GRID, MAX_LAPS, MIN_LAPS, type RaceSetup } from '../../shared/racing.ts';
 
 const WORLD = generateWorld();
 /** Every house in town and out in the zones. */
@@ -157,7 +160,8 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
             return sendError(socket, 'room_full', 'That room is full');
           }
         } else {
-          room = rooms.create(msg.mode === 'missions' ? 'missions' : 'freeroam');
+          const mode = msg.mode === 'missions' || msg.mode === 'racing' ? msg.mode : 'freeroam';
+          room = rooms.create(mode, mode === 'racing' ? raceSetup(msg.race) : undefined);
         }
         player = room.add(socket, String(msg.name ?? ''));
         send(socket, {
@@ -170,6 +174,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           mode: room.mode,
           scores: room.scoreTable(),
           mission: room.missions?.snapshot(Date.now()) ?? null,
+          race: room.race?.state ?? null,
           clock: room.clock(),
           smashed: room.smashed(),
           now: Date.now(),
@@ -184,8 +189,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         if (avatar !== null && !isAvatarState(avatar)) return;
         player.p = msg.p;
         player.q = msg.q;
-        const { steer, rpm, load, speed, braking, dmg } = msg.car;
-        player.car = { steer, rpm, load, speed, braking, ...(isDamage(dmg) ? { dmg } : {}) };
+        player.car = cleanCar(msg.car);
         player.avatar = avatar && {
           p: avatar.p,
           yaw: avatar.yaw,
@@ -196,6 +200,20 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           ...(avatar.gear ? { gear: avatar.gear } : {}),
           ...(avatar.hurt ? { hurt: true } : {}),
         };
+      } else if (msg.type === 'lap') {
+        // Racing: a car crossed the line (the referee checks it).
+        if (!room?.race || !player || !room.allow(`${player.id}:lap`, 30, 1000)) return;
+        const car = msg.car === undefined ? undefined : String(msg.car);
+        room.race.lap(player.id, car, Number(msg.lap), Number(msg.time), Number(msg.at), Date.now());
+      } else if (msg.type === 'bots') {
+        // Racing: the computer cars, from the player whose game drives them.
+        if (!room?.race || !player || !Array.isArray(msg.bots) || msg.bots.length > MAX_GRID) return;
+        const bots = msg.bots.filter(isBotState).map(({ n, p, q, car }) => ({ n, p, q, car: cleanCar(car) }));
+        room.race.botsMoved(player.id, Number(msg.race), bots);
+      } else if (msg.type === 'race_start') {
+        if (room?.race && player) room.race.startNow(player.id, Date.now());
+      } else if (msg.type === 'race_ready') {
+        if (room?.race && player) room.race.playerReady(player.id, Date.now());
       } else if (msg.type === 'door') {
         // Only players on foot, standing at that house's door, can use it.
         const house = HOUSES.get(String(msg.id));
@@ -319,6 +337,29 @@ function isAvatarState(a: unknown): a is AvatarState {
     (act === undefined || (ACTS as readonly unknown[]).includes(act)) &&
     (gear === undefined || (GEARS as readonly unknown[]).includes(gear))
   );
+}
+
+/** Only the fields a car state has, checked. */
+function cleanCar({ steer, rpm, load, speed, braking, dmg, drs }: CarState): CarState {
+  return { steer, rpm, load, speed, braking, ...(isDamage(dmg) ? { dmg } : {}), ...(drs === true ? { drs } : {}) };
+}
+
+function isBotState(b: unknown): b is BotState {
+  if (typeof b !== 'object' || b === null) return false;
+  const { n, p, q, car } = b as Record<string, unknown>;
+  return Number.isInteger(n) && (n as number) >= 0 && (n as number) < MAX_GRID && isVec(p, 3) && isVec(q, 4) && isCarState(car);
+}
+
+/** A new racing room's settings, from what the lobby sent (anything odd falls back to a default). */
+function raceSetup(raw: unknown): RaceSetup {
+  const r = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  const whole = (v: unknown, min: number, max: number, fallback: number) => (Number.isInteger(v) ? Math.min(max, Math.max(min, v as number)) : fallback);
+  return {
+    circuit: typeof r.circuit === 'string' && CIRCUIT_IDS.has(r.circuit) ? r.circuit : 'sepang',
+    laps: whole(r.laps, MIN_LAPS, MAX_LAPS, 5),
+    bots: whole(r.bots, 0, MAX_GRID - 1, 9),
+    difficulty: DIFFICULTIES.includes(r.difficulty as Difficulty) ? (r.difficulty as Difficulty) : 'normal',
+  };
 }
 
 function isCarState(c: unknown): c is CarState {

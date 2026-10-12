@@ -1,4 +1,5 @@
 import type { ClientMessage, GameMode, ServerMessage, WelcomeMessage } from '../../../shared/protocol.ts';
+import type { RaceSetup } from '../../../shared/racing.ts';
 
 type Listener = (msg: ServerMessage) => void;
 
@@ -19,7 +20,7 @@ export class Connection {
   }
 
   /** Connects and joins (or creates, when `room` is omitted) a room. */
-  static async join(name: string, room?: string, mode?: GameMode): Promise<{ conn: Connection; welcome: WelcomeMessage }> {
+  static async join(name: string, room?: string, mode?: GameMode, race?: RaceSetup): Promise<{ conn: Connection; welcome: WelcomeMessage }> {
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${protocol}://${location.host}/ws`);
     await new Promise<void>((resolve, reject) => {
@@ -35,7 +36,7 @@ export class Connection {
         else return;
         off();
       });
-      conn.send({ type: 'join', name, room, mode });
+      conn.send({ type: 'join', name, room, mode, race });
     }).catch((err) => {
       ws.close();
       throw err;

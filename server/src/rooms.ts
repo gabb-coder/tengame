@@ -18,6 +18,9 @@ import {
   type Vec3,
 } from '../../shared/protocol.ts';
 import { MissionManager } from './missions.ts';
+import { RaceManager } from './race.ts';
+import { CIRCUITS } from '../../shared/circuits.ts';
+import type { RaceSetup } from '../../shared/racing.ts';
 
 /** Chat flood control: at most this many messages per window. */
 const CHAT_BURST = 5;
@@ -47,6 +50,7 @@ export class Room {
   /** Mission points by player id. */
   readonly scores = new Map<string, number>();
   readonly missions: MissionManager | null;
+  readonly race: RaceManager | null;
   private chatTimes = new Map<string, number[]>();
   /** When each shared button (bell, cannon...) was last used, in ms. */
   private fired = new Map<string, number>();
@@ -63,6 +67,7 @@ export class Room {
     readonly code: string,
     readonly mode: GameMode = 'freeroam',
     private now: () => number = Date.now,
+    setup: RaceSetup = { circuit: CIRCUITS[0].id, laps: 5, bots: 9, difficulty: 'normal' },
   ) {
     this.clockSetAt = now();
     this.missions =
@@ -76,6 +81,18 @@ export class Room {
               this.broadcast({ type: 'scores', scores: this.scoreTable() });
             },
           })
+        : null;
+    this.race =
+      mode === 'racing'
+        ? new RaceManager(
+            {
+              players: () => [...this.players.values()],
+              publish: (race) => this.broadcast({ type: 'race', race }),
+              notice: (text) => this.broadcast({ type: 'notice', text }),
+            },
+            setup,
+            now(),
+          )
         : null;
   }
 
@@ -99,6 +116,7 @@ export class Room {
     this.broadcast({ type: 'player_joined', player: toInfo(player) });
     this.players.set(player.id, player);
     if (this.mode === 'missions') this.scores.set(player.id, 0);
+    this.race?.join();
     return player;
   }
 
@@ -109,6 +127,7 @@ export class Room {
       for (const key of this.recent.keys()) if (key.startsWith(`${id}:`)) this.recent.delete(key);
       this.missions?.playerLeft(id, this.now());
       this.broadcast({ type: 'player_left', id });
+      this.race?.leave(id);
     }
   }
 
@@ -187,6 +206,7 @@ export class Room {
 
   tick(): void {
     this.missions?.tick(this.now());
+    this.race?.tick(this.now());
     this.broadcastSnapshot();
   }
 
@@ -196,10 +216,18 @@ export class Room {
 
   broadcastSnapshot(): void {
     if (this.players.size < 2) return;
-    this.broadcast({
+    const bots = this.race?.bots;
+    const data = JSON.stringify({
       type: 'snapshot',
       players: [...this.players.values()].map(({ id, p, q, car, avatar }) => ({ id, p, q, car, avatar })),
-    });
+      ...(bots?.length ? { bots } : {}),
+    } satisfies ServerMessage);
+    for (const pl of this.players.values()) {
+      // A racer whose game is still building the circuit can't read these yet, and if they
+      // piled up, their browser would stop answering and lose the connection.
+      if (this.race && !this.race.hasLoaded(pl.id)) continue;
+      if (pl.socket.readyState === pl.socket.OPEN) pl.socket.send(data);
+    }
   }
 
   /** Sends `msg` to everyone in the room, except the player `except` if given. */
@@ -214,12 +242,12 @@ export class Room {
 export class RoomManager {
   readonly rooms = new Map<string, Room>();
 
-  create(mode: GameMode = 'freeroam'): Room {
+  create(mode: GameMode = 'freeroam', setup?: RaceSetup): Room {
     let code: string;
     do {
       code = randomCode();
     } while (this.rooms.has(code));
-    const room = new Room(code, mode);
+    const room = new Room(code, mode, Date.now, setup);
     this.rooms.set(code, room);
     return room;
   }

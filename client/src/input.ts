@@ -36,6 +36,8 @@ export class Input {
   private stick = { x: 0, y: 0 };
   /** Off while a menu is open: game keys and mouse look are ignored. */
   enabled = true;
+  /** Clicking the game captures the mouse for looking around (not when racing: nothing to look at). */
+  capturePointer = true;
 
   constructor(private pointerTarget: HTMLElement) {
     addEventListener('keydown', (e) => {
@@ -50,7 +52,7 @@ export class Input {
 
     // Click the game to capture the mouse for looking around; Esc releases it. (Fingers drag to look instead.)
     pointerTarget.addEventListener('click', () => {
-      if (!this.pointerLocked && this.enabled && !touchDevice) void pointerTarget.requestPointerLock?.();
+      if (!this.pointerLocked && this.enabled && this.capturePointer && !touchDevice) void pointerTarget.requestPointerLock?.();
     });
     addEventListener('mousemove', (e) => {
       if (!this.pointerLocked) return;

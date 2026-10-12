@@ -1,5 +1,6 @@
 // Messages exchanged between client and server over the /ws WebSocket.
 // All messages are JSON objects with a `type` field.
+import type { RaceSetup } from './racing.ts';
 
 export const MAX_PLAYERS = 4;
 export const TICK_RATE = 20; // server snapshots per second
@@ -9,7 +10,7 @@ export const ROOM_CODE_LENGTH = 5;
 export const DOOR_REACH = 2.2;
 export const MAX_CHAT_LENGTH = 200;
 
-export type GameMode = 'freeroam' | 'missions';
+export type GameMode = 'freeroam' | 'missions' | 'racing';
 
 /** Game hours that pass per real second: a full day takes 24 minutes. */
 export const DAY_RATE = 1 / 60;
@@ -43,6 +44,8 @@ export interface CarState {
   braking: boolean;
   /** Crash damage to the front, back, left and right, each 0..1 (absent when undamaged). */
   dmg?: CarDamage;
+  /** Racing: the rear wing is open (DRS). */
+  drs?: boolean;
 }
 
 export type CarDamage = [front: number, rear: number, left: number, right: number];
@@ -96,6 +99,38 @@ export interface JoinMessage {
   room?: string;
   /** Mode for a new room (ignored when joining). Defaults to free roam. */
   mode?: GameMode;
+  /** Racing: what the new room races. */
+  race?: RaceSetup;
+}
+
+/**
+ * Racing: a car crossed the line. `car` is a computer driver's id (only the player running
+ * them sends those); otherwise it's the sender's own. `lap` laps done, the last taking
+ * `time` seconds, `at` seconds into the race.
+ */
+export interface LapRequestMessage {
+  type: 'lap';
+  car?: string;
+  lap: number;
+  time: number;
+  at: number;
+}
+
+/** Racing: where the computer drivers' cars are, from the player whose game drives them. */
+export interface BotsRequestMessage {
+  type: 'bots';
+  race: number;
+  bots: BotState[];
+}
+
+/** Racing: the player running the race starts it now, rather than waiting out the countdown. */
+export interface RaceStartRequestMessage {
+  type: 'race_start';
+}
+
+/** Racing: this player's game has built the circuit (the grid's countdown waits for the host's). */
+export interface RaceReadyRequestMessage {
+  type: 'race_ready';
 }
 
 export interface ChatRequestMessage {
@@ -163,7 +198,11 @@ export type ClientMessage =
   | ChatRequestMessage
   | TimeRequestMessage
   | KnockRequestMessage
-  | SmashRequestMessage;
+  | SmashRequestMessage
+  | LapRequestMessage
+  | BotsRequestMessage
+  | RaceStartRequestMessage
+  | RaceReadyRequestMessage;
 
 // ---- server -> client ----
 
@@ -180,6 +219,8 @@ export interface WelcomeMessage {
   /** Mission points by player id (missions mode). */
   scores: Record<string, number>;
   mission: MissionState | null;
+  /** Racing: the race as it stands. */
+  race: RaceState | null;
   clock: Clock;
   /** Street things lying smashed, with how many seconds ago each was hit. */
   smashed: [id: string, ago: number][];
@@ -317,6 +358,64 @@ export interface PlayerLeftMessage {
 export interface SnapshotMessage {
   type: 'snapshot';
   players: PlayerTransform[];
+  /** Racing: the computer drivers' cars (from the player running them). */
+  bots?: BotState[];
+}
+
+// ---- racing ----
+
+/** A computer driver's car: `n` is its number (its car id is `bot:<n>`). */
+export interface BotState {
+  n: number;
+  p: Vec3;
+  q: Quat;
+  car: CarState;
+}
+
+/** grid: lining up (with a countdown); lights: the five red lights; racing; finished: results. */
+export type RacePhase = 'grid' | 'lights' | 'racing' | 'finished';
+
+/** One car in the race: a player's (id is theirs) or a computer driver's (`bot:<n>`). */
+export interface RaceCar {
+  id: string;
+  name: string;
+  /** Index into TEAMS. */
+  team: number;
+  bot: boolean;
+  /** Laps done. */
+  laps: number;
+  /** Lap times (s): the last, and the best. */
+  last: number | null;
+  best: number | null;
+  /** Seconds into the race when it took the chequered flag. */
+  finish: number | null;
+  /** Left the race (the player left the room). */
+  out?: boolean;
+  /** A player whose game is still building the circuit: the start waits for them. */
+  loading?: boolean;
+}
+
+export interface RaceState {
+  setup: RaceSetup;
+  /** Counts up with each race in the room. */
+  number: number;
+  phase: RacePhase;
+  /** On the grid in starting order (pole first); results are worked out from laps and finishes. */
+  cars: RaceCar[];
+  /** The player whose game drives the computer cars (and may start the race early). */
+  host: string;
+  /** Server times (ms): the first red light, and the lights going out (the start). */
+  lightsAt: number;
+  startAt: number;
+  /** Server time (ms) the grid countdown, or the results, end. */
+  until: number;
+  /** The winner is home: everyone else finishes the next time they cross the line. */
+  flag: boolean;
+}
+
+export interface RaceMessage {
+  type: 'race';
+  race: RaceState;
 }
 
 export type ErrorCode = 'room_full' | 'room_not_found' | 'bad_request';
@@ -342,4 +441,5 @@ export type ServerMessage =
   | MissionMessage
   | ScoresMessage
   | TimeMessage
+  | RaceMessage
   | ErrorMessage;
