@@ -132,9 +132,18 @@ as `ual.zip`.
 
 ## Racing
 
-Pick **Racing** in the lobby, then the circuit, the number of laps (3, 5, 10 or 20), how
-many computer cars (none, 5, 9 or 19) and how good they are (Easy, Normal, Hard). Friends
-who join take places on the grid; computer drivers fill the rest (up to 20 cars).
+Pick **Racing** in the lobby and create a room. The **Grand Prix screen** opens:
+1. **Choose the Grand Prix**: each circuit's map draws itself, with a glowing car lapping
+   it, beside its name, flag colours and facts (lap length, corners, how much it climbs,
+   longest straight, first Grand Prix). Flick through all ten with the arrows (← →), a
+   swipe, or the strip of tracks along the bottom.
+2. **Race settings**: the number of laps (3, 5, 10 or 20), how many computer cars (none,
+   5, 9 or 19; the grid fills up as you choose) and how good they are (Easy, Normal, Hard).
+3. **Start the Grand Prix**: five red lights come on and go out, and the circuit loads.
+
+Only the room's creator chooses; friends who join (copy the invite link from the screen)
+watch the choice being made, live. They take places on the grid; computer drivers fill the
+rest (up to 20 cars). The choice is remembered for next time.
 
 **The circuits** are ten real Grand Prix tracks, built from their real shapes and the real
 rise and fall of the ground:

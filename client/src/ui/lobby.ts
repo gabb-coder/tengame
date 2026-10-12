@@ -1,9 +1,8 @@
-import { CIRCUITS, isNightRace } from '../../../shared/circuits.ts';
 import { type GameMode, ROOM_CODE_LENGTH } from '../../../shared/protocol.ts';
-import { BOT_CHOICES, type Difficulty, LAP_CHOICES, type RaceSetup } from '../../../shared/racing.ts';
+import type { RaceSetup } from '../../../shared/racing.ts';
+import { savedSetup } from '../race/gpScreen.ts';
 
 const NAME_KEY = 'tengame.name';
-const RACE_KEY = 'tengame.race';
 
 export interface LobbyChoice {
   name: string;
@@ -11,7 +10,7 @@ export interface LobbyChoice {
   room?: string;
   /** Mode for a new room. */
   mode: GameMode;
-  /** Racing: what the new room races. */
+  /** Racing: where the new room's Grand Prix choice starts (the last one made here). */
   race?: RaceSetup;
 }
 
@@ -36,7 +35,6 @@ export function runLobby(onSubmit: (choice: LobbyChoice) => Promise<void>): void
     document.getElementById('invite-code')!.textContent = invited;
   }
   document.getElementById('show-create')!.addEventListener('click', () => form.classList.add('creating'));
-  const race = raceOptions(form);
   (nameInput.value && invited ? document.getElementById('invite-join')! : nameInput).focus();
 
   form.addEventListener('submit', async (e) => {
@@ -59,7 +57,7 @@ export function runLobby(onSubmit: (choice: LobbyChoice) => Promise<void>): void
     buttons.forEach((b) => (b.disabled = true));
     try {
       const mode = (form.querySelector<HTMLInputElement>('input[name="mode"]:checked')?.value ?? 'freeroam') as GameMode;
-      await onSubmit({ name, room: action === 'join' ? room : undefined, mode, race: mode === 'racing' ? race() : undefined });
+      await onSubmit({ name, room: action === 'join' ? room : undefined, mode, race: mode === 'racing' ? savedSetup() : undefined });
       document.getElementById('lobby')!.hidden = true;
     } catch (err) {
       error.textContent = err instanceof Error ? err.message : 'Something went wrong';
@@ -70,92 +68,6 @@ export function runLobby(onSubmit: (choice: LobbyChoice) => Promise<void>): void
       buttons.forEach((b) => (b.disabled = false));
     }
   });
-}
-
-/**
- * The racing options under the modes (shown when Racing is picked): which circuit (with its
- * outline drawn), how many laps, how many computer cars and how good they are. Remembers the
- * last choice. Returns a function reading the current setup.
- */
-function raceOptions(form: HTMLFormElement): () => RaceSetup {
-  const box = document.getElementById('race-options')!;
-  const circuit = document.getElementById('race-circuit') as HTMLSelectElement;
-  const laps = document.getElementById('race-laps') as HTMLSelectElement;
-  const bots = document.getElementById('race-bots') as HTMLSelectElement;
-  const difficulty = document.getElementById('race-difficulty') as HTMLSelectElement;
-  const option = (value: string | number, text: string) => Object.assign(document.createElement('option'), { value: String(value), textContent: text });
-  circuit.append(...CIRCUITS.map((c) => option(c.id, `${c.name}, ${c.country}`)));
-  laps.append(...LAP_CHOICES.map((n) => option(n, `${n} laps`)));
-  bots.append(...BOT_CHOICES.map((n) => option(n, n === 0 ? 'None' : String(n))));
-  const saved = load();
-  circuit.value = saved.circuit;
-  laps.value = String(saved.laps);
-  bots.value = String(saved.bots);
-  difficulty.value = saved.difficulty;
-
-  const read = (): RaceSetup => ({ circuit: circuit.value, laps: Number(laps.value), bots: Number(bots.value), difficulty: difficulty.value as Difficulty });
-  const show = () => {
-    const racing = form.querySelector<HTMLInputElement>('input[name="mode"]:checked')?.value === 'racing';
-    box.hidden = !racing;
-  };
-  const describe = () => {
-    const info = CIRCUITS.find((c) => c.id === circuit.value)!;
-    const night = isNightRace(info) ? ' · night race under floodlights' : '';
-    const street = info.style === 'street' ? ' · street circuit' : '';
-    document.getElementById('race-track-meta')!.textContent = `${(info.length / 1000).toFixed(2)} km lap${street}${night}`;
-    void drawOutline(info.id);
-  };
-  form.addEventListener('change', () => {
-    show();
-    describe();
-    try {
-      localStorage.setItem(RACE_KEY, JSON.stringify(read()));
-    } catch {
-      // Not remembered, that's all.
-    }
-  });
-  show();
-  describe();
-  return read;
-}
-
-function load(): RaceSetup {
-  const fallback: RaceSetup = { circuit: CIRCUITS[0].id, laps: 5, bots: 9, difficulty: 'normal' };
-  try {
-    const saved = JSON.parse(localStorage.getItem(RACE_KEY) ?? '{}') as Partial<RaceSetup>;
-    return {
-      circuit: CIRCUITS.some((c) => c.id === saved.circuit) ? saved.circuit! : fallback.circuit,
-      laps: (LAP_CHOICES as readonly number[]).includes(saved.laps!) ? saved.laps! : fallback.laps,
-      bots: (BOT_CHOICES as readonly number[]).includes(saved.bots!) ? saved.bots! : fallback.bots,
-      difficulty: ['easy', 'normal', 'hard'].includes(saved.difficulty!) ? saved.difficulty! : fallback.difficulty,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-/** Draws a circuit's real outline, north up, with the start line marked. */
-async function drawOutline(id: string): Promise<void> {
-  const svg = document.getElementById('race-outline')!;
-  svg.dataset.circuit = id;
-  try {
-    const data = (await (await fetch(`/media/circuits/${id}.json`)).json()) as { points: number[] };
-    if (svg.dataset.circuit !== id) return;
-    const xs: number[] = [];
-    const zs: number[] = [];
-    for (let i = 0; i < data.points.length; i += 3 * 6) {
-      xs.push(data.points[i]);
-      zs.push(data.points[i + 2]);
-    }
-    const [minX, maxX, minZ, maxZ] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
-    const scale = 84 / Math.max(maxX - minX, maxZ - minZ);
-    const px = (x: number) => (8 + (x - minX) * scale + (84 - (maxX - minX) * scale) / 2).toFixed(1);
-    const pz = (z: number) => (8 + (z - minZ) * scale + (84 - (maxZ - minZ) * scale) / 2).toFixed(1);
-    const d = xs.map((x, k) => `${k ? 'L' : 'M'}${px(x)} ${pz(zs[k])}`).join('') + 'Z';
-    svg.innerHTML = `<path d="${d}"/><circle cx="${px(xs[0])}" cy="${pz(zs[0])}" r="3.2"/>`;
-  } catch {
-    svg.innerHTML = '';
-  }
 }
 
 /** Progress text under the lobby buttons, with a spinner; empty hides it. */

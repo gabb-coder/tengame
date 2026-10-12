@@ -10,6 +10,12 @@ export interface CircuitInfo {
   /** Shown in the game: the place, never a trademark. */
   name: string;
   country: string;
+  /** The race held there. */
+  grandPrix: string;
+  /** Numbered corners, as the circuit counts them. */
+  corners: number;
+  /** The year of its first world championship Grand Prix. */
+  firstGp: number;
   /** The track's shape in f1-circuits.geojson. */
   source: string;
   /** Track width (m), kerb to kerb. */
@@ -30,16 +36,16 @@ export interface CircuitInfo {
 }
 
 export const CIRCUITS: readonly CircuitInfo[] = [
-  { id: 'sepang', name: 'Sepang', country: 'Malaysia', source: 'my-1999', width: 16, length: 5560, style: 'permanent', scenery: 'tropical', hour: 15.5 },
-  { id: 'marina-bay', name: 'Marina Bay', country: 'Singapore', source: 'sg-2008', width: 12, length: 4948, style: 'street', scenery: 'city', hour: 21, flat: true, coast: true },
-  { id: 'silverstone', name: 'Silverstone', country: 'Great Britain', source: 'gb-1948', width: 15, length: 5884, style: 'permanent', scenery: 'temperate', hour: 14 },
-  { id: 'monza', name: 'Monza', country: 'Italy', source: 'it-1922', width: 13, length: 5788, style: 'permanent', scenery: 'forest', hour: 15 },
-  { id: 'spa', name: 'Spa-Francorchamps', country: 'Belgium', source: 'be-1925', width: 13, length: 6984, style: 'permanent', scenery: 'forest', hour: 14 },
-  { id: 'monaco', name: 'Monaco', country: 'Monaco', source: 'mc-1929', width: 10, length: 3328, style: 'street', scenery: 'city', hour: 15, coast: true },
-  { id: 'suzuka', name: 'Suzuka', country: 'Japan', source: 'jp-1962', width: 13, length: 5816, style: 'permanent', scenery: 'temperate', hour: 14, bridge: 'later' },
-  { id: 'interlagos', name: 'Interlagos', country: 'Brazil', source: 'br-1940', width: 14, length: 4300, style: 'permanent', scenery: 'tropical', hour: 14 },
-  { id: 'sakhir', name: 'Sakhir', country: 'Bahrain', source: 'bh-2002', width: 15, length: 5424, style: 'permanent', scenery: 'desert', hour: 20 },
-  { id: 'spielberg', name: 'Spielberg', country: 'Austria', source: 'at-1969', width: 14, length: 4308, style: 'permanent', scenery: 'alpine', hour: 15 },
+  { id: 'sepang', name: 'Sepang', country: 'Malaysia', grandPrix: 'Malaysian Grand Prix', corners: 15, firstGp: 1999, source: 'my-1999', width: 16, length: 5560, style: 'permanent', scenery: 'tropical', hour: 15.5 },
+  { id: 'marina-bay', name: 'Marina Bay', country: 'Singapore', grandPrix: 'Singapore Grand Prix', corners: 19, firstGp: 2008, source: 'sg-2008', width: 12, length: 4948, style: 'street', scenery: 'city', hour: 21, flat: true, coast: true },
+  { id: 'silverstone', name: 'Silverstone', country: 'Great Britain', grandPrix: 'British Grand Prix', corners: 18, firstGp: 1950, source: 'gb-1948', width: 15, length: 5884, style: 'permanent', scenery: 'temperate', hour: 14 },
+  { id: 'monza', name: 'Monza', country: 'Italy', grandPrix: 'Italian Grand Prix', corners: 11, firstGp: 1950, source: 'it-1922', width: 13, length: 5788, style: 'permanent', scenery: 'forest', hour: 15 },
+  { id: 'spa', name: 'Spa-Francorchamps', country: 'Belgium', grandPrix: 'Belgian Grand Prix', corners: 19, firstGp: 1950, source: 'be-1925', width: 13, length: 6984, style: 'permanent', scenery: 'forest', hour: 14 },
+  { id: 'monaco', name: 'Monaco', country: 'Monaco', grandPrix: 'Monaco Grand Prix', corners: 19, firstGp: 1950, source: 'mc-1929', width: 10, length: 3328, style: 'street', scenery: 'city', hour: 15, coast: true },
+  { id: 'suzuka', name: 'Suzuka', country: 'Japan', grandPrix: 'Japanese Grand Prix', corners: 18, firstGp: 1987, source: 'jp-1962', width: 13, length: 5816, style: 'permanent', scenery: 'temperate', hour: 14, bridge: 'later' },
+  { id: 'interlagos', name: 'Interlagos', country: 'Brazil', grandPrix: 'Brazilian Grand Prix', corners: 15, firstGp: 1973, source: 'br-1940', width: 14, length: 4300, style: 'permanent', scenery: 'tropical', hour: 14 },
+  { id: 'sakhir', name: 'Sakhir', country: 'Bahrain', grandPrix: 'Bahrain Grand Prix', corners: 15, firstGp: 2004, source: 'bh-2002', width: 15, length: 5424, style: 'permanent', scenery: 'desert', hour: 20 },
+  { id: 'spielberg', name: 'Spielberg', country: 'Austria', grandPrix: 'Austrian Grand Prix', corners: 10, firstGp: 1970, source: 'at-1969', width: 14, length: 4308, style: 'permanent', scenery: 'alpine', hour: 15 },
 ];
 
 export const CIRCUIT_IDS = new Set(CIRCUITS.map((c) => c.id));

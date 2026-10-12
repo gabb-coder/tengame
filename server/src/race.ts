@@ -1,5 +1,5 @@
 import { circuitInfo } from '../../shared/circuits.ts';
-import type { BotState, RaceCar, RaceState } from '../../shared/protocol.ts';
+import type { BotState, RaceCar, RaceState, SetupStep } from '../../shared/protocol.ts';
 import {
   DRIVERS,
   FLAG_MS,
@@ -35,8 +35,10 @@ export interface RaceHost {
 const CLOCK_SLACK = 15;
 
 /**
- * Referees a racing room's races, one after another: the grid (with a countdown, during
- * which friends can join), the five red lights, the race, then the results. Players time
+ * Referees a racing room's races. First the host chooses the Grand Prix and its settings
+ * (everyone sees the choice as it's made); then race after race on it: the grid (with a
+ * countdown, during which friends can join), the five red lights, the race, then the
+ * results. Players time
  * their own laps and report each one; one player's game drives the computer cars and
  * reports theirs. The server checks every report (the right lap, no impossible lap time,
  * the right moment in the race), keeps the standings, and calls the finish.
@@ -60,20 +62,40 @@ export class RaceManager {
     this.state = {
       setup,
       number: 1,
-      phase: 'grid',
+      phase: 'setup',
       cars: [],
       host: '',
       lightsAt: 0,
       startAt: 0,
-      // Until the host is ready, a fallback in case its game never says so.
-      until: now + READY_WAIT_MS,
+      until: now,
       flag: false,
+      choosing: 'gp',
     };
+  }
+
+  /**
+   * The host's choice of Grand Prix and settings so far, on `step`; once `final`, everyone
+   * lines up for it.
+   */
+  choose(from: string, setup: RaceSetup, step: SetupStep, final: boolean, now: number): void {
+    const s = this.state;
+    if (from !== s.host || s.phase !== 'setup') return;
+    s.setup = setup;
+    s.choosing = step;
+    if (final) {
+      s.phase = 'grid';
+      delete s.choosing;
+      // Until the host's game has built the circuit, a fallback in case it never says so.
+      s.until = now + READY_WAIT_MS;
+      this.lineUp();
+    }
+    this.host.publish(s);
   }
 
   /** A player's game has built the circuit; the host's starts the grid's countdown. */
   playerReady(from: string, now: number): void {
     const s = this.state;
+    if (s.phase === 'setup') return;
     this.loaded.add(from);
     const car = s.cars.find((c) => c.id === from);
     const changed = !!car?.loading;
@@ -109,7 +131,7 @@ export class RaceManager {
     return car;
   }
 
-  /** A player joined the room: on the grid if it's still forming, else they watch until the next race. */
+  /** A player joined the room: on the grid if it's still forming, else they watch until the next race (or the choice is still being made). */
   join(): void {
     if (this.state.phase === 'grid') this.lineUp();
     else if (!this.state.host) this.state.host = this.host.players()[0]?.id ?? '';

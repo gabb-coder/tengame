@@ -825,7 +825,7 @@ button:disabled {
   text-align: center;
 }
 
-/* Racing: the wide mode card, and the race's settings under the modes. */
+/* Racing: the wide mode card. */
 .mode-wide {
   grid-column: 1 / -1;
   flex-direction: row;
@@ -835,77 +835,6 @@ button:disabled {
 
 .mode-wide svg {
   flex: none;
-}
-
-.race-options {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.race-track {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-#race-outline {
-  flex: none;
-  width: 92px;
-  height: 92px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.25);
-}
-
-#race-outline path {
-  fill: none;
-  stroke: #ffd24a;
-  stroke-width: 2.6;
-  stroke-linejoin: round;
-}
-
-#race-outline circle {
-  fill: #fff;
-}
-
-.race-track-info {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  flex: 1;
-}
-
-.race-track-info small {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.race-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: end;
-  gap: 8px;
-}
-
-.lobby select {
-  width: 100%;
-  font: inherit;
-  font-size: 14px;
-  padding: 9px 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--panel-text);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-.lobby select option {
-  background: #161b22;
 }
 
 @media (max-width: 820px) {
@@ -941,6 +870,11 @@ button:disabled {
 .hud-room button.secondary,
 .menu button.secondary,
 .bigmap button.secondary,
+/* Above everything, the Grand Prix screen included. */
+#disconnected {
+  z-index: 40;
+}
+
 #disconnected button.secondary {
   background: rgba(255, 255, 255, 0.12);
   color: var(--panel-text);
@@ -2067,5 +2001,1249 @@ body:not(.touch) .touch-only,
   .results-table th:nth-child(3),
   .results-table td:nth-child(3) {
     display: none;
+  }
+}
+
+/* ---- The Grand Prix screen: choosing the Grand Prix and its settings ---- */
+.gp {
+  --glow: #ffd24a;
+  --dir: 1;
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 30% 40%, #10141c 0%, #06080c 70%);
+  color: #f1f3f5;
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+
+.gp.gp-open {
+  opacity: 1;
+}
+
+.gp.gp-closing {
+  opacity: 0;
+  transition: opacity 0.7s;
+  pointer-events: none;
+}
+
+.gp button {
+  font: inherit;
+  color: inherit;
+}
+
+.gp-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Streaks rushing past, as if at speed. */
+.gp-lines {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07) 60%, transparent) 0 18% / 34% 1px no-repeat,
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05) 60%, transparent) 0 37% / 22% 1px no-repeat,
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08) 60%, transparent) 0 58% / 40% 2px no-repeat,
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05) 60%, transparent) 0 73% / 26% 1px no-repeat,
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06) 60%, transparent) 0 88% / 30% 1px no-repeat;
+  animation: gp-rush 2.4s linear infinite;
+}
+
+.gp-lines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06) 60%, transparent) 0 27% / 28% 1px no-repeat,
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07) 60%, transparent) 0 48% / 18% 1px no-repeat,
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05) 60%, transparent) 0 66% / 36% 2px no-repeat,
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06) 60%, transparent) 0 94% / 24% 1px no-repeat;
+  animation: gp-rush 1.7s linear infinite -0.8s;
+}
+
+@keyframes gp-rush {
+  from {
+    transform: translateX(110%);
+  }
+  to {
+    transform: translateX(-110%);
+  }
+}
+
+.gp-glow {
+  position: absolute;
+  left: 4%;
+  top: 8%;
+  width: 70vmin;
+  height: 70vmin;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--glow) 26%, transparent), transparent 68%);
+  transition: background 0.8s;
+}
+
+.gp-country {
+  position: absolute;
+  right: -1vw;
+  bottom: 16vh;
+  font-family: 'Russo One', system-ui, sans-serif;
+  font-size: clamp(90px, 16vw, 300px);
+  line-height: 0.8;
+  white-space: nowrap;
+  color: transparent;
+  -webkit-text-stroke: 2px rgba(255, 255, 255, 0.07);
+  pointer-events: none;
+}
+
+.gp-country.gp-slide {
+  animation: gp-country 1s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes gp-country {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--dir) * 14%));
+  }
+}
+
+.gp-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 28px;
+}
+
+.gp-brand {
+  font-family: 'Russo One', system-ui, sans-serif;
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+}
+
+.gp-brand b {
+  font-weight: normal;
+  color: var(--glow);
+  transition: color 0.6s;
+}
+
+.gp-steps {
+  display: flex;
+  gap: 8px;
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.gp-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px 5px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: background 0.4s, color 0.4s;
+}
+
+.gp-steps span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transition: background 0.4s, color 0.4s;
+}
+
+.gp-steps li.on {
+  background: color-mix(in srgb, var(--glow) 18%, transparent);
+  color: #fff;
+}
+
+.gp-steps li.on span {
+  background: var(--glow);
+  color: #111;
+}
+
+.gp-room {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.gp-room b {
+  letter-spacing: 0.15em;
+}
+
+.gp-room button {
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.gp-room .gp-invite {
+  border-color: transparent;
+  background: var(--accent);
+}
+
+.gp-main {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  align-items: center;
+  gap: 3vw;
+  min-height: 0;
+  padding: 0 4vw;
+}
+
+.gp-stage {
+  position: relative;
+  justify-self: center;
+  height: min(100%, 64vh);
+  aspect-ratio: 1;
+  max-width: 100%;
+  transition: transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+  touch-action: pan-y;
+}
+
+.gp[data-step='settings'] .gp-stage,
+.gp[data-step='start'] .gp-stage {
+  transform: scale(0.84);
+}
+
+.gp-map {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.gp-road,
+.gp-road-glow {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: 1000 1000;
+  stroke-dashoffset: 1000;
+  animation: gp-draw 1.6s cubic-bezier(0.6, 0.05, 0.3, 1) forwards;
+}
+
+.gp-road {
+  stroke: #f4f6f8;
+  stroke-width: 12;
+}
+
+.gp-road-glow {
+  stroke: var(--glow);
+  stroke-width: 40;
+  opacity: 0.3;
+  filter: blur(10px);
+}
+
+@keyframes gp-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.gp-trail {
+  fill: none;
+  stroke: var(--glow);
+  stroke-width: 17;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 10px var(--glow));
+}
+
+.gp-car {
+  fill: #fff;
+  filter: drop-shadow(0 0 14px var(--glow));
+}
+
+.gp-start {
+  fill: url(#gp-chequer);
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.gp-trail,
+.gp-car,
+.gp-start {
+  opacity: 0;
+  animation: gp-appear 0.4s 1.4s forwards;
+}
+
+@keyframes gp-appear {
+  to {
+    opacity: 1;
+  }
+}
+
+.gp-swipe {
+  display: none;
+}
+
+.gp.gp-host[data-step='gp'] .gp-swipe {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.gp-swipe span {
+  padding: 0 8px 8px;
+  font-size: 56px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 0.2s, transform 0.2s;
+}
+
+.gp-swipe span:hover {
+  color: #fff;
+  transform: scale(1.15);
+}
+
+.gp-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 6px 4px 6px 0;
+  scrollbar-width: none;
+}
+
+.gp-round {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.gp-round b {
+  margin: 0 6px;
+  font-family: 'Russo One', system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: normal;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+
+.gp-round span {
+  opacity: 0.6;
+}
+
+.gp-flag {
+  display: flex;
+  width: 120px;
+  height: 8px;
+  margin: 12px 0 14px;
+  overflow: hidden;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.gp-flag i {
+  flex: 1;
+}
+
+.gp-title {
+  margin: 0;
+  font-family: 'Russo One', system-ui, sans-serif;
+  font-size: clamp(26px, 3vw, 46px);
+  font-weight: normal;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.gp-title span {
+  display: block;
+  font-size: 1.45em;
+  color: transparent;
+  background: linear-gradient(90deg, #fff 40%, var(--glow));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.gp-sub {
+  margin-top: 12px;
+  font-size: 16px;
+  color: var(--muted);
+}
+
+/* Setting up the race: the name on one line, making room for the settings. */
+.gp[data-step='settings'] .gp-round,
+.gp[data-step='start'] .gp-round {
+  display: none;
+}
+
+.gp[data-step='settings'] .gp-title,
+.gp[data-step='start'] .gp-title {
+  font-size: clamp(18px, 2vw, 28px);
+}
+
+.gp[data-step='settings'] .gp-title span,
+.gp[data-step='start'] .gp-title span {
+  display: inline;
+  font-size: 1em;
+}
+
+.gp[data-step='settings'] .gp-sub,
+.gp[data-step='start'] .gp-sub {
+  margin-top: 6px;
+  font-size: 14px;
+}
+
+.gp-in {
+  animation: gp-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+@keyframes gp-rise {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--dir) * 30px));
+  }
+}
+
+.gp-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.gp-stat {
+  position: relative;
+  overflow: hidden;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.gp-stat::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--glow);
+  transition: background 0.6s;
+}
+
+.gp-stat dt {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.gp-stat dd {
+  margin: 6px 0 0;
+  font-family: 'Russo One', system-ui, sans-serif;
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.gp-stat small {
+  margin-left: 4px;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.gp-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.gp-tag {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+}
+
+.gp-settings,
+.gp-loading {
+  display: none;
+}
+
+.gp[data-step='settings'] .gp-facts,
+.gp[data-step='start'] .gp-facts {
+  display: none;
+}
+
+.gp[data-step='settings'] .gp-settings,
+.gp[data-step='start'] .gp-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.gp[data-step='loading'] .gp-loading {
+  display: block;
+}
+
+.gp-setting {
+  animation: gp-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+.gp-setting h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.gp-seg {
+  position: relative;
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gp-seg button {
+  position: relative;
+  z-index: 1;
+  min-width: 66px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  font-family: 'Russo One', system-ui, sans-serif;
+  font-size: 18px;
+  color: #cfd6df;
+  cursor: pointer;
+  transition: color 0.3s;
+}
+
+.gp-seg button.on {
+  color: #0b0e12;
+}
+
+.gp-seg button:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.gp-pill {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 10px;
+  background: var(--glow);
+  box-shadow: 0 6px 24px -6px var(--glow);
+  transition: transform 0.45s cubic-bezier(0.3, 1.4, 0.4, 1), width 0.45s, background 0.6s;
+}
+
+.gp-note {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.gp-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  max-width: 440px;
+  margin-top: 12px;
+}
+
+.gp-gridcar {
+  width: 34px;
+  height: 16px;
+  color: rgba(255, 255, 255, 0.32);
+  animation: gp-pop 0.45s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.gp-gridcar svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.gp-gridcar.me {
+  color: var(--glow);
+  filter: drop-shadow(0 0 6px var(--glow));
+}
+
+.gp-gridcar.friend {
+  color: #fff;
+}
+
+@keyframes gp-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-24px) scale(0.3);
+  }
+}
+
+.gp-meter {
+  display: inline-flex;
+  gap: 3px;
+  margin-right: 10px;
+  vertical-align: -2px;
+}
+
+.gp-meter i {
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+  transition: background 0.3s;
+}
+
+.gp-pace[data-level='1'] .gp-meter i:nth-child(1),
+.gp-pace[data-level='2'] .gp-meter i:nth-child(-n + 2),
+.gp-pace[data-level='3'] .gp-meter i {
+  background: var(--glow);
+}
+
+.gp-loading {
+  margin-top: 4px;
+}
+
+.gp-status-text {
+  font-family: 'Russo One', system-ui, sans-serif;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+}
+
+.gp-bar {
+  height: 4px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.gp-bar i {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--glow);
+  animation: gp-load 1.3s ease-in-out infinite;
+}
+
+@keyframes gp-load {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.gp-bottom {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 28px 20px;
+}
+
+.gp-strip {
+  display: flex;
+  gap: 10px;
+  max-height: 140px;
+  overflow-x: auto;
+  padding: 12px 4px 4px;
+  scrollbar-width: none;
+  transition: opacity 0.4s, transform 0.5s, max-height 0.5s, padding 0.5s;
+}
+
+.gp:not([data-step='gp']) .gp-strip {
+  max-height: 0;
+  padding: 0 4px;
+  opacity: 0;
+  transform: translateY(30px);
+  pointer-events: none;
+}
+
+.gp-thumb span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gp-thumb {
+  flex: none;
+  width: 96px;
+  padding: 8px 6px 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.35s, background 0.35s, border-color 0.35s, color 0.35s, box-shadow 0.35s;
+}
+
+.gp-thumb:first-child {
+  margin-left: auto;
+}
+
+.gp-thumb:last-child {
+  margin-right: auto;
+}
+
+.gp-thumb svg {
+  display: block;
+  width: 100%;
+  height: 56px;
+  margin-bottom: 4px;
+}
+
+.gp-thumb path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 44;
+  stroke-linejoin: round;
+  transition: stroke 0.35s;
+}
+
+.gp-thumb:hover:not(:disabled) {
+  color: #fff;
+}
+
+.gp-thumb.on {
+  transform: translateY(-6px);
+  border-color: var(--glow);
+  background: color-mix(in srgb, var(--glow) 16%, transparent);
+  box-shadow: 0 10px 30px -12px var(--glow);
+  color: #fff;
+}
+
+.gp-thumb.on path {
+  stroke: var(--glow);
+}
+
+.gp-thumb:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.gp-thumb.on:disabled {
+  opacity: 1;
+}
+
+.gp-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.gp-drivers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: 13px;
+}
+
+.gp-drivers-label {
+  margin-right: 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.gp-driver {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gp-driver::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.gp-driver em {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--glow);
+  color: #111;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gp-go {
+  position: relative;
+  overflow: hidden;
+  padding: 16px 28px;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fff, var(--glow));
+  box-shadow: 0 12px 40px -12px var(--glow);
+  font-family: 'Russo One', system-ui, sans-serif !important;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #0b0e12 !important;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.gp-go::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.75) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: gp-shine 2.8s 1.2s infinite;
+}
+
+@keyframes gp-shine {
+  40%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.gp-go:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 44px -10px var(--glow);
+}
+
+.gp-go:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.gp-back {
+  display: none;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.gp.gp-host[data-step='settings'] .gp-back {
+  display: inline-block;
+}
+
+.gp:not(.gp-host) .gp-go,
+.gp[data-step='loading'] .gp-go {
+  display: none;
+}
+
+.gp-wait {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.gp:not(.gp-host):not([data-step='loading']) .gp-wait {
+  display: flex;
+}
+
+.gp-wait i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--glow);
+  animation: gp-pulse 1.2s infinite;
+}
+
+@keyframes gp-pulse {
+  50% {
+    opacity: 0.2;
+    transform: scale(0.6);
+  }
+}
+
+/* The five red lights when the Grand Prix is chosen. */
+.gp-lights {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  background: rgba(3, 4, 6, 0.78);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+
+.gp.gp-lighting .gp-lights {
+  opacity: 1;
+}
+
+.gp-gantry {
+  display: flex;
+  gap: 14px;
+  padding: 16px 22px;
+  border-radius: 16px;
+  background: #0d0f13;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.gp-pod {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #050607;
+}
+
+.gp-pod i {
+  width: clamp(26px, 5vw, 54px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #3a0d0d, #1a0606);
+  transition: background 0.08s, box-shadow 0.08s;
+}
+
+.gp-pod.on i {
+  background: radial-gradient(circle at 35% 35%, #ff9a9a, #ff1a1a 45%, #a00000);
+  box-shadow: 0 0 26px 6px rgba(255, 30, 30, 0.6);
+}
+
+.gp-lights-out {
+  font-family: 'Russo One', system-ui, sans-serif;
+  font-size: clamp(28px, 5vw, 64px);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0;
+}
+
+.gp.gp-out .gp-lights-out {
+  animation: gp-go 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes gp-go {
+  30% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+/* Smaller screens: everything tighter. */
+@media (max-width: 1000px), (max-height: 640px) {
+  .gp-top {
+    gap: 12px;
+    padding: 10px 16px;
+  }
+  .gp-brand {
+    font-size: 13px;
+  }
+  .gp-steps li {
+    padding: 4px 10px 4px 4px;
+    font-size: 11px;
+  }
+  .gp-steps span {
+    width: 18px;
+    height: 18px;
+  }
+  .gp-room {
+    gap: 6px;
+    font-size: 12px;
+  }
+  .gp-room button {
+    padding: 5px 9px;
+    font-size: 12px;
+  }
+  .gp-main {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: 16px;
+    padding: 0 16px;
+  }
+  .gp-panel {
+    gap: 10px;
+  }
+  .gp-flag {
+    width: 90px;
+    height: 6px;
+    margin: 6px 0 8px;
+  }
+  .gp-title {
+    font-size: clamp(18px, 2.6vw, 30px);
+  }
+  .gp-sub {
+    margin-top: 6px;
+    font-size: 13px;
+  }
+  .gp-round b {
+    font-size: 17px;
+  }
+  .gp-stats {
+    gap: 6px;
+  }
+  .gp-stat {
+    padding: 7px 9px;
+  }
+  .gp-stat dt {
+    font-size: 9.5px;
+  }
+  .gp-stat dd {
+    margin-top: 3px;
+    font-size: 18px;
+  }
+  .gp-stat small {
+    font-size: 11px;
+  }
+  .gp-tags {
+    gap: 5px;
+    margin-top: 8px;
+  }
+  .gp-tag {
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+  .gp-settings {
+    gap: 12px !important;
+  }
+  .gp-seg button {
+    min-width: 48px;
+    padding: 7px 10px;
+    font-size: 15px;
+  }
+  .gp-note {
+    margin-top: 5px;
+    font-size: 12px;
+  }
+  .gp-grid {
+    gap: 4px 5px;
+    margin-top: 8px;
+  }
+  .gp-gridcar {
+    width: 26px;
+    height: 12px;
+  }
+  .gp-bottom {
+    gap: 6px;
+    padding: 0 16px 10px;
+  }
+  .gp-strip {
+    gap: 6px;
+    padding-top: 8px;
+  }
+  .gp-thumb {
+    width: 72px;
+    padding: 5px 4px 4px;
+    font-size: 10px;
+  }
+  .gp-thumb svg {
+    height: 38px;
+  }
+  .gp-thumb.on {
+    transform: translateY(-4px);
+  }
+  .gp-go {
+    padding: 11px 18px;
+    font-size: 14px;
+  }
+  .gp-back {
+    padding: 9px 12px;
+    font-size: 13px;
+  }
+  .gp-drivers {
+    font-size: 11px;
+  }
+  .gp-driver {
+    padding: 3px 8px;
+  }
+  .gp-swipe span {
+    font-size: 40px;
+  }
+}
+
+/* Landscape phones: little height. */
+@media (max-height: 460px) {
+  .gp-brand,
+  .gp-round,
+  .gp-drivers-label {
+    display: none;
+  }
+  .gp-stage {
+    height: min(100%, 58vh);
+  }
+  .gp-stats {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .gp-stat dt {
+    font-size: 8.5px;
+    letter-spacing: 0.04em;
+  }
+  .gp-stat dd {
+    font-size: 15px;
+  }
+  .gp-stat small {
+    display: none;
+  }
+  .gp-thumb {
+    width: 58px;
+  }
+  .gp-thumb span {
+    display: none;
+  }
+  .gp-thumb svg {
+    height: 30px;
+    margin: 0;
+  }
+  .gp-country {
+    bottom: 22vh;
+  }
+  .gp-tags,
+  .gp-grid,
+  .gp[data-step='settings'] .gp-flag {
+    display: none;
+  }
+  .gp-settings {
+    gap: 8px !important;
+  }
+  .gp-setting h2 {
+    margin-bottom: 4px;
+    font-size: 10px;
+  }
+  .gp-seg {
+    padding: 3px;
+  }
+  .gp-seg button {
+    min-width: 42px;
+    padding: 5px 9px;
+    font-size: 13px;
+  }
+  .gp-pill {
+    top: 3px;
+    bottom: 3px;
+  }
+  .gp-note {
+    margin-top: 3px;
+    font-size: 11px;
+  }
+}
+
+/* Upright phones: the map above, the facts below. */
+@media (max-width: 640px) and (orientation: portrait) {
+  .gp-top {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .gp-brand {
+    display: none;
+  }
+  .gp-steps {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
+  .gp-room span {
+    margin-right: auto;
+  }
+  .gp-room {
+    width: 100%;
+  }
+  .gp-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 6px;
+  }
+  .gp-stage {
+    height: 30vh;
+  }
+  .gp-title {
+    font-size: 22px;
+  }
+  .gp-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .gp-actions {
+    flex-wrap: wrap;
+  }
+  .gp-drivers {
+    width: 100%;
+  }
+  .gp-go {
+    flex: 1;
+    padding: 11px 12px;
+    font-size: 14px;
+    line-height: 1.15;
+    white-space: normal;
+  }
+  .gp-back {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .gp-country {
+    bottom: auto;
+    top: 18vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gp *,
+  .gp *::before,
+  .gp *::after {
+    animation-duration: 0.01s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01s !important;
   }
 }

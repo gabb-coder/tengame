@@ -173,6 +173,10 @@ fight the day/night cycle).
 
 ## Racing mode
 
+- The Grand Prix screen (race/gpScreen.ts): a racing room opens with its host choosing the
+  Grand Prix (an animated map of each circuit with its facts) and then its settings, which
+  everyone in the room watches live (the server's 'setup' phase and race_setup drafts);
+  then five red lights, and the screen stays up with the map while the circuit loads.
 - A third mode: Grand Prix racing on ten real circuits (shared/circuits.ts): Sepang, Marina
   Bay (night, streets), Silverstone, Monza, Spa, Monaco (streets), Suzuka (figure of eight
   with a bridge), Interlagos, Sakhir (night, desert) and Spielberg.

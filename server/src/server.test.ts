@@ -519,10 +519,18 @@ test('racing rooms race what the lobby chose, relay the computer cars, and check
   a.send({ type: 'join', name: 'Alice', mode: 'racing', race: { circuit: 'monaco', laps: 3, bots: 5, difficulty: 'hard' } });
   const welcome = await a.next('welcome');
   assert.equal(welcome.mode, 'racing');
+  // The room starts with the host choosing the Grand Prix, from where their last choice was.
   assert.deepEqual(welcome.race?.setup, { circuit: 'monaco', laps: 3, bots: 5, difficulty: 'hard' });
-  assert.equal(welcome.race?.phase, 'grid');
+  assert.equal(welcome.race?.phase, 'setup');
   assert.equal(welcome.race?.host, welcome.id);
-  assert.equal(welcome.race?.cars.length, 6);
+  a.send({ type: 'race_setup', setup: { circuit: 'spa', laps: 999, bots: 5, difficulty: 'hard' }, step: 'gp' });
+  let draft = welcome.race!;
+  for (let i = 0; i < 5 && draft.setup.circuit !== 'spa'; i++) draft = (await a.next('race')).race;
+  assert.deepEqual([draft.setup.circuit, draft.setup.laps, draft.choosing], ['spa', 30, 'gp']);
+  a.send({ type: 'race_setup', setup: { circuit: 'monaco', laps: 3, bots: 5, difficulty: 'hard' }, step: 'settings', final: true });
+  for (let i = 0; i < 5 && draft.phase !== 'grid'; i++) draft = (await a.next('race')).race;
+  assert.equal(draft.phase, 'grid');
+  assert.equal(draft.cars.length, 6);
 
   // A friend joins the grid; Alice's game drives the computer cars and the friend sees them
   // once their game has built the circuit (the start waits for that too).

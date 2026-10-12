@@ -210,6 +210,11 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         if (!room?.race || !player || !Array.isArray(msg.bots) || msg.bots.length > MAX_GRID) return;
         const bots = msg.bots.filter(isBotState).map(({ n, p, q, car }) => ({ n, p, q, car: cleanCar(car) }));
         room.race.botsMoved(player.id, Number(msg.race), bots);
+      } else if (msg.type === 'race_setup') {
+        // Racing: the host choosing the Grand Prix (each change shown to everyone).
+        if (!room?.race || !player || !room.allow(`${player.id}:setup`, 20, 1000)) return;
+        const step = msg.step === 'settings' ? 'settings' : 'gp';
+        room.race.choose(player.id, raceSetup(msg.setup), step, msg.final === true, Date.now());
       } else if (msg.type === 'race_start') {
         if (room?.race && player) room.race.startNow(player.id, Date.now());
       } else if (msg.type === 'race_ready') {

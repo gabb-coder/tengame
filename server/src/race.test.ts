@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { circuitInfo } from '../../shared/circuits.ts';
 import type { RaceState } from '../../shared/protocol.ts';
-import { GRID_MS, LIGHT_MS, LOAD_WAIT_MS, MAX_GRID, MAX_LAP_SPEED, NEXT_GRID_MS, RESULTS_MS, type RaceSetup } from '../../shared/racing.ts';
+import { GRID_MS, LIGHT_MS, LOAD_WAIT_MS, MAX_GRID, READY_WAIT_MS, MAX_LAP_SPEED, NEXT_GRID_MS, RESULTS_MS, type RaceSetup } from '../../shared/racing.ts';
 import { RaceManager, type RacePlayer } from './race.ts';
 
 const SETUP: RaceSetup = { circuit: 'monza', laps: 2, bots: 3, difficulty: 'normal' };
@@ -16,6 +16,8 @@ function setup(race: RaceSetup = SETUP) {
   const notices: string[] = [];
   const m = new RaceManager({ players: () => players, publish: (s) => published.push(structuredClone(s)), notice: (t) => notices.push(t) }, race, 0, () => 0.5);
   m.join();
+  // The host settles on the Grand Prix straight away.
+  m.choose('a', race, 'settings', true, 0);
   let now = 0;
   const advance = (ms: number) => {
     for (let t = 0; t < ms; t += 50) m.tick((now += 50));
@@ -32,6 +34,43 @@ function setup(race: RaceSetup = SETUP) {
   };
   return { m, players, published, notices, advance, at, start, get now() { return now; } };
 }
+
+test('a new room starts with its host choosing the Grand Prix, each change shown to all; then everyone lines up', () => {
+  const players: RacePlayer[] = [{ id: 'a', name: 'Alice' }];
+  const published: RaceState[] = [];
+  const m = new RaceManager({ players: () => players, publish: (s) => published.push(structuredClone(s)), notice: () => {} }, SETUP, 0);
+  m.join();
+  players.push({ id: 'b', name: 'Bob' });
+  m.join();
+  assert.equal(m.state.phase, 'setup');
+  assert.equal(m.state.host, 'a');
+  assert.equal(m.state.cars.length, 0);
+  // Only the host chooses; friends see each change as it's made.
+  m.choose('b', { ...SETUP, circuit: 'spa' }, 'gp', true, 10);
+  assert.equal(m.state.setup.circuit, 'monza');
+  assert.equal(m.state.phase, 'setup');
+  m.choose('a', { ...SETUP, circuit: 'spa' }, 'gp', false, 10);
+  m.choose('a', { ...SETUP, circuit: 'spa', laps: 3 }, 'settings', false, 20);
+  assert.deepEqual(published.at(-1)!.setup, { ...SETUP, circuit: 'spa', laps: 3 });
+  assert.equal(published.at(-1)!.choosing, 'settings');
+  // Nothing starts while the choice is being made.
+  m.playerReady('a', 30);
+  m.tick(READY_WAIT_MS * 3);
+  assert.equal(m.state.phase, 'setup');
+  // The host leaves: the friend carries on choosing, and confirms.
+  players.shift();
+  m.leave('a');
+  assert.equal(m.state.host, 'b');
+  m.choose('b', { ...SETUP, circuit: 'monaco' }, 'settings', true, 100);
+  assert.equal(m.state.phase, 'grid');
+  assert.equal(m.state.setup.circuit, 'monaco');
+  assert.equal(m.state.choosing, undefined);
+  assert.deepEqual(m.state.cars.map((c) => c.id), ['bot:0', 'b', 'bot:1', 'bot:2']);
+  assert.equal(m.state.until, 100 + READY_WAIT_MS);
+  // Once chosen, it's chosen.
+  m.choose('b', { ...SETUP, circuit: 'spa' }, 'gp', true, 200);
+  assert.equal(m.state.setup.circuit, 'monaco');
+});
 
 test('a race lines up the players among the computer drivers, then counts down to five red lights and the start', () => {
   const t = setup();

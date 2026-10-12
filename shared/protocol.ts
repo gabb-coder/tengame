@@ -99,7 +99,7 @@ export interface JoinMessage {
   room?: string;
   /** Mode for a new room (ignored when joining). Defaults to free roam. */
   mode?: GameMode;
-  /** Racing: what the new room races. */
+  /** Racing: where the new room's Grand Prix choice starts (the creator's last one). */
   race?: RaceSetup;
 }
 
@@ -121,6 +121,17 @@ export interface BotsRequestMessage {
   type: 'bots';
   race: number;
   bots: BotState[];
+}
+
+/**
+ * Racing, while setting up: the host's choice of Grand Prix and settings so far (shown to
+ * everyone as it changes), and on which step; `final` when they confirm it.
+ */
+export interface RaceSetupRequestMessage {
+  type: 'race_setup';
+  setup: RaceSetup;
+  step: SetupStep;
+  final?: boolean;
 }
 
 /** Racing: the player running the race starts it now, rather than waiting out the countdown. */
@@ -201,6 +212,7 @@ export type ClientMessage =
   | SmashRequestMessage
   | LapRequestMessage
   | BotsRequestMessage
+  | RaceSetupRequestMessage
   | RaceStartRequestMessage
   | RaceReadyRequestMessage;
 
@@ -373,7 +385,8 @@ export interface BotState {
 }
 
 /** grid: lining up (with a countdown); lights: the five red lights; racing; finished: results. */
-export type RacePhase = 'grid' | 'lights' | 'racing' | 'finished';
+/** The host choosing the Grand Prix and its settings; then each race in turn on it. */
+export type RacePhase = 'setup' | 'grid' | 'lights' | 'racing' | 'finished';
 
 /** One car in the race: a player's (id is theirs) or a computer driver's (`bot:<n>`). */
 export interface RaceCar {
@@ -411,7 +424,11 @@ export interface RaceState {
   until: number;
   /** The winner is home: everyone else finishes the next time they cross the line. */
   flag: boolean;
+  /** While setting up: which step the host is on (the Grand Prix, or its settings). */
+  choosing?: SetupStep;
 }
+
+export type SetupStep = 'gp' | 'settings';
 
 export interface RaceMessage {
   type: 'race';

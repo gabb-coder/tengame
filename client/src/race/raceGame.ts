@@ -59,6 +59,8 @@ export interface RaceStart {
   renderer: THREE.WebGLRenderer;
   container: HTMLElement;
   media: Media;
+  /** Shows how loading is going. */
+  status?: (text: string) => void;
 }
 
 /**
@@ -67,13 +69,13 @@ export interface RaceStart {
  * everyone else's cars come over the network. Each game times its own laps and reports
  * them, and the server referees.
  */
-export async function startRace({ conn, welcome, listener, renderer, container, media }: RaceStart): Promise<void> {
+export async function startRace({ conn, welcome, listener, renderer, container, media, status = setLobbyStatus }: RaceStart): Promise<void> {
   syncClock(welcome.now);
   let race = welcome.race!;
   const info = circuitInfo(race.setup.circuit);
-  setLobbyStatus(`Loading ${info.name}…`);
+  status(`Loading ${info.name}…`);
   const [data, textures] = await Promise.all([fetch(`/media/circuits/${info.id}.json`).then((r) => r.json() as Promise<CircuitData>), loadTextures(media)]);
-  setLobbyStatus(`Building ${info.name}…`);
+  status(`Building ${info.name}…`);
   await new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
   const world = new RaceWorld(renderer, info, data, textures, DETAIL[settings.quality]);
   const { track, line, layout, scene, camera, physics } = world;
@@ -572,6 +574,7 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
     return 'DRS: be within a second of the car ahead at the detection line';
   }
 
+  status('Warming up the engines…');
   await Promise.race([postfx.compile(), new Promise((done) => setTimeout(done, 15000))]);
   // Built: the grid's countdown can start (it waits for the host's game, the lights for everyone's).
   conn.send({ type: 'race_ready' });
