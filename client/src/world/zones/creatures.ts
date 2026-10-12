@@ -429,8 +429,11 @@ export function loopMover(points: [number, number][], speed: number, terrain: Te
 /** Circling flight around (x, z) at `height` above the ground, banking into the turn. */
 export function circleMover(x: number, z: number, radius: number, height: number, speed: number, terrain: Terrain | null, opts: { wobble?: number; absolute?: boolean } = {}): Mover {
   return (i, t, out) => {
+    // A steady pace round the circle, while drifting in and out from it. (The angle mustn't
+    // depend on the drifting radius: `t` is the shared clock, billions of seconds, and any
+    // change in what it's multiplied by would fling the creature round the circle.)
+    const a = (t * speed) / radius + i * 2.4;
     const r = radius * (1 + 0.25 * Math.sin(i * 2.1 + t * 0.07));
-    const a = (t * speed) / r + i * 2.4;
     const dir = i % 2 ? 1 : -1;
     const ang = a * dir;
     out.x = x + Math.cos(ang) * r + Math.sin(t * 0.3 + i) * (opts.wobble ?? 0);
