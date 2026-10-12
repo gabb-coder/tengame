@@ -64,6 +64,13 @@ export class DayNight {
   private skyTint = new THREE.Color(1, 1, 1);
   private envTint = new THREE.Color(1, 1, 1);
 
+  /** Frees the sky's lighting maps. */
+  dispose(): void {
+    this.envTarget?.dispose();
+    this.envTarget = null;
+    this.pmrem.dispose();
+  }
+
   constructor(
     private renderer: THREE.WebGLRenderer,
     private scene: THREE.Scene,

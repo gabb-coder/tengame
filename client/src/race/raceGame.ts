@@ -1,6 +1,6 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { type CircuitData, circuitInfo } from '../../../shared/circuits.ts';
+import { type CircuitData, type CircuitInfo, circuitInfo } from '../../../shared/circuits.ts';
 import { type PlayerInfo, TICK_RATE, type WelcomeMessage } from '../../../shared/protocol.ts';
 import { botSkill, GRID_MS, lightsLit, TEAMS } from '../../../shared/racing.ts';
 import { mulberry32 } from '../../../shared/town.ts';
@@ -14,7 +14,6 @@ import { PostFX, type Quality } from '../render/postfx.ts';
 import { onSettings, settings } from '../settings.ts';
 import { Chat } from '../ui/chat.ts';
 import { applyHudSettings, renderFps, renderGauges, showDisconnected, showHud, toggleHelp } from '../ui/hud.ts';
-import { setLobbyStatus } from '../ui/lobby.ts';
 import { Menu } from '../ui/menu.ts';
 import { showNotice } from '../ui/notices.ts';
 import { TouchControls } from '../ui/touchControls.ts';
@@ -22,13 +21,17 @@ import type { CarControls } from '../vehicles/carPhysics.ts';
 import { AiDriver } from './ai.ts';
 import { Drs, type Runner, towFor } from './drs.ts';
 import { F1 } from './f1.ts';
+import { GrandPrixScreen } from './gpScreen.ts';
+import type { CircuitLayout } from './layout.ts';
 import { RaceCamera } from './raceCamera.ts';
 import { RaceCar } from './raceCar.ts';
 import { RaceHud, type Standing } from './raceHud.ts';
 import { RaceMap } from './raceMap.ts';
 import { RIDE_HEIGHT } from './racer.ts';
+import type { RacingLine } from './racingLine.ts';
 import { RaceWorld } from './raceWorld.ts';
 import { EnginePool, Rivals } from './rivals.ts';
+import type { Track } from './track.ts';
 
 const SEND_MS = 1000 / TICK_RATE;
 const PHYSICS_STEP = 1 / 60;
@@ -59,54 +62,66 @@ export interface RaceStart {
   renderer: THREE.WebGLRenderer;
   container: HTMLElement;
   media: Media;
-  /** Shows how loading is going. */
-  status?: (text: string) => void;
 }
 
 /**
- * The racing mode: builds the room's circuit and runs its races. The player drives their
- * own car; one player's game also drives the computer cars (and sends where they are);
- * everyone else's cars come over the network. Each game times its own laps and reports
- * them, and the server referees.
+ * The racing mode: a racing room's Grand Prix, one after another. First the Grand Prix
+ * screen, where the host chooses (everyone else watches); then its circuit is built and the
+ * races run on it, until the host chooses another. The player drives their own car; one
+ * player's game also drives the computer cars (and sends where they are); everyone else's
+ * cars come over the network. Each game times its own laps and reports them, and the server
+ * referees. Resolves once the first Grand Prix's circuit is up.
  */
-export async function startRace({ conn, welcome, listener, renderer, container, media, status = setLobbyStatus }: RaceStart): Promise<void> {
+export async function startRace({ conn, welcome, listener, renderer, container, media }: RaceStart): Promise<void> {
   syncClock(welcome.now);
   let race = welcome.race!;
-  const info = circuitInfo(race.setup.circuit);
-  status(`Loading ${info.name}…`);
-  const [data, textures] = await Promise.all([fetch(`/media/circuits/${info.id}.json`).then((r) => r.json() as Promise<CircuitData>), loadTextures(media)]);
-  status(`Building ${info.name}…`);
-  await new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
-  const world = new RaceWorld(renderer, info, data, textures, DETAIL[settings.quality]);
-  const { track, line, layout, scene, camera, physics } = world;
-  const surfaceOf = (c: RAPIER.Collider | null) => world.circuit.surfaceOf(c);
   const myId = welcome.id;
+  const players = new Map<string, PlayerInfo>(welcome.players.map((p) => [p.id, p]));
 
+  // ---- The Grand Prix: its circuit and everything on it, built afresh for each one ----
+  let info!: CircuitInfo;
+  let world!: RaceWorld;
+  let track!: Track;
+  let line!: RacingLine;
+  let layout!: CircuitLayout;
+  let scene!: THREE.Scene;
+  let camera!: THREE.PerspectiveCamera;
+  let physics!: RAPIER.World;
+  let postfx: PostFX | null = null;
+  let map!: RaceMap;
+  let raceCam!: RaceCamera;
+  let rivals!: Rivals;
+  let engines!: EnginePool;
+  let drs!: Drs;
+  /** A circuit is built, and racing on it. */
+  let built = false;
+  /** The Grand Prix screen is up: choosing, or loading the circuit. */
+  let choosing = false;
+  /** Counts the circuits built, so loading one that's no longer wanted stops. */
+  let generation = 0;
+  const surfaceOf = (c: RAPIER.Collider | null) => world.circuit.surfaceOf(c);
+
+  // ---- The room: all that stays from one Grand Prix to the next ----
   const labels = new Labels();
   container.appendChild(labels.domElement);
-  const postfx = new PostFX(renderer, scene, camera);
   const resize = () => {
-    world.resize(innerWidth, innerHeight);
-    postfx.setSize(innerWidth, innerHeight);
     labels.setSize(innerWidth, innerHeight);
+    if (!built) return;
+    world.resize(innerWidth, innerHeight);
+    postfx?.setSize(innerWidth, innerHeight);
   };
   addEventListener('resize', resize);
-  resize();
-  camera.add(listener);
-  scene.add(camera);
   document.addEventListener('visibilitychange', () => void (document.hidden ? listener.context.suspend() : listener.context.resume()));
   let muted = false;
   const applyVolume = () => listener.setMasterVolume(muted ? 0 : settings.volume);
   onSettings((s) => {
-    postfx.setQuality(s.quality);
+    postfx?.setQuality(s.quality);
     applyVolume();
     applyHudSettings(s);
   });
 
   showHud(welcome.room, 'racing');
-  document.getElementById('hud-mode')!.textContent = `Racing · ${info.name}`;
   const hud = new RaceHud();
-  const map = new RaceMap(document.getElementById('minimap') as HTMLCanvasElement, track);
   const input = new Input(renderer.domElement);
   input.capturePointer = false;
   const chat = new Chat();
@@ -115,19 +130,21 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
   const touch = touchDevice ? new TouchControls(input, { chat: () => chat.open(), racing: true }) : null;
   const menu = new Menu(welcome.room);
   menu.onToggle = (open) => {
-    input.enabled = !open;
+    input.enabled = !open && !choosing;
     input.releaseAll();
   };
   addEventListener('keydown', (e) => {
-    if (e.code !== 'Escape' || chat.isOpen || e.target instanceof HTMLInputElement) return;
+    if (e.code !== 'Escape' || choosing || chat.isOpen || e.target instanceof HTMLInputElement) return;
     e.preventDefault();
     menu.toggle();
   });
-  const raceCam = new RaceCamera(camera);
-  const rivals = new Rivals(scene, physics, track);
-  const engines = new EnginePool(scene, listener);
-  const drs = new Drs(track, world.drs);
-  const players = new Map<string, PlayerInfo>(welcome.players.map((p) => [p.id, p]));
+  // The player running the race can choose another Grand Prix between races (or on the grid).
+  const changeButton = document.getElementById('menu-change-gp')!;
+  const changeGp = () => conn.send({ type: 'race_change' });
+  changeButton.addEventListener('click', () => {
+    menu.close();
+    changeGp();
+  });
 
   let mine: RaceCar | null = null;
   let myTeam = -1;
@@ -300,13 +317,30 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
     return s;
   };
 
-  lineUp();
-
   conn.on((msg) => {
     switch (msg.type) {
       case 'race': {
         const before = race;
         race = msg.race;
+        // Choosing (or loading the circuit): the Grand Prix screen follows the race itself.
+        if (!built) break;
+        if (race.phase === 'setup') {
+          // The host's choosing another Grand Prix: this circuit makes way. (Still loading
+          // this one? Then once it's up, the Grand Prix screen comes straight back.)
+          if (!choosing) {
+            const failed = (err: unknown) => {
+              console.error(err);
+              showNotice('The next circuit failed to load: try leaving the room and making a new one');
+            };
+            try {
+              teardown();
+              chooseAndBuild().catch(failed);
+            } catch (err) {
+              failed(err);
+            }
+          }
+          break;
+        }
         if (race.number !== before.number || race.phase === 'grid') lineUp();
         else {
           if (race.host !== before.host) syncBots(false);
@@ -317,12 +351,12 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
       }
       case 'player_joined':
         players.set(msg.player.id, msg.player);
-        chat.system(`${msg.player.name} joined${race.phase === 'grid' ? '' : ': they race from the next start'}`);
+        chat.system(`${msg.player.name} joined${race.phase === 'grid' || race.phase === 'setup' ? '' : ': they race from the next start'}`);
         break;
       case 'player_left':
         chat.system(`${players.get(msg.id)?.name ?? 'Someone'} left`);
         players.delete(msg.id);
-        rivals.remove(msg.id);
+        if (built) rivals.remove(msg.id);
         break;
       case 'chat':
         chat.add(msg, '#ffd24a');
@@ -331,6 +365,7 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
         showNotice(msg.text);
         break;
       case 'snapshot': {
+        if (!built) break;
         const now = performance.now();
         for (const p of msg.players) if (p.id !== myId) rivals.push(p.id, p.p, p.q, p.car, now);
         if (!isHost()) for (const b of msg.bots ?? []) rivals.push(`bot:${b.n}`, b.p, b.q, b.car, now);
@@ -339,7 +374,6 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
     }
   });
   conn.onClose = showDisconnected;
-  chat.system(`Racing at ${info.name}, ${info.country}: ${race.setup.laps} laps. Press Enter to chat.`);
 
   /** The beep of each red light coming on. */
   const beep = (high: boolean) => {
@@ -512,7 +546,8 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
         });
       } else hud.renderTiming(null);
       const fastest = race.cars.filter((c) => c.best !== null).sort((a, b) => a.best! - b.best!)[0];
-      hud.renderResults(race.phase === 'finished' ? order : null, fastest ? { name: fastest.name, time: fastest.best! } : null, (race.until - serverNow()) / 1000, race.number);
+      hud.renderResults(race.phase === 'finished' ? order : null, fastest ? { name: fastest.name, time: fastest.best! } : null, (race.until - serverNow()) / 1000, race.number, isHost() ? changeGp : undefined);
+      changeButton.hidden = !(isHost() && (race.phase === 'grid' || race.phase === 'finished'));
     }
     if (mine) {
       const p = mine.racer.physics;
@@ -547,7 +582,7 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
     }
 
     input.endFrame();
-    postfx.render(world.dayNight.night);
+    postfx!.render(world.dayNight.night);
     labels.render(camera);
   };
 
@@ -574,13 +609,91 @@ export async function startRace({ conn, welcome, listener, renderer, container, 
     return 'DRS: be within a second of the car ahead at the detection line';
   }
 
-  status('Warming up the engines…');
-  await Promise.race([postfx.compile(), new Promise((done) => setTimeout(done, 15000))]);
-  // Built: the grid's countdown can start (it waits for the host's game, the lights for everyone's).
-  conn.send({ type: 'race_ready' });
-  last = performance.now();
-  frame();
-  renderer.setAnimationLoop(frame);
+  /** Builds the chosen Grand Prix's circuit, puts everyone on the grid, and starts it running. */
+  const build = async (say: (text: string) => void) => {
+    const gen = ++generation;
+    info = circuitInfo(race.setup.circuit);
+    say(`Loading ${info.name}…`);
+    const [data, textures] = await Promise.all([fetch(`/media/circuits/${info.id}.json`).then((r) => r.json() as Promise<CircuitData>), loadTextures(media)]);
+    say(`Building ${info.name}…`);
+    await new Promise((done) => requestAnimationFrame(() => setTimeout(done)));
+    if (gen !== generation) return;
+    world = new RaceWorld(renderer, info, data, textures, DETAIL[settings.quality]);
+    ({ track, line, layout, scene, camera, physics } = world);
+    postfx = new PostFX(renderer, scene, camera);
+    postfx.setQuality(settings.quality);
+    camera.add(listener);
+    scene.add(camera);
+    map = new RaceMap(document.getElementById('minimap') as HTMLCanvasElement, track);
+    raceCam = new RaceCamera(camera);
+    rivals = new Rivals(scene, physics, track);
+    engines = new EnginePool(scene, listener);
+    drs = new Drs(track, world.drs);
+    document.getElementById('hud-mode')!.textContent = `Racing · ${info.name}`;
+    built = true;
+    resize();
+    lineUp();
+    chat.system(`Racing at ${info.name}, ${info.country}: ${race.setup.laps} laps. Press Enter to chat.`);
+    say('Warming up the engines…');
+    await Promise.race([postfx.compile(), new Promise((done) => setTimeout(done, 15000))]);
+    if (gen !== generation) return;
+    // Built: the grid's countdown can start (it waits for the host's game, the lights for everyone's).
+    conn.send({ type: 'race_ready' });
+    last = performance.now();
+    frame();
+    renderer.setAnimationLoop(frame);
+  };
+
+  /** Puts the circuit away, and everything on it. */
+  const teardown = () => {
+    if (!built) return;
+    generation++;
+    built = false;
+    renderer.setAnimationLoop(null);
+    mine?.dispose();
+    mine = null;
+    myTeam = -1;
+    for (const b of bots.values()) b.car.dispose();
+    bots.clear();
+    rivals.keepOnly(new Set());
+    engines.dispose();
+    camera.remove(listener);
+    postfx?.dispose();
+    postfx = null;
+    world.dispose();
+    renderer.renderLists.dispose();
+    progress.clear();
+    hud.renderResults(null, null, 0, race.number);
+    hud.renderLights(null);
+    hud.say('');
+  };
+
+  /** The Grand Prix screen: the host chooses (everyone watches), then the circuit loads behind it. */
+  const chooseAndBuild = async () => {
+    for (;;) {
+      choosing = true;
+      menu.close();
+      chat.close();
+      chat.enabled = false;
+      input.enabled = false;
+      input.releaseAll();
+      const screen = new GrandPrixScreen(conn, { ...welcome, race, players: [...players.values()] }, listener.context);
+      try {
+        await screen.chosen;
+        await build((text) => screen.status(text));
+      } finally {
+        screen.close();
+        choosing = false;
+        chat.enabled = true;
+        input.enabled = !menu.isOpen;
+      }
+      // The host went back to choosing while this one was loading: choose again.
+      if (race.phase !== 'setup') return;
+      teardown();
+    }
+  };
+
+  await chooseAndBuild();
 }
 
 /** m:ss.s for the timing screens. */

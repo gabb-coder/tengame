@@ -177,6 +177,9 @@ fight the day/night cycle).
   Grand Prix (an animated map of each circuit with its facts) and then its settings, which
   everyone in the room watches live (the server's 'setup' phase and race_setup drafts);
   then five red lights, and the screen stays up with the map while the circuit loads.
+  Change Grand Prix (the host, on the results or in the menu on the grid) takes the room
+  back to it: each game puts its circuit away (raceGame's build/teardown; the room's HUD,
+  chat and controls stay) and builds the next.
 - A third mode: Grand Prix racing on ten real circuits (shared/circuits.ts): Sepang, Marina
   Bay (night, streets), Silverstone, Monza, Spa, Monaco (streets), Suzuka (figure of eight
   with a bridge), Interlagos, Sakhir (night, desert) and Spielberg.

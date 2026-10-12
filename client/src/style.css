@@ -870,11 +870,7 @@ button:disabled {
 .hud-room button.secondary,
 .menu button.secondary,
 .bigmap button.secondary,
-/* Above everything, the Grand Prix screen included. */
-#disconnected {
-  z-index: 40;
-}
-
+.race-results button.secondary,
 #disconnected button.secondary {
   background: rgba(255, 255, 255, 0.12);
   color: var(--panel-text);
@@ -882,6 +878,11 @@ button:disabled {
 
 .menu {
   z-index: 20;
+}
+
+/* Above everything, the Grand Prix screen included. */
+#disconnected {
+  z-index: 40;
 }
 
 .menu-card {
@@ -1947,8 +1948,10 @@ body:not(.touch) .touch-only,
   color: var(--muted);
 }
 
-.results-card button {
-  align-self: flex-end;
+.results-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @media (max-width: 720px), (max-height: 500px) {

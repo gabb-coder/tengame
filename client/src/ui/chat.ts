@@ -16,11 +16,13 @@ export class Chat {
   onSend: (text: string) => void = () => {};
   /** Called when the box opens, so held keys can be released. */
   onOpen: () => void = () => {};
+  /** Off while another screen has the keyboard (Enter opens nothing). */
+  enabled = true;
 
   constructor() {
     if (touchDevice) this.input.placeholder = 'Say something';
     addEventListener('keydown', (e) => {
-      if (e.code !== 'Enter' || this.isOpen || e.target instanceof HTMLInputElement) return;
+      if (e.code !== 'Enter' || !this.enabled || this.isOpen || e.target instanceof HTMLInputElement) return;
       e.preventDefault();
       this.open();
     });

@@ -92,6 +92,26 @@ export class RaceManager {
     this.host.publish(s);
   }
 
+  /**
+   * The host goes back to choosing the Grand Prix: between races (the results showing) or on
+   * the grid before the lights; everyone's game puts the circuit away until the next choice.
+   */
+  reopen(from: string, now: number): void {
+    const s = this.state;
+    if (from !== s.host || (s.phase !== 'grid' && s.phase !== 'finished')) return;
+    s.phase = 'setup';
+    s.choosing = 'gp';
+    s.number++;
+    s.cars = [];
+    s.flag = false;
+    s.until = now;
+    this.bots = [];
+    // Everyone builds the next circuit afresh.
+    this.loaded.clear();
+    this.ready = false;
+    this.host.publish(s);
+  }
+
   /** A player's game has built the circuit; the host's starts the grid's countdown. */
   playerReady(from: string, now: number): void {
     const s = this.state;

@@ -49,7 +49,6 @@ import { game, playTrigger } from './game/link.ts';
 import { Limp } from './game/limp.ts';
 import { markFired, zoneSeats } from './world/zones/buttons.ts';
 import { startRace } from './race/raceGame.ts';
-import { GrandPrixScreen } from './race/gpScreen.ts';
 
 const SEND_INTERVAL_MS = 1000 / TICK_RATE;
 const PHYSICS_STEP = 1 / 60;
@@ -96,13 +95,7 @@ runLobby(async ({ name, room, mode, race }) => {
     title.stop();
     clearWorld(world);
     conn.onClose = showDisconnected;
-    const screen = new GrandPrixScreen(conn, welcome, listener.context);
-    try {
-      const { race, players } = await screen.chosen;
-      await startRace({ conn, welcome: { ...welcome, race, players }, listener, renderer: world.renderer, container, media, status: (text) => screen.status(text) });
-    } finally {
-      screen.close();
-    }
+    await startRace({ conn, welcome, listener, renderer: world.renderer, container, media });
     return;
   }
   setLobbyStatus('Loading textures…');

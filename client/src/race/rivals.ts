@@ -168,6 +168,17 @@ export class EnginePool {
     }
   }
 
+  /** Silences and lets go of the voices. */
+  dispose(): void {
+    for (const v of this.voices) {
+      // Unplugged from the speaker first: the engine then cuts its own output.
+      v.audio.disconnect();
+      v.engine.dispose();
+      v.holder.removeFromParent();
+    }
+    this.voices = [];
+  }
+
   /** Gives the voices to the cars nearest `ear`. */
   update(cars: { position: THREE.Vector3; rpm: number; load: number }[], ear: THREE.Vector3): void {
     const near = [...cars].sort((a, b) => a.position.distanceToSquared(ear) - b.position.distanceToSquared(ear)).slice(0, this.voices.length);

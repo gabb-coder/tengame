@@ -134,6 +134,11 @@ export interface RaceSetupRequestMessage {
   final?: boolean;
 }
 
+/** Racing: the host goes back to choosing the Grand Prix (between races, or on the grid). */
+export interface RaceChangeRequestMessage {
+  type: 'race_change';
+}
+
 /** Racing: the player running the race starts it now, rather than waiting out the countdown. */
 export interface RaceStartRequestMessage {
   type: 'race_start';
@@ -213,6 +218,7 @@ export type ClientMessage =
   | LapRequestMessage
   | BotsRequestMessage
   | RaceSetupRequestMessage
+  | RaceChangeRequestMessage
   | RaceStartRequestMessage
   | RaceReadyRequestMessage;
 

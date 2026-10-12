@@ -72,6 +72,45 @@ test('a new room starts with its host choosing the Grand Prix, each change shown
   assert.equal(m.state.setup.circuit, 'monaco');
 });
 
+test('between races (or on the grid) the host can go back to choosing the Grand Prix', () => {
+  const t = setup();
+  t.start();
+  // Not mid-race.
+  t.m.reopen('a', t.now);
+  assert.equal(t.m.state.phase, 'racing');
+  const cars = ['a', 'bot:0', 'bot:1', 'bot:2'];
+  for (const lap of [1, 2]) {
+    t.advance(LAP * 1000);
+    for (const id of cars) {
+      assert.ok(t.m.lap('a', id === 'a' ? undefined : id, lap, LAP, t.at(), t.now));
+      t.advance(300);
+    }
+  }
+  assert.equal(t.m.state.phase, 'finished');
+  // A friend arrives during the results; only the host goes back to choosing.
+  t.players.push({ id: 'b', name: 'Bob' });
+  t.m.join();
+  t.m.reopen('b', t.now);
+  assert.equal(t.m.state.phase, 'finished');
+  const number = t.m.state.number;
+  t.m.reopen('a', t.now);
+  assert.equal(t.m.state.phase, 'setup');
+  assert.equal(t.m.state.choosing, 'gp');
+  assert.equal(t.m.state.number, number + 1);
+  assert.equal(t.m.state.cars.length, 0);
+  // The new Grand Prix: everyone's game builds its circuit before the start.
+  t.m.choose('a', { ...SETUP, circuit: 'suzuka' }, 'settings', true, t.now);
+  assert.equal(t.m.state.phase, 'grid');
+  assert.deepEqual(t.m.state.cars.filter((c) => !c.bot).map((c) => [c.id, c.loading]), [['a', true], ['b', true]]);
+  t.m.playerReady('a', t.now);
+  t.m.playerReady('b', t.now);
+  t.advance(GRID_MS + 100);
+  assert.equal(t.m.state.phase, 'lights');
+  // Not once the lights are on.
+  t.m.reopen('a', t.now);
+  assert.equal(t.m.state.phase, 'lights');
+});
+
 test('a race lines up the players among the computer drivers, then counts down to five red lights and the start', () => {
   const t = setup();
   const ids = t.m.state.cars.map((c) => c.id);

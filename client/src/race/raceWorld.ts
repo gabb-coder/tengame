@@ -86,12 +86,24 @@ export class RaceWorld {
     this.circuit.setNight(this.dayNight.night);
   }
 
-  /** Frees the physics world (the scene's GPU memory goes with the renderer's next dispose). */
+  /** Frees everything: the scene's shapes, materials and textures, the sky's maps, the physics world. */
   dispose(): void {
+    const materials = new Set<THREE.Material>();
     this.scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
       mesh.geometry?.dispose();
+      if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
+      for (const m of Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) materials.add(m);
     });
+    const textures = new Set<THREE.Texture>();
+    for (const m of materials) {
+      for (const value of Object.values(m)) if (value instanceof THREE.Texture) textures.add(value);
+      m.dispose();
+    }
+    // Shared ones (the photo textures) just load onto the graphics card again when next used.
+    for (const t of textures) t.dispose();
+    this.dayNight.dispose();
+    this.scene.clear();
     this.physics.free();
   }
 }

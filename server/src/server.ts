@@ -215,6 +215,8 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         if (!room?.race || !player || !room.allow(`${player.id}:setup`, 20, 1000)) return;
         const step = msg.step === 'settings' ? 'settings' : 'gp';
         room.race.choose(player.id, raceSetup(msg.setup), step, msg.final === true, Date.now());
+      } else if (msg.type === 'race_change') {
+        if (room?.race && player) room.race.reopen(player.id, Date.now());
       } else if (msg.type === 'race_start') {
         if (room?.race && player) room.race.startNow(player.id, Date.now());
       } else if (msg.type === 'race_ready') {

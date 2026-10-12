@@ -83,6 +83,15 @@ export class PostFX {
     this.composer.render();
   }
 
+  /** Frees the effects' render targets. */
+  dispose(): void {
+    this.composer?.dispose();
+    this.composer = null;
+    this.bloom = null;
+    this.gtao?.dispose();
+    this.gtao = null;
+  }
+
   private build(): void {
     this.composer?.dispose();
     this.composer = null;

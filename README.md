@@ -145,6 +145,11 @@ Only the room's creator chooses; friends who join (copy the invite link from the
 watch the choice being made, live. They take places on the grid; computer drivers fill the
 rest (up to 20 cars). The choice is remembered for next time.
 
+Races then follow one another on that Grand Prix. To race somewhere else, the room's
+creator presses **Change Grand Prix** on the results screen (or in the menu, **Esc**, while
+the cars are on the grid): everyone goes back to the Grand Prix screen together, and the
+new circuit loads for all.
+
 **The circuits** are ten real Grand Prix tracks, built from their real shapes and the real
 rise and fall of the ground:
 

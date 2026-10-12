@@ -160,13 +160,17 @@ export class RaceHud {
   }
 
   /** The results table for race `race`, or hides it (`null`). Hidden by the player, it stays hidden for that race. */
-  renderResults(rows: Standing[] | null, best: { name: string; time: number } | null, nextIn: number, race: number): void {
+  /**
+   * The results once everyone's home; `onChange`, for the player running the race, offers a
+   * different Grand Prix for the next one.
+   */
+  renderResults(rows: Standing[] | null, best: { name: string; time: number } | null, nextIn: number, race: number, onChange?: () => void): void {
     if (!rows || this.dismissed === race) {
       this.results.hidden = true;
       return;
     }
     this.results.hidden = false;
-    const key = `${race}|${Math.ceil(nextIn)}|${rows.map((r) => r.car.id + r.gap).join(',')}`;
+    const key = `${race}|${Math.ceil(nextIn)}|${rows.map((r) => r.car.id + r.gap).join(',')}|${!!onChange}`;
     if (key === this.resultsKey) return;
     this.resultsKey = key;
     const table = el('table', 'results-table');
@@ -194,6 +198,17 @@ export class RaceHud {
       this.dismissed = race;
       this.results.hidden = true;
     };
-    this.resultsCard.append(close);
+    const buttons = el('div', 'results-buttons');
+    if (onChange) {
+      const change = el('button', 'primary', 'Change Grand Prix');
+      change.type = 'button';
+      change.onclick = () => {
+        change.disabled = true;
+        onChange();
+      };
+      buttons.append(change);
+    }
+    buttons.append(close);
+    this.resultsCard.append(buttons);
   }
 }
