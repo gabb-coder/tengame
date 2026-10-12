@@ -231,6 +231,7 @@ export class CarModel {
     this.root.updateMatrixWorld(true);
 
     // Each wheel becomes a steer group (with the brake caliper) holding a spin group.
+    const toRoot = this.root.getWorldQuaternion(new THREE.Quaternion()).invert();
     for (const node of wheelNodes) {
       const steer = new THREE.Group();
       steer.position.copy(this.root.worldToLocal(node.getWorldPosition(new THREE.Vector3())));
@@ -238,7 +239,15 @@ export class CarModel {
       steer.add(spin);
       this.root.add(steer);
       steer.updateMatrixWorld(true);
-      for (const part of [...node.children]) (part.name.includes('BrakePad') ? steer : spin).attach(part);
+      // The model's front wheels are posed turned to one side: straighten every wheel so its
+      // axle is the car's X axis, the one it spins about, or it wobbles as it rolls.
+      const axle = new THREE.Vector3(1, 0, 0).applyQuaternion(toRoot.clone().multiply(node.getWorldQuaternion(new THREE.Quaternion())));
+      const straighten = new THREE.Quaternion().setFromUnitVectors(axle, new THREE.Vector3(Math.sign(axle.x) || 1, 0, 0));
+      for (const part of [...node.children]) {
+        (part.name.includes('BrakePad') ? steer : spin).attach(part);
+        part.position.applyQuaternion(straighten);
+        part.quaternion.premultiply(straighten);
+      }
       node.removeFromParent();
       this.wheels.push(steer);
       this.wheelRestY.push(steer.position.y);
