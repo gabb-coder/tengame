@@ -236,11 +236,30 @@ fight the day/night cycle).
   within reach, not too often), reel or fall in their own game, and lose some health;
   a kick topples bins, mailboxes and fences, and small animals.
 
+## Friends' cars: driving them, riding along
+
+- Every player still has one car (with their id and color), but anyone can sit in it: four
+  seats, seat 0 drives. The server keeps who sits where (rooms.ts) and says so to everyone
+  (`seat`); getting in is asked for (`seat` request: on foot beside the car, or already in
+  it and nearly stopped to change seats; refused if taken), getting out never is. A player
+  starts at their own wheel, and a mission race puts everyone back there first.
+- A car is moved by its driver's game, or its owner's while nobody's driving it. So
+  driving a friend's car, our game makes a car for it (vehicles/car.ts) from where theirs
+  left it (the `seat` message carries where each car that changed hands is) and reports it
+  as `drive`; their game puts its own away (and leaves it out of its `state`) and draws it
+  from the snapshots instead, like any other car (net/remotePlayers.ts, PuppetCar). The
+  server only takes a car's whereabouts from whoever moves it.
+- Riding along, the chase camera follows the car and the mouse turns it about. Name tags of
+  everyone in a car stack above it; the minimap and mission arrows follow the car someone's
+  in. Running people over and smashing things count for the driver, wherever their own car is.
+- The real headlights moved out of the car (vehicles/headlights.ts) to whichever car we
+  drive: there's always the one pair in the scene, since adding lights rebuilds shaders.
+
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.
-- Show the driver sitting in the car (the animation library has a driving pose; it's
-  now loaded).
+- Show the driver and passengers sitting in the car (the animation library has a driving
+  pose; it's now loaded).
 - Boats and horses you steer yourself, not just ride.
 - Doors inside houses (two-story houses currently have open doorways only).
 - More mission types (e.g. a cross-zone rally), more car choices.

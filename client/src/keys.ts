@@ -35,6 +35,7 @@ export const ACTIONS = {
   steerRight: { label: 'Steer right', group: 'car', key: 'KeyD' },
   handbrake: { label: 'Handbrake', group: 'car', key: 'Space' },
   getOut: { label: 'Get out', group: 'car', key: 'KeyE' },
+  changeSeat: { label: 'Change seats (take the wheel, or let a friend drive)', group: 'car', key: 'KeyC' },
   flip: { label: 'Flip upright', group: 'car', key: 'KeyR' },
   newCar: { label: 'New car', group: 'car', key: 'KeyT' },
   journal: { label: 'Journal', group: 'any', key: 'KeyJ' },

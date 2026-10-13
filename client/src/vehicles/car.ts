@@ -1,6 +1,6 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import type { CarState, Quat, Vec3 } from '../../../shared/protocol.ts';
+import type { CarDamage, CarState, Quat, Vec3 } from '../../../shared/protocol.ts';
 import { CarModel } from './carModel.ts';
 import { type CarControls, type CarEnvironment, CarPhysics } from './carPhysics.ts';
 import { Damage } from './damage.ts';
@@ -13,7 +13,10 @@ const IMPACT_COOLDOWN = 0.4; // s
 /** A crash's whole jolt is measured over this long (s) after it starts. */
 const IMPACT_WINDOW = 0.12;
 
-/** The player's own car: physics, visuals and sound. */
+/**
+ * A car our game moves: our own, or a friend's we're driving. Physics, visuals and sound
+ * (the engine heard as ours, wherever the camera is).
+ */
 export class Car {
   readonly model: CarModel;
   readonly physics: CarPhysics;
@@ -22,8 +25,6 @@ export class Car {
   private controls: CarControls = { throttle: 0, brake: 0, steer: 0, handbrake: false };
   /** Off while parked with nobody inside: silent and reported as 0 rpm. */
   engineOn = true;
-  /** Real headlights for the player's own car (other cars just glow). */
-  private beams: THREE.SpotLight[] = [];
   private lastVelocity = new THREE.Vector3();
   private velocity = new THREE.Vector3();
   private inverse = new THREE.Quaternion();
@@ -47,25 +48,59 @@ export class Car {
     const rotation = new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, spawn.yaw);
     this.physics = new CarPhysics(world, spawn.position, rotation);
     this.model = new CarModel(color);
+    this.model.root.position.copy(spawn.position);
+    this.model.root.quaternion.copy(rotation);
     this.engine = new EngineSound(audio.context);
     this.engine.output.connect(audio.getInput());
     this.tires = new TireSound(audio.context);
     this.tires.output.connect(audio.getInput());
+  }
 
-    for (const side of [-1, 1]) {
-      const beam = new THREE.SpotLight('#fff3dc', 0, 90, 0.45, 0.5, 1.1);
-      beam.position.set(side * 0.7, -0.03, 2.15);
-      beam.target.position.set(side * 0.55, -1.3, 22);
-      this.model.root.add(beam, beam.target);
-      this.beams.push(beam);
+  /** Tail lights glow after dark. */
+  setNight(night: number): void {
+    this.model.setNight(night);
+  }
+
+  /**
+   * Whether our game moves the car. Not while someone else drives it: then it's drawn
+   * from their game instead (see net/remotePlayers.ts), and this one is put away.
+   */
+  setActive(on: boolean): void {
+    if (this.physics.body.isEnabled() === on) return;
+    this.physics.body.setEnabled(on);
+    this.model.root.visible = on;
+    if (!on) {
+      this.engineOn = false;
+      this.engine.update(0, 0, 0);
+      this.tires.update(0);
     }
   }
 
-  /** Headlights on at night, while the engine runs (and they aren't smashed). */
-  setNight(night: number): void {
-    const on = this.running && this.model.headlights ? THREE.MathUtils.smoothstep(night, 0.25, 0.6) : 0;
-    for (const beam of this.beams) beam.intensity = on * 260;
-    this.model.setNight(night);
+  /** Sets the car down where `p` and `q` say, at rest, dented as `dmg` says (when someone else had it). */
+  place(p: Vec3, q: Quat, dmg: CarDamage | undefined): void {
+    const body = this.physics.body;
+    body.setTranslation({ x: p[0], y: p[1], z: p[2] }, true);
+    body.setRotation({ x: q[0], y: q[1], z: q[2], w: q[3] }, true);
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    this.model.root.position.set(...p);
+    this.model.root.quaternion.set(...q);
+    this.lastVelocity.set(0, 0, 0);
+    this.impactCooldown = IMPACT_COOLDOWN;
+    this.impact = null;
+    this.damage.repair();
+    if (dmg) this.damage.sides.splice(0, 4, ...dmg);
+    this.wreckShown = this.damage.wrecked;
+    this.model.setDamage(this.damage.sides);
+  }
+
+  /** Done with the car (a friend's, given back): out of the world and silent. */
+  dispose(): void {
+    this.engine.dispose();
+    this.tires.dispose();
+    this.physics.dispose();
+    this.model.dispose();
+    this.model.root.removeFromParent();
   }
 
   /** The engine's going: someone's in, and it isn't wrecked. */

@@ -104,6 +104,10 @@ const FOOT_HELP: Help[] = [
   [['dance'], 'dance'],
   [['journal'], 'journal'],
 ];
+const RIDE_HELP: Help[] = [
+  [['getOut'], 'get out'],
+  [['changeSeat'], 'change seats'],
+];
 const COMMON_HELP: Help[] = [
   [['map'], 'map'],
   [['mute'], 'mute'],
@@ -116,16 +120,19 @@ function helpWords(help: Help[]): string[] {
   return help.map(([actions, what]) => [keysWord(...actions), what]).filter(([keys]) => keys).map(([keys, what]) => `${keys} ${what}`);
 }
 
-/** Shows the speedometer and driving help in the car, walking help on foot. */
+/** Shows the speedometer and driving help in the car, walking help on foot, and what to do riding along. */
 export function renderMode(mode: Mode, pointerLocked: boolean): void {
   const car = $('help-car');
   car.hidden = !settings.showHelp || mode !== 'car';
   const foot = $('help-foot');
   foot.hidden = !settings.showHelp || mode !== 'foot';
+  const ride = $('help-ride');
+  ride.hidden = !settings.showHelp || mode !== 'passenger';
   const look = pointerLocked ? 'Mouse or arrows look' : 'Click to look with the mouse';
   const common = [...helpWords(COMMON_HELP), 'Esc menu', ...(labelOf('help') ? [`${labelOf('help')} hide help`] : [])];
   setHelp(car, [...helpWords(CAR_HELP), ...common]);
   setHelp(foot, [...helpWords(FOOT_HELP.slice(0, 3)), look, ...helpWords(FOOT_HELP.slice(3)), ...common]);
+  setHelp(ride, [...helpWords(RIDE_HELP), look.replace('Mouse or arrows look', 'Mouse looks about'), ...common]);
   document.querySelector<HTMLElement>('.hud-speed')!.hidden = mode !== 'car';
 }
 
@@ -148,8 +155,18 @@ let lastPrompt = '';
 /** The "press E to ..." hint for whatever is in reach (on a phone or tablet, tap it). */
 export function renderPrompt(i: Interaction, remote: { on: boolean } | null = null): void {
   let html = '';
-  if (i?.kind === 'enter-car') html = action('use', 'Get in');
-  else if (i?.kind === 'door') html = action('use', `${i.open ? 'Close' : 'Open'} door`, escapeHtml(i.address));
+  if (i?.kind === 'enter-car') {
+    // The wheel if nobody has it, else a seat beside whoever does.
+    const whose = i.owner ? `${escapeHtml(i.owner)}'s car` : 'your car';
+    if (i.seat.n === 0) html = action('use', i.owner ? `Drive ${whose}` : 'Get in');
+    else html = action('use', i.driver ? `Ride with ${escapeHtml(i.driver)}` : 'Get in', i.driver && i.owner && i.driver !== i.owner ? `in ${whose}` : undefined);
+  } else if (i?.kind === 'car-full') html = `<span class="waiting">${i.owner ? `${escapeHtml(i.owner)}'s car` : 'Your car'} is full</span>`;
+  else if (i?.kind === 'exit-car' && i.moveOver) html = action('changeSeat', 'Move over', `let ${escapeHtml(i.moveOver)} drive`);
+  else if (i?.kind === 'ride') {
+    const where = i.owner ? `${escapeHtml(i.owner)}'s car` : 'your car';
+    const riding = i.driver ? `Riding with ${escapeHtml(i.driver)}` : `In ${where}`;
+    html = i.canExit ? action('getOut', 'Get out') + (i.takeWheel ? action('changeSeat', 'Take the wheel') : '') : `<span class="waiting">${riding}</span>`;
+  } else if (i?.kind === 'door') html = action('use', `${i.open ? 'Close' : 'Open'} door`, escapeHtml(i.address));
   else if (i?.kind === 'sit') html = action('use', 'Sit down', i.seat.label);
   else if (i?.kind === 'stand') html = remote ? action('use', 'Stand up') + action('remote', `TV ${remote.on ? 'off' : 'on'}`) : action('use', 'Stand up', 'or move');
   else if (i?.kind === 'switch' && i.appliance === 'fire') html = action('use', `${i.on ? 'Put out' : 'Light'} the fire`);

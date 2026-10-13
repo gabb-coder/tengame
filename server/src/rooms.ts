@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import {
   type AvatarState,
+  type CarPose,
+  type CarSeat,
   type CarState,
   type Clock,
   DAY_RATE,
@@ -17,6 +19,7 @@ import {
   SMASH_REPAIR_SECONDS,
   type Vec3,
 } from '../../shared/protocol.ts';
+import { DRIVER, sameSeat } from '../../shared/seats.ts';
 import { MissionManager } from './missions.ts';
 import { RaceManager } from './race.ts';
 import { CIRCUITS } from '../../shared/circuits.ts';
@@ -35,10 +38,13 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export interface Player extends PlayerInfo {
   socket: WebSocket;
+  /** Their car: where it is and what it's doing (whoever is driving it). */
   p: Vec3;
   q: Quat;
   car: CarState;
   avatar: AvatarState | null;
+  /** Where they sit, in their own car or someone else's; null on foot. */
+  seat: CarSeat | null;
 }
 
 export class Room {
@@ -62,6 +68,8 @@ export class Room {
   private clockHours = START_HOUR;
   private clockSetAt: number;
   private lastSkip = -Infinity;
+  /** The last race mission everyone was put back in their own car for. */
+  private linedUp = -1;
 
   constructor(
     readonly code: string,
@@ -73,8 +81,23 @@ export class Room {
     this.missions =
       mode === 'missions'
         ? new MissionManager({
-            players: () => [...this.players.values()],
-            publish: (mission) => this.broadcast({ type: 'mission', mission }),
+            // Where each player is: their car is the one they're in, and only drivers race.
+            players: () =>
+              [...this.players.values()].map((pl) => ({
+                id: pl.id,
+                name: pl.name,
+                p: this.carOf(pl)?.p ?? pl.p,
+                avatar: pl.avatar,
+                passenger: !pl.avatar && !!pl.seat && pl.seat.n !== DRIVER,
+              })),
+            publish: (mission) => {
+              // Everyone races in their own car, so first they're all put back at their own wheel.
+              if (mission.kind === 'race' && mission.phase === 'briefing' && mission.id !== this.linedUp) {
+                this.linedUp = mission.id;
+                this.everyoneAtTheirWheel();
+              }
+              this.broadcast({ type: 'mission', mission });
+            },
             notice: (text) => this.broadcast({ type: 'notice', text }),
             award: (id, points) => {
               this.scores.set(id, (this.scores.get(id) ?? 0) + points);
@@ -112,7 +135,9 @@ export class Room {
       q: [0, 0, 0, 1],
       car: { steer: 0, rpm: 0, load: 0, speed: 0, braking: false },
       avatar: null,
+      seat: null,
     };
+    player.seat = { car: player.id, n: DRIVER };
     this.broadcast({ type: 'player_joined', player: toInfo(player) });
     this.players.set(player.id, player);
     if (this.mode === 'missions') this.scores.set(player.id, 0);
@@ -121,6 +146,12 @@ export class Room {
   }
 
   remove(id: string): void {
+    const leaving = this.players.get(id);
+    if (!leaving) return;
+    // Out of every car first: a friend's car they were driving goes back to its owner, and
+    // anyone in theirs is left standing where it was (it goes with them).
+    if (leaving.seat) this.seat(leaving, null);
+    for (const pl of this.players.values()) if (pl !== leaving && pl.seat?.car === id) this.seat(pl, null);
     if (this.players.delete(id)) {
       this.scores.delete(id);
       this.chatTimes.delete(id);
@@ -129,6 +160,58 @@ export class Room {
       this.broadcast({ type: 'player_left', id });
       this.race?.leave(id);
     }
+  }
+
+  /** The player whose car `car` is, if they're here. */
+  private owner(car: string): Player | undefined {
+    return this.players.get(car);
+  }
+
+  /** The car `player` is sitting in (its owner's record), if any. */
+  carOf(player: Player): Player | undefined {
+    return player.seat ? this.owner(player.seat.car) : undefined;
+  }
+
+  /** The car `player` is at the wheel of, if they're driving one. */
+  driving(player: Player): Player | undefined {
+    return !player.avatar && player.seat?.n === DRIVER ? this.owner(player.seat.car) : undefined;
+  }
+
+  /** Who sits in seat `n` of `car`, if anyone. */
+  sitting(car: string, n: number): Player | undefined {
+    for (const pl of this.players.values()) if (pl.seat?.car === car && pl.seat.n === n) return pl;
+    return undefined;
+  }
+
+  /** Where everyone sits, by player id. */
+  seats(): Record<string, CarSeat | null> {
+    return Object.fromEntries([...this.players.values()].map((pl) => [pl.id, pl.seat]));
+  }
+
+  /**
+   * Puts `player` in `seat` (null: out on foot) and tells everyone, with where each car
+   * whose driver changed is right now (its new driver's game carries on from there).
+   */
+  seat(player: Player, seat: CarSeat | null): void {
+    const was = player.seat;
+    if (sameSeat(was, seat)) return;
+    player.seat = seat;
+    const handed = new Set<string>();
+    if (was?.n === DRIVER) handed.add(was.car);
+    if (seat?.n === DRIVER) handed.add(seat.car);
+    const cars: CarPose[] = [...handed].flatMap((id) => {
+      const car = this.owner(id);
+      return car ? [{ id, p: car.p, q: car.q, car: car.car }] : [];
+    });
+    this.broadcast({ type: 'seat', id: player.id, seat, ...(cars.length ? { cars } : {}) });
+  }
+
+  /** Everyone back at the wheel of their own car (to line up for a race). */
+  private everyoneAtTheirWheel(): void {
+    // Out first, so nobody's seat is still taken when its owner gets back in.
+    const moving = [...this.players.values()].filter((pl) => !sameSeat(pl.seat, { car: pl.id, n: DRIVER }));
+    for (const pl of moving) this.seat(pl, null);
+    for (const pl of moving) this.seat(pl, { car: pl.id, n: DRIVER });
   }
 
   scoreTable(): Record<string, number> {

@@ -2,6 +2,7 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { Label } from '../render/labels.ts';
 import type { Act, AvatarState, CarState, PlayerInfo, PlayerTransform } from '../../../shared/protocol.ts';
+import type { Seating } from '../game/seating.ts';
 import { CAR_SHAPE_GROUPS, REMOTE_CAR_GROUPS, WALKER_GROUPS } from '../game/groups.ts';
 import { groundUnder } from '../game/limp.ts';
 import { game } from '../game/link.ts';
@@ -30,27 +31,141 @@ const TELEPORT_DISTANCE = 8;
  */
 export const CAMERA_RAY_GROUPS = (0x0001 << 16) | 0x0001;
 
-interface Sample {
+interface CarSample {
   t: number;
   p: THREE.Vector3;
   q: THREE.Quaternion;
   car: CarState;
+}
+
+interface AvatarSample {
+  t: number;
   avatar: AvatarState | null;
 }
 
+/**
+ * The two samples either side of `time` (dropping those long past, but keeping one before
+ * it), and how far `time` is from the first to the second.
+ */
+function between<T extends { t: number }>(samples: T[], time: number): { a: T; b: T; k: number } | null {
+  while (samples.length >= 2 && samples[1].t <= time) samples.shift();
+  const [a, b] = samples;
+  if (!a) return null;
+  return { a, b: b ?? a, k: !b || time <= a.t ? 0 : (time - a.t) / (b.t - a.t) };
+}
+
+/**
+ * A car moved by another player's game (its owner's, or a friend's who's driving it):
+ * drawn and voiced from the snapshots, smoothed, with a solid stand-in in our physics
+ * world. Put away while our own game moves it instead (we're driving it, or it's ours
+ * and nobody else is).
+ */
+class PuppetCar {
+  readonly model: CarModel;
+  private engine: EngineSound;
+  private audio: THREE.PositionalAudio;
+  /** A stand-in in our physics world, moved to where the car is drawn, so we bump into it. */
+  readonly body: RAPIER.RigidBody;
+  private samples: CarSample[] = [];
+  private wheelSpin = 0;
+  private away = false;
+  /** Forward speed as drawn (m/s). */
+  speed = 0;
+
+  constructor(
+    scene: THREE.Scene,
+    private physics: RAPIER.World,
+    listener: THREE.AudioListener,
+    color: string,
+    body: RAPIER.RigidBody,
+  ) {
+    this.model = new CarModel(color);
+    this.model.root.visible = false; // until the first snapshot places it
+    this.engine = new EngineSound(listener.context);
+    this.audio = new THREE.PositionalAudio(listener);
+    this.audio.setRefDistance(6);
+    this.audio.setRolloffFactor(1.6);
+    this.audio.setNodeSource(this.engine.output);
+    this.model.root.add(this.audio);
+    scene.add(this.model.root);
+    this.body = body;
+  }
+
+  /** Drawn here: someone else's game moves it, and we know where it is. */
+  get drawn(): boolean {
+    return this.model.root.visible;
+  }
+
+  push(t: number, p: THREE.Vector3, q: THREE.Quaternion, car: CarState): void {
+    this.samples.push({ t, p, q, car });
+    if (this.samples.length > MAX_BUFFERED) this.samples.shift();
+  }
+
+  /**
+   * Puts the car away (our game moves it now), or brings it back (someone else's does),
+   * carrying on from `from` (where our game left it) if given.
+   */
+  setAway(away: boolean, from?: THREE.Object3D): void {
+    if (away === this.away) return;
+    this.away = away;
+    if (away) {
+      this.model.root.visible = false;
+      moveBody(this.body, PARKED_FAR);
+      this.engine.update(0, 0, 0);
+      return;
+    }
+    if (from) {
+      const last = this.samples.at(-1);
+      this.samples = [{ t: performance.now(), p: from.position.clone(), q: from.quaternion.clone(), car: last?.car ?? STILL_CAR }];
+      this.model.root.position.copy(from.position);
+      this.model.root.quaternion.copy(from.quaternion);
+      this.model.root.visible = true;
+      this.body.setTranslation(from.position, true);
+      this.body.setRotation(from.quaternion, true);
+    }
+  }
+
+  update(renderTime: number, dt: number): void {
+    const at = this.away ? null : between(this.samples, renderTime);
+    if (!at) return;
+    const { a, b, k } = at;
+    const { model } = this;
+    model.root.visible = true;
+    model.root.position.lerpVectors(a.p, b.p, k);
+    model.root.quaternion.slerpQuaternions(a.q, b.q, k);
+    moveBody(this.body, model.root.position, model.root.quaternion);
+
+    const lerp = (key: 'steer' | 'rpm' | 'load' | 'speed') => a.car[key] + (b.car[key] - a.car[key]) * k;
+    this.speed = lerp('speed');
+    this.wheelSpin += (this.speed / CAR.wheelRadius) * dt;
+    for (let i = 0; i < 4; i++) model.setWheel(i, i < 2 ? lerp('steer') : 0, this.wheelSpin, SETTLED_SUSPENSION);
+    model.setBraking(b.car.braking);
+    model.setDamage(b.car.dmg);
+    model.smoke(dt);
+    const rpm = lerp('rpm');
+    this.engine.update(rpm, lerp('load'), rpm > 0 ? 1 : 0);
+  }
+
+  dispose(scene: THREE.Scene): void {
+    // Detach the positional audio before stopping its source; the reverse order throws.
+    this.audio.disconnect();
+    this.engine.dispose();
+    this.model.dispose();
+    scene.remove(this.model.root);
+    this.physics.removeRigidBody(this.body);
+  }
+}
+
+const STILL_CAR: CarState = { steer: 0, rpm: 0, load: 0, speed: 0, braking: false };
+
 interface Remote {
   info: PlayerInfo;
-  model: CarModel;
-  engine: EngineSound;
-  audio: THREE.PositionalAudio;
   avatar: AvatarModel;
   nameTag: Label;
-  samples: Sample[];
-  wheelSpin: number;
+  samples: AvatarSample[];
   /** The act last shown, so one-shot moves play once. */
   act: Act | null;
-  /** Stand-ins in our physics world, moved to where the player is drawn, so we bump into them. */
-  carBody: RAPIER.RigidBody;
+  /** A stand-in in our physics world, moved to where the player is drawn, so we bump into them. */
   avatarBody: RAPIER.RigidBody;
   /** Something our car can knock flying, while they're walking. */
   target: Target;
@@ -66,44 +181,49 @@ const KNOCKED_DOWN = new Set<Act | null>(['tumble', 'down', 'getup']);
 const AGREE_MS = 2000;
 
 /**
- * Draws and voices other players' cars and characters, smoothing between server
- * snapshots, and gives them solid bodies in our physics world.
+ * Draws and voices other players' characters, and every car moved by another player's
+ * game (ours too, while a friend drives it), smoothing between server snapshots, and gives
+ * them solid bodies in our physics world.
  */
 export class RemotePlayers {
   private remotes = new Map<string, Remote>();
+  /** Every player's car, by their id (ours included), as drawn from the snapshots. */
+  private cars = new Map<string, PuppetCar>();
   /**
    * Whether walking players are solid to us. Not while we drive: the car hits them and
    * they fly (see game/impacts.ts), rather than stopping dead as if at a post.
    */
   walkersSolid = true;
+  /** Where our own game draws car `id`, while it moves it (ours, or a friend's we drive); set by main. */
+  localCar: (id: string) => THREE.Object3D | null = () => null;
 
   constructor(
     private scene: THREE.Scene,
     private physics: RAPIER.World,
     private localId: string,
     private listener: THREE.AudioListener,
+    private seating: Seating,
   ) {}
 
+  /** A car drawn from the snapshots, for player `info` (ours is put away until a friend drives it). */
+  private addCar(info: PlayerInfo): void {
+    if (this.cars.has(info.id)) return;
+    const body = this.kinematicBody(RAPIER.ColliderDesc.cuboid(CAR.halfExtents.x, CAR.halfExtents.y, CAR.halfExtents.z).setCollisionGroups(REMOTE_CAR_GROUPS));
+    for (const shape of carShapes()) this.physics.createCollider(shape.setCollisionGroups(CAR_SHAPE_GROUPS), body);
+    const car = new PuppetCar(this.scene, this.physics, this.listener, info.color, body);
+    this.cars.set(info.id, car);
+    if (info.id === this.localId) car.setAway(true);
+  }
+
   add(info: PlayerInfo): void {
+    this.addCar(info);
     if (info.id === this.localId || this.remotes.has(info.id)) return;
-    const model = new CarModel(info.color);
-    model.root.visible = false; // until the first snapshot places it
     const nameTag = createNameTag(info.name);
-    model.root.add(nameTag);
     const avatar = new AvatarModel(info.color, info.id);
     avatar.root.visible = false;
+    avatar.root.add(nameTag);
     this.scene.add(avatar.root);
 
-    const engine = new EngineSound(this.listener.context);
-    const audio = new THREE.PositionalAudio(this.listener);
-    audio.setRefDistance(6);
-    audio.setRolloffFactor(1.6);
-    audio.setNodeSource(engine.output);
-    model.root.add(audio);
-
-    this.scene.add(model.root);
-    const carBody = this.kinematicBody(RAPIER.ColliderDesc.cuboid(CAR.halfExtents.x, CAR.halfExtents.y, CAR.halfExtents.z).setCollisionGroups(REMOTE_CAR_GROUPS));
-    for (const shape of carShapes()) this.physics.createCollider(shape.setCollisionGroups(CAR_SHAPE_GROUPS), carBody);
     const avatarBody = this.kinematicBody(RAPIER.ColliderDesc.capsule(AVATAR.halfHeight, AVATAR.radius).setCollisionGroups(WALKER_GROUPS));
     // Run them over and they fly limp (here at once, and in their game too); not again
     // while they're still flying, lying there or getting up.
@@ -139,7 +259,26 @@ export class RemotePlayers {
     game.strikeables.set(info.id, (kind, v) => {
       if (kind === 'kick') this.fling(info.id, v);
     });
-    this.remotes.set(info.id, { info, model, engine, audio, avatar, nameTag, samples: [], wheelSpin: 0, act: null, carBody, avatarBody, target, flungAt: -Infinity });
+    this.remotes.set(info.id, { info, avatar, nameTag, samples: [], act: null, avatarBody, target, flungAt: -Infinity });
+  }
+
+  /**
+   * Puts car `id` away, since our game moves it now (we're driving it, or it's ours back);
+   * or brings it back, since another game does, carrying on from where ours left it.
+   */
+  setCarAway(id: string, away: boolean, from?: THREE.Object3D): void {
+    this.cars.get(id)?.setAway(away, from);
+  }
+
+  /** A car drawn from the snapshots, if it's drawn here (not moved by our game). */
+  puppet(id: string): { object: THREE.Object3D; body: RAPIER.RigidBody; speed: number } | null {
+    const car = this.cars.get(id);
+    return car?.drawn ? { object: car.model.root, body: car.body, speed: car.speed } : null;
+  }
+
+  /** Where car `id` is drawn here, by our game or from the snapshots. */
+  carObject(id: string): THREE.Object3D | null {
+    return this.localCar(id) ?? this.puppet(id)?.object ?? null;
   }
 
   /** Knocks someone's body flying limp at `v` (m/s), if they're walking about and not already down. */
@@ -156,12 +295,8 @@ export class RemotePlayers {
     remote.nameTag.dispose();
     remote.avatar.dispose();
     this.scene.remove(remote.avatar.root);
-    // Detach the positional audio before stopping its source; the reverse order throws.
-    remote.audio.disconnect();
-    remote.engine.dispose();
-    remote.model.dispose();
-    this.scene.remove(remote.model.root);
-    this.physics.removeRigidBody(remote.carBody);
+    this.cars.get(id)?.dispose(this.scene);
+    this.cars.delete(id);
     this.physics.removeRigidBody(remote.avatarBody);
     remote.avatar.unfling();
     game.impacts.removeMoving(remote.target);
@@ -179,10 +314,10 @@ export class RemotePlayers {
   markers(): { x: number; z: number; yaw: number; color: string; name: string }[] {
     const out = [];
     for (const r of this.remotes.values()) {
-      if (!r.model.root.visible) continue;
-      const walking = r.avatar.root.visible;
-      const o = walking ? r.avatar.root : r.model.root;
-      const yaw = walking ? o.rotation.y : yawOf(o.quaternion);
+      const at = this.locate(r.info.id);
+      if (!at) continue;
+      const o = at.walking ? r.avatar.root : this.carObject(this.seating.of(r.info.id)!.car)!;
+      const yaw = at.walking ? o.rotation.y : yawOf(o.quaternion);
       out.push({ x: o.position.x, z: o.position.z, yaw, color: r.info.color, name: r.info.name });
     }
     return out;
@@ -194,70 +329,68 @@ export class RemotePlayers {
     return body;
   }
 
-  /** Where another player is: their character if walking, else their car. */
+  /** Where another player is: their character if walking, else the car they're in. */
   locate(id: string): { position: THREE.Vector3; walking: boolean } | null {
     const r = this.remotes.get(id);
-    if (!r || !r.model.root.visible) return null;
-    const walking = r.avatar.root.visible;
-    return { position: (walking ? r.avatar.root : r.model.root).position, walking };
+    if (!r) return null;
+    if (r.avatar.root.visible) return { position: r.avatar.root.position, walking: true };
+    const seat = this.seating.of(id);
+    const car = seat && this.carObject(seat.car);
+    return car ? { position: car.position, walking: false } : null;
   }
 
   applySnapshot(players: PlayerTransform[], now: number): void {
     for (const { id, p, q, car, avatar } of players) {
+      this.cars.get(id)?.push(now, new THREE.Vector3(...p), new THREE.Quaternion(...q), car);
       const remote = this.remotes.get(id);
       if (!remote) continue;
-      remote.samples.push({ t: now, p: new THREE.Vector3(...p), q: new THREE.Quaternion(...q), car, avatar });
+      remote.samples.push({ t: now, avatar });
       if (remote.samples.length > MAX_BUFFERED) remote.samples.shift();
     }
   }
 
   /** Tail lights glow after dark. */
   setNight(night: number): void {
-    for (const r of this.remotes.values()) r.model.setNight(night);
+    for (const car of this.cars.values()) car.model.setNight(night);
   }
 
   update(now: number, dt: number): void {
     const renderTime = now - INTERPOLATION_DELAY_MS;
+    for (const car of this.cars.values()) car.update(renderTime, dt);
     for (const remote of this.remotes.values()) {
-      const { model, samples } = remote;
-      if (samples.length === 0) continue;
-      model.root.visible = true;
-
-      // Drop samples we've fully moved past, keeping one before renderTime.
-      while (samples.length >= 2 && samples[1].t <= renderTime) samples.shift();
-
-      const [a, b] = samples;
-      const k = !b || renderTime <= a.t ? 0 : (renderTime - a.t) / (b.t - a.t);
-      const next = b ?? a;
-      model.root.position.lerpVectors(a.p, next.p, k);
-      model.root.quaternion.slerpQuaternions(a.q, next.q, k);
-      moveBody(remote.carBody, model.root.position, model.root.quaternion);
-
-      const lerp = (key: 'steer' | 'rpm' | 'load' | 'speed') => a.car[key] + (next.car[key] - a.car[key]) * k;
-      const speed = lerp('speed');
-      remote.wheelSpin += (speed / CAR.wheelRadius) * dt;
-      for (let i = 0; i < 4; i++) model.setWheel(i, i < 2 ? lerp('steer') : 0, remote.wheelSpin, SETTLED_SUSPENSION);
-      model.setBraking(next.car.braking);
-      model.setDamage(next.car.dmg);
-      model.smoke(dt);
-      const rpm = lerp('rpm');
-      remote.engine.update(rpm, lerp('load'), rpm > 0 ? 1 : 0);
-      this.updateAvatar(remote, a.avatar, next.avatar, k, dt);
+      const at = between(remote.samples, renderTime);
+      if (!at) continue;
+      this.updateAvatar(remote, at.a.avatar, at.b.avatar, at.k, dt);
+      this.placeNameTag(remote);
     }
+  }
+
+  /**
+   * Name tags go over people walking about, and over the car they're in otherwise (one
+   * above another when friends ride together).
+   */
+  private placeNameTag(remote: Remote): void {
+    const { avatar, nameTag, info } = remote;
+    let parent: THREE.Object3D = avatar.root;
+    let height = 2.05;
+    const seat = this.seating.of(info.id);
+    const car = !avatar.root.visible && seat ? this.carObject(seat.car) : null;
+    if (car && seat) {
+      parent = car;
+      const others = this.seating.riders(seat.car).filter((r) => r.id !== this.localId);
+      height = 1.6 + 0.32 * Math.max(0, others.findIndex((r) => r.id === info.id));
+    }
+    if (nameTag.parent !== parent) parent.add(nameTag);
+    nameTag.position.y = height;
   }
 
   /** Shows the player's character while they're on foot, with the name tag above it. */
   private updateAvatar(remote: Remote, a: AvatarState | null, b: AvatarState | null, k: number, dt: number): void {
-    const { avatar, nameTag, model } = remote;
+    const { avatar } = remote;
     const state = b ?? a;
     const walking = state !== null;
     avatar.root.visible = walking;
     if (!walking || !this.walkersSolid) moveBody(remote.avatarBody, PARKED_FAR);
-    const tagParent = walking ? avatar.root : model.root;
-    if (nameTag.parent !== tagParent) {
-      tagParent.add(nameTag);
-      nameTag.position.y = walking ? 2.05 : 1.6;
-    }
     if (!state) {
       avatar.unfling();
       return;

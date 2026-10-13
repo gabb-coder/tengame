@@ -6,7 +6,8 @@ See [PLAN.md](PLAN.md) for the roadmap.
 **Current status: all 8 milestones done, plus a racing mode on ten real circuits.** Drive a car with suspension, steering, tire grip, an
 automatic gearbox and engine sound around a small town of 48 houses. Get out to walk around,
 open front doors and explore furnished rooms (two-story houses have stairs). Cars and people
-are solid, so you can bump into your friends.
+are solid, so you can bump into your friends, and you can get in your friends' cars: drive
+one nobody's driving, or ride along with whoever is.
 
 Around the town are **eight themed zones** (the town is the middle of a 3 × 3 grid, about
 1.2 km across), joined by highways. Each has its own ground, weather and sky, and you see
@@ -239,6 +240,7 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 | A D / ← → | Steer |
 | Space | Handbrake |
 | E | Get out (when nearly stopped) |
+| C | Change seats (when nearly stopped): move over so a friend riding with you can drive |
 | R | Flip the car upright where it is |
 | T | A new car (good as new) right where you are |
 | Tab | Open the big map (or click the minimap) |
@@ -257,7 +259,7 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 | Shift | Run |
 | Space | Jump (under water: swim up) |
 | Mouse / arrows | Look around (click the game to capture the mouse; Esc releases it) |
-| E | Whatever you're looking at: get in the car, open/close a door, sit on a sofa, chair or bed, turn a TV, floor lamp or stove on/off, light or put out a campfire |
+| E | Whatever you're looking at: get in a car (yours or a friend's), open/close a door, sit on a sofa, chair or bed, turn a TV, floor lamp or stove on/off, light or put out a campfire |
 | E or move | Stand up |
 | R (sitting) | TV remote: turn the nearest TV on/off |
 | Left click | Punch (a jab, then a cross: they take turns) |
@@ -266,6 +268,16 @@ Open http://localhost:5173, create a room, then open the same URL in a second ta
 
 M, N, F, H, Enter and Esc work on foot too. Switched-on TVs, lamps, stoves and fires, and
 who's sitting where, are shared with everyone in the room.
+
+**Riding with friends** (free roam and missions). Walk up to a friend's car and press **E**.
+If nobody's driving it, you drive it (**Drive Sam's car**); if someone is, you get in beside
+them and ride along (**Ride with Sam**). The same goes for your own car while a friend has
+it. Riding along, the mouse looks about, **E** gets out when the car is nearly stopped, and
+**C** takes the wheel if it's free. The driver can press **C** to move over and let a friend
+riding with them drive, without anyone getting out. A car has four seats, and its owner is
+told when someone drives off in it. Each car keeps its owner's color, and goes with them when
+they leave the room (anyone in it is left standing where it was). For a mission race, everyone
+is put back in their own car on the starting grid.
 
 **Punching and kicking.** You turn to face where the camera looks, and hit whoever is right
 in front of you. People about the world reel back and complain when punched; a third punch
@@ -287,9 +299,9 @@ once. Changes are remembered in your browser, the help line and hints follow the
 | Stick (left thumb, anywhere on the left) | Drive: up is the gas, down brakes and reverses, sideways steers. On foot: walk as fast as you push it; all the way out runs |
 | Drag anywhere else | Look around |
 | Brake / Jump (big button, right) | Handbrake; jump (hold it with a jetpack to fly) |
-| Get out, New car, Flip | E, T and R from the keyboard |
+| Get out, New car, Flip | E, T and R from the keyboard (riding along, just Get out) |
 | Use, Punch, Kick, Dance | E (shows when something's in reach), left and right click, and G |
-| The prompt, e.g. **Open door** | Tap it to do it |
+| The prompt, e.g. **Open door**, **Ride with Sam** or **Take the wheel** | Tap it to do it |
 | Chat, Journal, Sound, Full screen, +2 h | Under the menu button and by the clock |
 
 Phones and tablets start on the Low graphics setting; turn it up in Menu → Settings if

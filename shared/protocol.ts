@@ -8,6 +8,12 @@ export const MAX_NAME_LENGTH = 16;
 export const ROOM_CODE_LENGTH = 5;
 /** How close (meters, horizontal) a player on foot must be to a door to use it. Server allows some slack for lag. */
 export const DOOR_REACH = 2.2;
+/** How close (meters from a car's middle) someone on foot must be to get in. Server allows some slack for lag. */
+export const CAR_REACH = 3.2;
+/** Nobody gets out of a car, or changes seats, going faster than this (m/s). */
+export const MAX_EXIT_SPEED = 3;
+/** Seats in a car: the driver's (0) and three for friends riding along. */
+export const CAR_SEATS = 4;
 export const MAX_CHAT_LENGTH = 200;
 
 export type GameMode = 'freeroam' | 'missions' | 'racing';
@@ -90,9 +96,29 @@ export interface AvatarState {
   hurt?: boolean;
 }
 
+/**
+ * Where someone sits: in whose car (every player has one, with their id), and which
+ * seat (0 drives). Anyone can get in anyone's car.
+ */
+export interface CarSeat {
+  car: string;
+  n: number;
+}
+
+/** A car (its owner's id), where it is and what it's doing. */
+export interface CarPose {
+  id: string;
+  p: Vec3;
+  q: Quat;
+  car: CarState;
+}
+
 export interface PlayerTransform {
   id: string;
-  /** Car position and rotation; the car stays where it was parked while on foot. */
+  /**
+   * Their car's position and rotation, as moved by whoever is driving it (or by them,
+   * while nobody is: it stays where it was parked).
+   */
   p: Vec3;
   q: Quat;
   car: CarState;
@@ -169,12 +195,29 @@ export interface TimeRequestMessage {
   skip: number;
 }
 
+/**
+ * Where we are, 20 times a second. `p`, `q` and `car` are our own car, while our game
+ * moves it: left out while someone else is driving it (their game moves it then).
+ */
 export interface StateMessage {
   type: 'state';
-  p: Vec3;
-  q: Quat;
-  car: CarState;
+  p?: Vec3;
+  q?: Quat;
+  car?: CarState;
+  /** On foot; null in a car. */
   avatar: AvatarState | null;
+  /** At the wheel of someone else's car: where it is (our game moves it while we drive). */
+  drive?: CarPose;
+}
+
+/**
+ * Ask to sit in a car (`seat`), or to get out (null). Getting in takes being on foot
+ * beside it; changing seats, being in it and it going slowly. The answer comes as a
+ * SeatMessage, to everyone.
+ */
+export interface SeatRequestMessage {
+  type: 'seat';
+  seat: CarSeat | null;
 }
 
 /** Ask to open or close a house's front door. Must be on foot and near it. */
@@ -230,6 +273,7 @@ export interface SmashRequestMessage {
 export type ClientMessage =
   | JoinMessage
   | StateMessage
+  | SeatRequestMessage
   | DoorRequestMessage
   | SwitchRequestMessage
   | TriggerRequestMessage
@@ -265,6 +309,8 @@ export interface WelcomeMessage {
   clock: Clock;
   /** Street things lying smashed, with how many seconds ago each was hit. */
   smashed: [id: string, ago: number][];
+  /** Where everyone sits, by player id (null: on foot). Newcomers start at their own wheel. */
+  seats: Record<string, CarSeat | null>;
   /**
    * The server's wall clock (ms) when this was sent. Timed things (rides, eruptions, rocket
    * launches) run on it, so they're in the same place on every player's screen.
@@ -396,6 +442,18 @@ export interface SmashMessage {
   by: string;
 }
 
+/**
+ * Someone got in a car, changed seats or got out (`seat` null), or was refused (sent to
+ * them alone, saying where they still are). `cars` are the cars whose driver this changed,
+ * as they are now: whoever moves each one next carries on from there.
+ */
+export interface SeatMessage {
+  type: 'seat';
+  id: string;
+  seat: CarSeat | null;
+  cars?: CarPose[];
+}
+
 export interface PlayerJoinedMessage {
   type: 'player_joined';
   player: PlayerInfo;
@@ -487,6 +545,7 @@ export type ServerMessage =
   | PlayerJoinedMessage
   | PlayerLeftMessage
   | SnapshotMessage
+  | SeatMessage
   | DoorMessage
   | SwitchMessage
   | TriggerMessage

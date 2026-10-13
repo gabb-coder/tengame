@@ -13,8 +13,8 @@ interface Button {
   label: string;
   key: string;
   hold?: boolean;
-  /** When it shows: driving, on foot, or on foot with something in reach to use. */
-  when: 'car' | 'foot' | 'use';
+  /** When it shows: driving, riding along, on foot, or on foot with something in reach to use. */
+  when: 'car' | 'ride' | 'foot' | 'use';
   /** Its place around the big button: 0 the big one, 1 left, 2 up-left, 3 up; 4 above that. */
   slot: 0 | 1 | 2 | 3 | 4;
 }
@@ -29,6 +29,7 @@ const BUTTONS: Button[] = [
   { label: 'Get out', key: '@getOut', when: 'car', slot: 1 },
   { label: 'New car', key: '@newCar', when: 'car', slot: 2 },
   { label: 'Flip', key: '@flip', when: 'car', slot: 3 },
+  { label: 'Get out', key: '@getOut', when: 'ride', slot: 1 },
 ];
 
 /** Racing: brake, the rear wing, the camera, and back onto the track after an off. */
@@ -42,6 +43,8 @@ const RACE_BUTTONS: Button[] = [
 /** What the controls need to know each frame. */
 export interface TouchState {
   driving: boolean;
+  /** Riding along in someone's car. */
+  riding?: boolean;
   /** Something in reach to use (a door, a seat, the car...). */
   canUse: boolean;
   muted: boolean;
@@ -136,18 +139,20 @@ export class TouchControls {
 
   /** Shows the buttons for what the player is doing; call each frame. */
   update(state: TouchState): void {
-    const key = `${state.driving}|${state.canUse}|${state.muted}`;
+    const riding = !!state.riding;
+    const key = `${state.driving}|${riding}|${state.canUse}|${state.muted}`;
     if (key !== this.shown) {
       this.shown = key;
       for (const { spec, el } of this.buttons) {
-        const show = spec.when === 'car' ? state.driving : !state.driving && (spec.when === 'foot' || state.canUse);
+        const onFoot = !state.driving && !riding;
+        const show = spec.when === 'car' ? state.driving : spec.when === 'ride' ? riding : onFoot && (spec.when === 'foot' || state.canUse);
         if (el.hidden === show) el.hidden = !show;
         // A button that vanishes under a finger lets go.
         if (!show && spec.hold) this.input.hold(spec.key, false);
       }
       this.soundButton.textContent = state.muted ? 'Sound off' : 'Sound on';
     }
-    this.stick.classList.toggle('running', !state.driving && this.input.stickRunning);
+    this.stick.classList.toggle('running', !state.driving && !riding && this.input.stickRunning);
   }
 
   /** A button pressing `key`: held down while touched, or pressed once. */

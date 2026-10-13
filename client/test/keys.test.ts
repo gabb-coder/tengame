@@ -7,7 +7,7 @@ import { settings, updateSettings } from '../src/settings.ts';
 test('every action starts on its own key, never sharing one with something it can happen alongside', () => {
   // Walking and driving can share keys (W walks, and accelerates), but nothing else can.
   const together = (a: string, b: string) => {
-    const group = (x: string) => (['accelerate', 'brake', 'steerLeft', 'steerRight', 'handbrake', 'getOut', 'flip', 'newCar'].includes(x) ? 'car' : ['journal', 'map', 'chat', 'mute', 'fullscreen', 'help', 'skipTime'].includes(x) ? 'any' : 'foot');
+    const group = (x: string) => (['accelerate', 'brake', 'steerLeft', 'steerRight', 'handbrake', 'getOut', 'changeSeat', 'flip', 'newCar'].includes(x) ? 'car' : ['journal', 'map', 'chat', 'mute', 'fullscreen', 'help', 'skipTime'].includes(x) ? 'any' : 'foot');
     return group(a) === group(b) || group(a) === 'any' || group(b) === 'any';
   };
   for (const a of ACTION_IDS) for (const b of ACTION_IDS) if (a < b && together(a, b)) assert.notEqual(DEFAULT_KEYS[a], DEFAULT_KEYS[b], `${a} and ${b}`);

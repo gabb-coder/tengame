@@ -42,9 +42,11 @@ function where(h: House): string {
 export interface MissionPlayer {
   id: string;
   name: string;
-  /** Car position (the car stays parked while on foot). */
+  /** Where the car they're in is (their own stays parked while they're on foot). */
   p: Vec3;
   avatar: AvatarState | null;
+  /** Riding along in a car, not driving it. */
+  passenger?: boolean;
 }
 
 /** What the mission manager needs from its room. */
@@ -245,7 +247,7 @@ export class MissionManager {
       const cps = s.checkpoints!;
       let changed = false;
       for (const pl of players) {
-        if (pl.avatar) continue; // must be driving
+        if (pl.avatar || pl.passenger) continue; // must be driving
         const next = s.progress![pl.id] ?? 0;
         if (next >= cps.length || distance(pl.p, cps[next]) >= REACH.checkpoint) continue;
         s.progress![pl.id] = next + 1;
@@ -352,7 +354,7 @@ export class MissionManager {
   }
 }
 
-/** Where a player is: on foot, or in their car. */
+/** Where a player is: on foot, or in a car. */
 function position(pl: MissionPlayer): Vec3 {
   return pl.avatar ? pl.avatar.p : pl.p;
 }

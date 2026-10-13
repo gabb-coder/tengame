@@ -637,3 +637,167 @@ test('racing rooms race what the lobby chose, relay the computer cars, and check
   assert.deepEqual(odd.race?.setup, { circuit: 'sepang', laps: 30, bots: 0, difficulty: 'normal' });
   c.close();
 });
+
+/** Waits until the server has dealt with everything `client` sent so far. */
+async function settle(client: TestClient) {
+  const text = `settled ${Math.random()}`;
+  client.send({ type: 'chat', text });
+  while ((await client.next('chat')).text !== text);
+}
+
+/** The next seat message about `id` (skipping others). */
+async function seatOf(client: TestClient, id: string) {
+  for (;;) {
+    const msg = await client.next('seat');
+    if (msg.id === id) return msg;
+  }
+}
+
+test('anyone can get in a friend’s car: to drive it when nobody is, or to ride along', async () => {
+  const car = { steer: 0, rpm: 900, load: 0, speed: 0, braking: false };
+  const q = [0, 0, 0, 1];
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice' });
+  const welcome = await a.next('welcome');
+  const alice = welcome.id;
+  assert.deepEqual(welcome.seats, { [alice]: { car: alice, n: 0 } }, 'everyone starts at their own wheel');
+  const b = await TestClient.connect();
+  b.send({ type: 'join', name: 'Bob', room: welcome.room });
+  const welcomeB = await b.next('welcome');
+  const bob = welcomeB.id;
+  assert.deepEqual(welcomeB.seats, { [alice]: { car: alice, n: 0 }, [bob]: { car: bob, n: 0 } });
+  const room = server.rooms.get(welcome.room)!;
+  const walk = (client: TestClient, x: number, z: number) => client.send({ type: 'state', avatar: { p: [x, 0, z], yaw: 0, speed: 0 } });
+  const ask = (client: TestClient, seat: unknown) => client.send({ type: 'seat', seat });
+  const drive = (x: number, speed: number) => b.send({ type: 'state', p: [50, 1, 0], q, car, avatar: null, drive: { id: alice, p: [x, 1, 0], q, car: { ...car, speed } } });
+
+  // Alice parks and gets out; so does Bob, far away.
+  a.send({ type: 'state', p: [0, 1, 0], q, car, avatar: null });
+  ask(a, null);
+  assert.deepEqual(await seatOf(b, alice), { type: 'seat', id: alice, seat: null, cars: [{ id: alice, p: [0, 1, 0], q, car }] });
+  b.send({ type: 'state', p: [50, 1, 0], q, car, avatar: null });
+  ask(b, null);
+  await seatOf(a, bob);
+  await seatOf(b, bob);
+
+  // Too far from Alice's car: refused, and only Bob is told (he's still on foot).
+  walk(b, 20, 0);
+  ask(b, { car: alice, n: 0 });
+  assert.deepEqual(await seatOf(b, bob), { type: 'seat', id: bob, seat: null });
+  // Beside it: Bob takes the wheel, nobody having it. Everyone is told where the car is.
+  walk(b, 2, 1);
+  ask(b, { car: alice, n: 0 });
+  const took = await seatOf(a, bob);
+  assert.deepEqual(took, { type: 'seat', id: bob, seat: { car: alice, n: 0 }, cars: [{ id: alice, p: [0, 1, 0], q, car }] });
+  assert.deepEqual(await seatOf(b, bob), took);
+
+  // Bob's game moves it now: Alice's reports of her car count for nothing while he drives.
+  drive(10, 12);
+  a.send({ type: 'state', p: [0, 1, 0], q, car, avatar: { p: [1, 0, 3], yaw: 0, speed: 0 } });
+  // She can't have her wheel back while he's at it...
+  ask(a, { car: alice, n: 0 });
+  assert.deepEqual(await seatOf(a, alice), { type: 'seat', id: alice, seat: null });
+  await settle(b);
+  assert.deepEqual(room.players.get(alice)!.p, [10, 1, 0]);
+  assert.equal(room.players.get(alice)!.car.speed, 12);
+  let seen;
+  for (let i = 0; i < 10 && seen?.p[0] !== 10; i++) seen = (await a.next('snapshot')).players.find((p) => p.id === alice);
+  assert.deepEqual(seen?.p, [10, 1, 0], 'everyone sees her car where Bob drives it');
+  // ...but she can walk up and ride along. The driver's the same, so no car changes hands.
+  walk(a, 9, 2);
+  ask(a, { car: alice, n: 1 });
+  assert.deepEqual(await seatOf(b, alice), { type: 'seat', id: alice, seat: { car: alice, n: 1 } });
+
+  // Cat, walking right by Alice's car, can be run over by its driver: Bob (his own car is far off).
+  const c = await TestClient.connect();
+  c.send({ type: 'join', name: 'Cat', room: welcome.room });
+  const cat = (await c.next('welcome')).id;
+  c.send({ type: 'state', avatar: { p: [12, 0, 1], yaw: 0, speed: 0 } });
+  ask(c, { car: 'nobody', n: 0 });
+  await seatOf(c, cat);
+  b.send({ type: 'knock', target: cat, v: [5, 2, 0] });
+  assert.equal((await c.next('knock')).by, bob);
+  // A passenger can't smash things (the driver does).
+  a.send({ type: 'smash', id: 'lamp:3', v: [1, 0, 0] });
+  b.send({ type: 'smash', id: 'lamp:4', v: [1, 0, 0] });
+  assert.equal((await c.next('smash')).id, 'lamp:4');
+
+  // Seats only change in a car that's all but stopped.
+  drive(10, 12);
+  ask(b, { car: alice, n: 2 });
+  assert.deepEqual(await seatOf(b, bob), { type: 'seat', id: bob, seat: { car: alice, n: 0 } });
+  // Stopped, Bob moves over and Alice takes her wheel back.
+  drive(11, 0);
+  ask(b, { car: alice, n: 2 });
+  assert.deepEqual(await seatOf(a, bob), { type: 'seat', id: bob, seat: { car: alice, n: 2 }, cars: [{ id: alice, p: [11, 1, 0], q, car }] });
+  ask(a, { car: alice, n: 0 });
+  assert.deepEqual(await seatOf(b, alice), { type: 'seat', id: alice, seat: { car: alice, n: 0 }, cars: [{ id: alice, p: [11, 1, 0], q, car }] });
+  // Her game moves it again; Bob's word on it counts for nothing now.
+  a.send({ type: 'state', p: [12, 1, 0], q, car, avatar: null });
+  drive(30, 0);
+  // Taken seats, seats that aren't there, cars that aren't there, odd requests: refused.
+  for (const seat of [{ car: alice, n: 0 }, { car: alice, n: 4 }, { car: alice, n: 1.5 }, { car: 'nobody', n: 1 }, 'front']) {
+    ask(b, seat);
+    assert.deepEqual(await seatOf(b, bob), { type: 'seat', id: bob, seat: { car: alice, n: 2 } });
+  }
+  await settle(a);
+  assert.deepEqual(room.players.get(alice)!.p, [12, 1, 0]);
+  // Out he gets.
+  ask(b, null);
+  assert.deepEqual(await seatOf(a, bob), { type: 'seat', id: bob, seat: null });
+  a.close();
+  b.close();
+  c.close();
+});
+
+test('leaving takes your car with you: friends in it are left on foot, and a car you had goes back', async () => {
+  const car = { steer: 0, rpm: 900, load: 0, speed: 0, braking: false };
+  const q = [0, 0, 0, 1];
+  const join = async (name: string, room?: string) => {
+    const client = await TestClient.connect();
+    client.send({ type: 'join', name, room });
+    return { client, welcome: await client.next('welcome') };
+  };
+  const { client: a, welcome } = await join('Alice');
+  const { client: b, welcome: wb } = await join('Bob', welcome.room);
+  const { client: c, welcome: wc } = await join('Cat', welcome.room);
+  const [alice, bob, cat] = [welcome.id, wb.id, wc.id];
+  // Bob's parked by Alice, who drives off in his car; Cat climbs into Alice's.
+  for (const [client, x] of [[a, 0], [b, 5], [c, 10]] as const) {
+    client.send({ type: 'state', p: [x, 1, 0], q, car, avatar: null });
+    client.send({ type: 'seat', seat: null });
+    client.send({ type: 'state', avatar: { p: [x + 1, 0, 1], yaw: 0, speed: 0 } });
+  }
+  for (const id of [alice, bob, cat]) await seatOf(c, id);
+  a.send({ type: 'state', avatar: { p: [6, 0, 1], yaw: 0, speed: 0 } });
+  a.send({ type: 'seat', seat: { car: bob, n: 0 } });
+  assert.deepEqual((await seatOf(c, alice)).seat, { car: bob, n: 0 });
+  c.send({ type: 'state', avatar: { p: [1, 0, 1], yaw: 0, speed: 0 } });
+  c.send({ type: 'seat', seat: { car: alice, n: 1 } });
+  for (const id of [alice, bob, cat]) await seatOf(b, id);
+  assert.deepEqual((await seatOf(b, cat)).seat, { car: alice, n: 1 });
+  await seatOf(c, cat);
+  a.send({ type: 'state', avatar: null, drive: { id: bob, p: [40, 1, 0], q, car } });
+  await settle(a);
+  a.close();
+  // Bob's car goes back to him, where Alice left it; Cat's left standing; then Alice is gone.
+  assert.deepEqual(await seatOf(b, alice), { type: 'seat', id: alice, seat: null, cars: [{ id: bob, p: [40, 1, 0], q, car }] });
+  assert.deepEqual(await seatOf(b, cat), { type: 'seat', id: cat, seat: null });
+  assert.equal((await b.next('player_left')).id, alice);
+  assert.deepEqual(await seatOf(c, cat), { type: 'seat', id: cat, seat: null });
+  await c.next('player_left');
+  b.close();
+  c.close();
+});
+
+test('racing cars have one seat', async () => {
+  const a = await TestClient.connect();
+  a.send({ type: 'join', name: 'Alice', mode: 'racing' });
+  const welcome = await a.next('welcome');
+  a.send({ type: 'seat', seat: null });
+  a.send({ type: 'chat', text: 'hi' });
+  await a.next('chat');
+  assert.equal(a.inbox.filter((m) => m.type === 'seat').length, 0);
+  assert.deepEqual(server.rooms.get(welcome.room)!.players.get(welcome.id)!.seat, { car: welcome.id, n: 0 });
+  a.close();
+});

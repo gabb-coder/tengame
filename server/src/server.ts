@@ -6,11 +6,15 @@ import {
   ACTS,
   type AvatarState,
   type BotState,
+  CAR_REACH,
+  CAR_SEATS,
   type CarDamage,
+  type CarPose,
   type CarState,
   type ClientMessage,
   DOOR_REACH,
   GEARS,
+  MAX_EXIT_SPEED,
   MAX_KNOCK_SPEED,
   MAX_STRIKE_SPEED,
   STRIKES,
@@ -24,6 +28,7 @@ import { generateInterior } from '../../shared/interior.ts';
 import { doorPosition } from '../../shared/town.ts';
 import { generateWorld } from '../../shared/world.ts';
 import { RoomManager, type Player, type Room } from './rooms.ts';
+import { DRIVER } from '../../shared/seats.ts';
 import { CIRCUIT_IDS } from '../../shared/circuits.ts';
 import { type Difficulty, DIFFICULTIES, MAX_GRID, MAX_LAPS, MIN_LAPS, type RaceSetup } from '../../shared/racing.ts';
 
@@ -52,6 +57,8 @@ const NPC_ID = /^npc:[a-z0-9-]{1,40}$/;
 const SMASH_ID = /^[a-z]+:[A-Za-z0-9:_.,-]{1,60}$/;
 /** Street things light enough to kick over (a car smashes anything). */
 const KICKABLE = /^(bin|mailbox|fence):/;
+/** Room for lag when changing seats in a car that's still rolling (m/s). */
+const EXIT_SPEED_SLACK = 1.5;
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -187,6 +194,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           race: room.race?.state ?? null,
           clock: room.clock(),
           smashed: room.smashed(),
+          seats: room.seats(),
           now: Date.now(),
         });
       } else if (msg.type === 'time') {
@@ -194,12 +202,13 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
       } else if (msg.type === 'chat') {
         if (room && player) room.chat(player, String(msg.text ?? ''));
       } else if (msg.type === 'state') {
-        if (!player || !isVec(msg.p, 3) || !isVec(msg.q, 4) || !isCarState(msg.car)) return;
+        if (!room || !player) return;
+        // Our own car comes whole or not at all (not while someone else drives it).
+        const own = msg.p !== undefined || msg.q !== undefined || msg.car !== undefined;
+        if (own && !(isVec(msg.p, 3) && isVec(msg.q, 4) && isCarState(msg.car))) return;
+        if (msg.drive !== undefined && !isCarPose(msg.drive)) return;
         const avatar = msg.avatar ?? null;
         if (avatar !== null && !isAvatarState(avatar)) return;
-        player.p = msg.p;
-        player.q = msg.q;
-        player.car = cleanCar(msg.car);
         player.avatar = avatar && {
           p: avatar.p,
           yaw: avatar.yaw,
@@ -210,6 +219,33 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           ...(avatar.gear ? { gear: avatar.gear } : {}),
           ...(avatar.hurt ? { hurt: true } : {}),
         };
+        // A car is moved by its driver's game, or its owner's while nobody's driving it.
+        const driver = room.sitting(player.id, DRIVER);
+        if (own && (!driver || driver === player)) {
+          player.p = msg.p!;
+          player.q = msg.q!;
+          player.car = cleanCar(msg.car!);
+        }
+        const driven = room.driving(player);
+        if (msg.drive && driven && driven !== player && driven.id === msg.drive.id) {
+          driven.p = msg.drive.p;
+          driven.q = msg.drive.q;
+          driven.car = cleanCar(msg.drive.car);
+        }
+      } else if (msg.type === 'seat') {
+        // Getting in a car (anyone's: to drive it if nobody is, or to ride along), changing
+        // seats, or getting out. Racing cars have room for one.
+        if (!room || !player || room.race) return;
+        const want = msg.seat;
+        if (want === null) {
+          room.seat(player, null);
+          return;
+        }
+        const car = typeof want === 'object' && want !== null ? room.players.get(String(want.car)) : undefined;
+        const n = want?.n;
+        if (car && Number.isInteger(n) && n >= 0 && n < CAR_SEATS && !room.sitting(car.id, n) && canSit(player, car)) {
+          room.seat(player, { car: car.id, n });
+        } else send(socket, { type: 'seat', id: player.id, seat: player.seat });
       } else if (msg.type === 'lap') {
         // Racing: a car crossed the line (the referee checks it).
         if (!room?.race || !player || !room.allow(`${player.id}:lap`, 30, 1000)) return;
@@ -275,11 +311,12 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
           if (room.allow(`${player.id}:knock`, 10, 1000)) room.broadcast({ type: 'knock', target, v, by: player.id }, player.id);
           return;
         }
-        if (player.avatar) return;
+        const car = room.driving(player);
+        if (!car) return;
         const victim = room.players.get(target);
         if (!victim?.avatar || victim === player) return;
         const [x, y, z] = victim.avatar.p;
-        const [cx, cy, cz] = player.p;
+        const [cx, cy, cz] = car.p;
         if (Math.hypot(x - cx, z - cz) > KNOCK_REACH || Math.abs(y - cy) > 4) return;
         if (!room.fire(`knock:${victim.id}`, KNOCK_COOLDOWN)) return;
         // They fly in their own game; everyone else sees their body fly too.
@@ -308,7 +345,7 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         // everyone until it's put back.
         const id = String(msg.id ?? '');
         if (!room || !player || !isVec(msg.v, 3) || !SMASH_ID.test(id)) return;
-        if (player.avatar && !KICKABLE.test(id)) return;
+        if (player.avatar ? !KICKABLE.test(id) : !room.driving(player)) return;
         if (!room.allow(`${player.id}:smash`, 20, 1000) || !room.smash(id)) return;
         room.broadcast({ type: 'smash', id, v: capSpeed(msg.v, MAX_KNOCK_SPEED), by: player.id }, player.id);
       }
@@ -343,6 +380,18 @@ export function createGameServer({ staticDir }: GameServerOptions = {}): GameSer
         wss.close(() => http.close(() => done()));
       }),
   };
+}
+
+/**
+ * Whether `player` may take a seat in `car`: walking up to it, or (already in it) moving
+ * over while it's all but stopped.
+ */
+function canSit(player: Player, car: Player): boolean {
+  if (player.seat) return player.seat.car === car.id && Math.abs(car.car.speed) <= MAX_EXIT_SPEED + EXIT_SPEED_SLACK;
+  if (!player.avatar) return false;
+  const [x, y, z] = player.avatar.p;
+  const [cx, cy, cz] = car.p;
+  return Math.hypot(x - cx, z - cz) <= CAR_REACH + DOOR_REACH_SLACK && Math.abs(y - cy) < 3;
 }
 
 function isVec(v: unknown, length: number): v is number[] {
@@ -381,6 +430,12 @@ function isAvatarState(a: unknown): a is AvatarState {
 /** Only the fields a car state has, checked. */
 function cleanCar({ steer, rpm, load, speed, braking, dmg, drs }: CarState): CarState {
   return { steer, rpm, load, speed, braking, ...(isDamage(dmg) ? { dmg } : {}), ...(drs === true ? { drs } : {}) };
+}
+
+function isCarPose(c: unknown): c is CarPose {
+  if (typeof c !== 'object' || c === null) return false;
+  const { id, p, q, car } = c as Record<string, unknown>;
+  return typeof id === 'string' && isVec(p, 3) && isVec(q, 4) && isCarState(car);
 }
 
 function isBotState(b: unknown): b is BotState {

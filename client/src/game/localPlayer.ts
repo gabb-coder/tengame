@@ -1,7 +1,8 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { APPLIANCE_REACH, type ApplianceKind, TV_REMOTE_REACH } from '../../../shared/appliances.ts';
-import { type Act, type AvatarState, DOOR_REACH, type StrikeKind } from '../../../shared/protocol.ts';
+import { type Act, type AvatarState, CAR_REACH, type CarPose, type CarSeat, type CarState, DOOR_REACH, MAX_EXIT_SPEED, type Quat, type StrikeKind, type Vec3 } from '../../../shared/protocol.ts';
+import { DRIVER, passengerSeat, sameSeat, seatFor, seatPlace } from '../../../shared/seats.ts';
 import { zoneAt } from '../../../shared/world.ts';
 import { doorPosition } from '../../../shared/town.ts';
 import type { Sounds } from '../audio/sounds.ts';
@@ -15,6 +16,7 @@ import { AVATAR, CharacterPhysics } from '../player/character.ts';
 import { KICK_SECONDS } from '../player/humanModel.ts';
 import { Car } from '../vehicles/car.ts';
 import { CAR, type CarControls } from '../vehicles/carPhysics.ts';
+import { Headlights } from '../vehicles/headlights.ts';
 import type { Appliances } from '../world/appliances.ts';
 import type { Doors } from '../world/doors.ts';
 import { nearestSeat, type Seat } from '../world/seats.ts';
@@ -24,11 +26,10 @@ import type { Activities, Activity, Mount, Prompt } from './activities.ts';
 import { carHits, type CarShape, STRIKE_LIFTS, strikeHit } from './impacts.ts';
 import { game } from './link.ts';
 import { groundUnder } from './limp.ts';
+import { Seating } from './seating.ts';
 
-/** How close (meters from the car's center) you must be to get in. */
-const CAR_REACH = 3.2;
-/** Can't jump out of a moving car. */
-const MAX_EXIT_SPEED = 3; // m/s
+/** How long to wait for the server's word on a seat before asking again (ms). */
+const ASK_PATIENCE_MS = 1500;
 const PARKED: CarControls = { throttle: 0, brake: 0, steer: 0, handbrake: true };
 const HIDDEN_FEET = new THREE.Vector3(0, -50, 0);
 const STILL = new THREE.Vector3();
@@ -64,13 +65,19 @@ const STRIKE_MOVES: Record<StrikeAct, { lands: number; shows: number; next: numb
 /** Health a punch and a kick from another player take off. */
 const STRUCK_HARM: Record<StrikeKind, number> = { punch: 7, kick: 14 };
 
-export type Mode = 'car' | 'foot';
+/** Driving (our car or a friend's), riding along in someone's car, or on foot. */
+export type Mode = 'car' | 'passenger' | 'foot';
 
-/** What pressing E would do right now, for the on-screen prompt. */
+/**
+ * What pressing E would do right now, for the on-screen prompt. In a car, it's getting out
+ * (and C changing seats: moving over for a friend riding along, or taking the wheel).
+ */
 export type Interaction =
-  | { kind: 'enter-car' }
-  | { kind: 'exit-car' }
+  | { kind: 'enter-car'; seat: CarSeat; owner: string | null; driver: string | null }
+  | { kind: 'car-full'; owner: string | null }
+  | { kind: 'exit-car'; moveOver: string | null }
   | { kind: 'too-fast' }
+  | { kind: 'ride'; owner: string | null; driver: string | null; canExit: boolean; takeWheel: boolean }
   | { kind: 'door'; houseId: string; address: string; open: boolean }
   | { kind: 'sit'; seat: Seat }
   | { kind: 'stand' }
@@ -79,12 +86,52 @@ export type Interaction =
   | { kind: 'activity'; activity: Activity; prompt: Prompt }
   | null;
 
-/** The player's own car and character, and switching between them. */
+/** A car drawn from another player's game (see net/remotePlayers.ts). */
+export interface DrawnCar {
+  object: THREE.Object3D;
+  body: RAPIER.RigidBody;
+  speed: number;
+}
+
+/** What the player needs to know of every car in the room; set by main. */
+export interface CarDirectory {
+  /** Every car, by its owner's id (ours included). */
+  ids(): string[];
+  /** Whose it is, and its paint. */
+  owner(id: string): { name: string; color: string } | null;
+  /** The car as drawn from another player's game, while that's what moves it. */
+  puppet(id: string): DrawnCar | null;
+  /** Our game moves car `id` now (`away`: stop drawing it from theirs), or theirs does, carrying on from `from`. */
+  setAway(id: string, away: boolean, from?: THREE.Object3D): void;
+}
+
+/**
+ * The player's character and the car they're in, and switching between them. Anyone can
+ * get in anyone's car: to drive it if nobody is, else to ride along. The server says who
+ * sits where; a car is moved by its driver's game, or its owner's while nobody's driving.
+ */
 export class LocalPlayer {
   mode: Mode = 'car';
   /** Held in place (e.g. on a race grid before the start): brakes on, can't get out. */
   frozen = false;
+  /** Our own car. */
   readonly car: Car;
+  /** A friend's car we're driving: our game moves it while we do. */
+  private borrowed: { id: string; car: Car } | null = null;
+  /** Whether our game moves our own car: unless someone else is driving it. */
+  private ownHere = true;
+  /** Where we sit (null on foot): our own wheel to begin with. */
+  seat: CarSeat | null;
+  /** Who sits where in every car, and every car there is; set by main. */
+  seating = new Seating();
+  cars: CarDirectory = { ids: () => [], owner: () => null, puppet: () => null, setAway: () => {} };
+  /** Asks the server for a seat, or to get out (null); set by main. */
+  requestSeat: (seat: CarSeat | null) => void = () => {};
+  /** When we last asked for a seat (ms): one at a time. */
+  private askedAt = -Infinity;
+  /** Called when the car we're driving is wrecked: ours (`owner` null), or a friend's. */
+  onWrecked: (car: Car, owner: string | null) => void = () => {};
+  private headlights: Headlights;
   private character: CharacterPhysics;
   private avatar: AvatarModel;
   private chase: ChaseCamera;
@@ -138,14 +185,18 @@ export class LocalPlayer {
     private world: World,
     private doors: Doors,
     private sounds: Sounds,
-    id: string,
+    private id: string,
     color: string,
     spawn: { position: THREE.Vector3; yaw: number },
-    listener: THREE.AudioListener,
+    private listener: THREE.AudioListener,
   ) {
     this.car = new Car(world.physics, color, spawn, listener);
     this.car.onImpact = (strength) => sounds.crash(this.car.object.position, strength);
+    this.car.onWrecked = () => this.onWrecked(this.car, null);
     world.scene.add(this.car.object);
+    this.seat = { car: id, n: DRIVER };
+    this.headlights = new Headlights(world.scene);
+    this.headlights.fit(this.car);
 
     this.character = new CharacterPhysics(world.physics, HIDDEN_FEET);
     this.character.setEnabled(false);
@@ -153,20 +204,18 @@ export class LocalPlayer {
     this.avatar.root.visible = false;
     world.scene.add(this.avatar.root);
 
-    this.chase = new ChaseCamera(world.camera, (from, to) => this.castRay(from, to, this.car.bodyHandle));
+    this.chase = new ChaseCamera(world.camera, (from, to) => this.castRay(from, to, this.inside?.body ?? this.car.bodyHandle));
     this.orbit = new OrbitCamera(world.camera, (from, to) => this.castRay(from, to, this.character.body));
   }
 
   /** Fixed-step physics update; call before `world.stepPhysics()`. */
   fixedStep(input: Input, dt: number): void {
-    const at = this.car.physics.body.translation();
-    const carPlace = placeEffects(at.x, at.y, at.z);
-    if (this.mode === 'car') {
-      this.runInto(dt);
-      this.car.step(this.frozen ? PARKED : input.car, dt, carPlace);
-      return;
-    }
-    this.car.step(PARKED, dt, carPlace);
+    const controls = this.mode === 'car' && !this.frozen ? input.car : PARKED;
+    if (this.mode === 'car') this.runInto(dt);
+    // Our own car waits where it's parked while we're out of it (or in a friend's).
+    if (this.ownHere) this.car.step(this.borrowed ? PARKED : controls, dt, placeOf(this.car));
+    if (this.borrowed) this.borrowed.car.step(controls, dt, placeOf(this.borrowed.car));
+    if (this.mode !== 'foot') return;
     // On a ride the body is out of the physics world; on a seat it waits where it stood.
     if (this.mount?.ride) return;
     const feet = this.character.feet;
@@ -305,7 +354,8 @@ export class LocalPlayer {
    * slowing the car by what each takes off it and denting it.
    */
   private runInto(dt: number): void {
-    const body = this.car.physics.body;
+    const car = this.vehicle;
+    const body = car.physics.body;
     const rotation = body.rotation();
     const q = new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
     for (const hit of carHits(game.impacts, CAR_SHAPE, body.translation(), rotation, body.linvel(), dt)) {
@@ -318,7 +368,7 @@ export class LocalPlayer {
       const bounce = hit.target.solid ? 1.3 : 1;
       velocity.addScaledVector(toward, (-hit.speed * hit.target.mass * bounce) / (CAR.mass + hit.target.mass));
       body.setLinvel(velocity, true);
-      this.car.hit(hit.dir, hit.target.harm * (hit.speed / 20) ** 2);
+      car.hit(hit.dir, hit.target.harm * (hit.speed / 20) ** 2);
     }
   }
 
@@ -346,17 +396,25 @@ export class LocalPlayer {
       if (this.oneShot?.act === s.act) this.oneShot = null;
     }
     this.interaction = this.findInteraction();
-    if (input.pressed(this.mode === 'car' ? 'getOut' : 'use')) this.interact();
+    if (input.pressed(this.mode === 'foot' ? 'use' : 'getOut')) this.interact();
+    if (this.mode !== 'foot' && input.pressed('changeSeat')) this.changeSeat();
     if (this.mount && !this.mount.ride && input.pressed('remote')) this.useRemote();
     if (this.mode === 'car' && !this.frozen) {
-      if (input.pressed('flip')) this.car.reset();
-      if (input.pressed('newCar')) this.car.replace();
+      if (input.pressed('flip')) this.vehicle.reset();
+      if (input.pressed('newCar')) this.vehicle.replace();
     }
 
-    this.car.update(dt);
+    if (this.ownHere) this.car.update(dt);
+    this.borrowed?.car.update(dt);
+    const inside = this.inside;
     if (this.mode === 'car') {
       input.takeLook(dt); // discard mouse movement while driving
-      this.chase.update(this.car.object, this.car.physics.speed, dt);
+      this.chase.update(this.vehicle.object, this.vehicle.physics.speed, dt);
+    } else if (this.mode === 'passenger') {
+      // Riding along, look about with the mouse.
+      const look = input.takeLook(dt);
+      this.chase.look(look.yaw, look.pitch);
+      if (inside) this.chase.update(inside.object, inside.speed, dt);
     } else {
       const look = input.takeLook(dt);
       this.orbit.turn(look.yaw, look.pitch);
@@ -536,18 +594,20 @@ export class LocalPlayer {
     return this.character.grounded;
   }
 
-  /** Where the camera's attention is, for the sun's shadow area. */
+  /** Where the player is (and the camera's attention, for the sun's shadow area): the car they're in, or on foot. */
   get focus(): THREE.Vector3 {
-    return this.mode === 'car' ? this.car.object.position : this.avatar.root.position;
+    if (this.mode === 'foot') return this.avatar.root.position;
+    return (this.inside?.object ?? this.car.object).position;
   }
 
-  /** Which way the player faces (yaw, 0 = +Z): the car, or the character on foot. */
+  /** Which way the player faces (yaw, 0 = +Z): the car they're in, or the character on foot. */
   get facing(): number {
-    return this.mode === 'car' ? yawOf(this.car.object.quaternion) : this.character.yaw;
+    if (this.mode === 'foot') return this.character.yaw;
+    return yawOf((this.inside?.object ?? this.car.object).quaternion);
   }
 
   get avatarState(): AvatarState | null {
-    if (this.mode === 'car') return null;
+    if (this.mode !== 'foot') return null;
     const extra: Partial<AvatarState> = {};
     const act = this.act;
     if (act) extra.act = act;
@@ -564,19 +624,194 @@ export class LocalPlayer {
     return { p: [round(f.x), round(f.y), round(f.z)], yaw: round(this.character.yaw), speed: round(this.character.speed), ...extra };
   }
 
-  /** Puts the player in their car at a race grid slot. */
+  /**
+   * Puts the player's car on a race grid slot. The server has put everyone back at their
+   * own wheel first (see server/src/rooms.ts).
+   */
   lineUp(position: THREE.Vector3, yaw: number): void {
     this.leave(true);
     this.stopTask();
-    if (this.mode === 'foot') this.enterCar();
+    if (this.mode !== 'car' || this.borrowed) return;
     this.car.teleport(position, yaw);
     this.chase.snap();
   }
 
+  /** The car we're driving: ours, or a friend's. */
+  get vehicle(): Car {
+    return this.borrowed?.car ?? this.car;
+  }
+
+  /** Where car `id` is drawn by our game, while ours moves it (our own, or a friend's we're driving). */
+  carObject(id: string): THREE.Object3D | null {
+    if (this.borrowed?.id === id) return this.borrowed.car.object;
+    return id === this.id && this.ownHere ? this.car.object : null;
+  }
+
+  /** The car we're sitting in, as drawn here. */
+  private get inside(): DrawnCar | null {
+    const car = this.seat?.car;
+    if (!car) return null;
+    const ours = this.borrowed?.id === car ? this.borrowed.car : car === this.id && this.ownHere ? this.car : null;
+    return ours ? { object: ours.object, body: ours.bodyHandle, speed: ours.physics.speed } : this.cars.puppet(car);
+  }
+
+  /** Our own car for the server, while our game moves it (not while a friend drives it). */
+  get ownReport(): { p: Vec3; q: Quat; car: CarState } | null {
+    return this.ownHere ? { ...this.car.transform, car: this.car.state } : null;
+  }
+
+  /** The friend's car we're driving, for the server. */
+  get driveReport(): CarPose | null {
+    const b = this.borrowed;
+    return b && { id: b.id, ...b.car.transform, car: b.car.state };
+  }
+
+  /** Tail lights glow after dark, and the headlights light the road. */
+  setNight(night: number): void {
+    this.car.setNight(night);
+    this.borrowed?.car.setNight(night);
+    this.headlights.update(night);
+  }
+
+  /**
+   * Someone (`who`, maybe us) got in a car, changed seats or got out, says the server (the
+   * seating's already changed): `cars` are where the cars that changed hands are. Our game
+   * takes over moving a car we're now driving, or our own car back; and lets go of ours if
+   * someone else is driving it.
+   */
+  seatsChanged(who: string, cars: CarPose[] = []): void {
+    if (who === this.id) this.askedAt = -Infinity;
+    const pose = (id: string) => cars.find((c) => c.id === id);
+    const driver = this.seating.driverOf(this.id);
+    const here = driver === null || driver === this.id;
+    if (here !== this.ownHere) {
+      this.ownHere = here;
+      if (here) {
+        // Back from a friend: from where they left it.
+        const p = pose(this.id);
+        const drawn = this.cars.puppet(this.id)?.object;
+        this.car.setActive(true);
+        if (p) this.car.place(p.p, p.q, p.car.dmg);
+        else if (drawn) this.car.place(drawn.position.toArray() as Vec3, drawn.quaternion.toArray() as Quat, this.car.damage.state);
+        this.cars.setAway(this.id, true);
+      } else {
+        this.cars.setAway(this.id, false, this.car.object);
+        this.car.setActive(false);
+      }
+    }
+    const seat = this.seating.of(this.id);
+    if (!sameSeat(seat, this.seat)) this.sitIn(seat, pose(seat?.car ?? ''));
+    this.fitHeadlights();
+  }
+
+  /** Moves us to `seat` (null: out on foot), as the server says, from wherever we were. */
+  private sitIn(seat: CarSeat | null, pose: CarPose | undefined): void {
+    const was = this.seat;
+    if (!seat) {
+      this.putOut();
+      return;
+    }
+    // Off the wheel of a friend's car (moving over): its owner's game moves it again.
+    if (this.borrowed && !(seat.n === DRIVER && seat.car === this.borrowed.id)) this.giveBack();
+    if (!was) this.climbIn();
+    this.seat = seat;
+    this.mode = seat.n === DRIVER ? 'car' : 'passenger';
+    if (seat.n === DRIVER && seat.car !== this.id) this.borrow(seat.car, pose);
+    this.car.engineOn = this.mode === 'car' && !this.borrowed;
+    if (this.mode === 'car') this.chase.straighten();
+    if (was?.car !== seat.car) this.chase.snap();
+    const inside = this.inside;
+    if (inside) this.sounds.carDoor(inside.object.position);
+  }
+
+  /** From our feet into a car: the character's put away. */
+  private climbIn(): void {
+    this.leave(true);
+    this.endKnockdown();
+    this.stopTask();
+    this.dancing = false;
+    this.oneShot = null;
+    this.striking = null;
+    this.character.teleport(HIDDEN_FEET);
+    this.character.setEnabled(false);
+    this.avatar.root.visible = false;
+  }
+
+  /** At the wheel of a friend's car: our game moves it now, from where theirs left it. */
+  private borrow(id: string, pose: CarPose | undefined): void {
+    const owner = this.cars.owner(id);
+    const drawn = this.cars.puppet(id)?.object;
+    const p = pose?.p ?? (drawn?.position.toArray() as Vec3 | undefined) ?? this.car.transform.p;
+    const q = pose?.q ?? (drawn?.quaternion.toArray() as Quat | undefined) ?? [0, 0, 0, 1];
+    const car = new Car(this.world.physics, owner?.color ?? '#888888', { position: new THREE.Vector3(...p), yaw: yawOf(new THREE.Quaternion(...q)) }, this.listener);
+    car.place(p, q, pose?.car.dmg);
+    car.onImpact = (strength) => this.sounds.crash(car.object.position, strength);
+    car.onWrecked = () => this.onWrecked(car, owner?.name ?? 'Someone');
+    this.world.scene.add(car.object);
+    this.cars.setAway(id, true);
+    this.borrowed = { id, car };
+  }
+
+  /** Off the wheel of a friend's car: their game moves it again, carrying on from where we left it. */
+  private giveBack(): void {
+    const b = this.borrowed;
+    if (!b) return;
+    this.borrowed = null;
+    this.fitHeadlights();
+    this.cars.setAway(b.id, false, b.car.object);
+    b.car.dispose();
+  }
+
+  /** The headlights go on the car we drive (or ours, parked, while we're about). */
+  private fitHeadlights(): void {
+    this.headlights.fit(this.borrowed?.car ?? (this.ownHere ? this.car : null));
+  }
+
+  /** Asks the server for a seat; one request at a time. */
+  private askFor(seat: CarSeat): void {
+    const now = performance.now();
+    if (now - this.askedAt < ASK_PATIENCE_MS) return;
+    this.askedAt = now;
+    this.requestSeat(seat);
+  }
+
+  /** C (see keys.ts): move over for a friend riding with us, or take the wheel from the passenger seat. */
+  private changeSeat(): void {
+    const i = this.interaction;
+    const car = this.seat?.car;
+    if (!car) return;
+    if (i?.kind === 'exit-car' && i.moveOver) {
+      const n = passengerSeat(this.seating.taken(car));
+      if (n !== null) this.askFor({ car, n });
+    } else if (i?.kind === 'ride' && i.takeWheel) this.askFor({ car, n: DRIVER });
+  }
+
+  /** A player's name, or 'Someone' if we don't know them. */
+  private nameOf(id: string): string {
+    return this.cars.owner(id)?.name ?? 'Someone';
+  }
+
   private findInteraction(): Interaction {
     if (this.frozen || this.knockdown) return null;
-    if (this.mode === 'car') {
-      return Math.abs(this.car.physics.speed) <= MAX_EXIT_SPEED ? { kind: 'exit-car' } : { kind: 'too-fast' };
+    const sitting = this.seat;
+    if (sitting && this.mode !== 'foot') {
+      const inside = this.inside;
+      const slow = !inside || Math.abs(inside.speed) <= MAX_EXIT_SPEED;
+      if (this.mode === 'car') {
+        if (!slow) return { kind: 'too-fast' };
+        // Someone riding with us can have the wheel, while we take their seat or another.
+        const rider = this.seating.riders(sitting.car).find((r) => r.n !== DRIVER);
+        const room = passengerSeat(this.seating.taken(sitting.car)) !== null;
+        return { kind: 'exit-car', moveOver: rider && room ? this.nameOf(rider.id) : null };
+      }
+      const driver = this.seating.driverOf(sitting.car);
+      return {
+        kind: 'ride',
+        owner: sitting.car === this.id ? null : this.nameOf(sitting.car),
+        driver: driver && this.nameOf(driver),
+        canExit: slow,
+        takeWheel: slow && driver === null,
+      };
     }
     if (this.mount?.ride) return { kind: 'leave', label: this.mount.label, blocked: this.mount.blocked?.() ?? null };
     if (this.mount) return { kind: 'stand' };
@@ -594,8 +829,16 @@ export class LocalPlayer {
     };
     const door = this.doors.nearest(feet, DOOR_REACH);
     if (door) add(door.distance, doorPosition(door.house), { kind: 'door', houseId: door.house.id, address: door.house.address, open: door.open });
-    const carDistance = feet.distanceTo(this.car.object.position);
-    if (carDistance <= CAR_REACH) add(carDistance, this.car.object.position, { kind: 'enter-car' });
+    // Any car: the wheel if nobody has it, else a seat beside whoever does.
+    for (const id of this.cars.ids()) {
+      const object = this.carObject(id) ?? this.cars.puppet(id)?.object;
+      const distance = object ? feet.distanceTo(object.position) : Infinity;
+      if (!object || distance > CAR_REACH) continue;
+      const owner = id === this.id ? null : this.nameOf(id);
+      const n = seatFor(this.seating.taken(id));
+      const driver = this.seating.driverOf(id);
+      add(distance, object.position, n === null ? { kind: 'car-full', owner } : { kind: 'enter-car', seat: { car: id, n }, owner, driver: driver && this.nameOf(driver) });
+    }
     const seat = nearestSeat(this.seats, feet, this.takenSeats());
     if (seat) add(seat.distance, seat.seat.position, { kind: 'sit', seat: seat.seat });
     const appliance = this.appliances?.nearest(feet, APPLIANCE_REACH);
@@ -622,8 +865,8 @@ export class LocalPlayer {
 
   private interact(): void {
     const i = this.interaction;
-    if (i?.kind === 'exit-car') this.exitCar();
-    else if (i?.kind === 'enter-car') this.enterCar();
+    if (i?.kind === 'exit-car' || (i?.kind === 'ride' && i.canExit)) this.exitCar();
+    else if (i?.kind === 'enter-car') this.askFor(i.seat);
     else if (i?.kind === 'door') this.requestDoor(i.houseId, !i.open);
     else if (i?.kind === 'sit') this.sit(i.seat);
     else if (i?.kind === 'stand' || i?.kind === 'leave') this.leave();
@@ -639,43 +882,50 @@ export class LocalPlayer {
     if (tv) this.requestSwitch(tv.id, !tv.on);
   }
 
+  /** Gets out (it's never refused: the server's told after the car's last whereabouts). */
   private exitCar(): void {
-    const spot = this.findExitSpot();
-    if (!spot) return; // boxed in: stay in the car
+    const inside = this.inside;
+    const spot = inside && this.findExitSpot(inside, this.seat?.n ?? DRIVER);
+    if (!inside || !spot) return; // boxed in: stay in the car
+    this.requestSeat(null);
+    this.seating.set(this.id, null);
+    this.stepOut(spot, inside);
+  }
+
+  /** Put out by the server (the car's owner left, say): beside it, or on top if there's no room. */
+  private putOut(): void {
+    const inside = this.inside;
+    const spot = inside ? (this.findExitSpot(inside, this.seat?.n ?? DRIVER) ?? inside.object.position.clone().setY(inside.object.position.y + 1.6)) : this.focus.clone();
+    this.stepOut(spot, inside);
+  }
+
+  /** Out of the car onto our feet at `spot`, facing the way the car does. */
+  private stepOut(spot: THREE.Vector3, inside: DrawnCar | null): void {
+    const yaw = inside ? yawOf(inside.object.quaternion) : this.facing;
+    const door = inside?.object.position.clone();
+    this.giveBack();
+    this.seat = null;
     this.mode = 'foot';
     this.car.engineOn = false;
-    const carYaw = yawOf(this.car.object.quaternion);
     this.character.setEnabled(true);
-    this.character.teleport(spot, carYaw);
+    this.character.teleport(spot, yaw);
     this.avatar.root.visible = true;
-    this.orbit.yaw = carYaw;
+    this.orbit.yaw = yaw;
     this.orbit.pitch = 0.25;
-    this.sounds.carDoor(this.car.object.position);
+    if (door) this.sounds.carDoor(door);
+    this.fitHeadlights();
   }
 
-  private enterCar(): void {
-    this.endKnockdown();
-    this.stopTask();
-    this.dancing = false;
-    this.oneShot = null;
-    this.striking = null;
-    this.mode = 'car';
-    this.car.engineOn = true;
-    this.character.teleport(HIDDEN_FEET);
-    this.character.setEnabled(false);
-    this.avatar.root.visible = false;
-    this.sounds.carDoor(this.car.object.position);
-  }
-
-  /** Beside the driver's door if there's room, else the other side, behind, or in front. */
-  private findExitSpot(): THREE.Vector3 | null {
-    const car = this.car.object;
-    const side = CAR.halfExtents.x + 0.55;
+  /** Beside our seat's door if there's room, else the other side, behind, or in front. */
+  private findExitSpot(inside: DrawnCar, seat: number): THREE.Vector3 | null {
+    const car = inside.object;
+    const out = CAR.halfExtents.x + 0.55;
     const end = CAR.halfExtents.z + 0.6;
-    // Driver sits on the left, which is the car's local +X (it faces +Z).
+    // The driver sits on the left, which is the car's local +X (it faces +Z).
+    const { side, z: along } = seatPlace(seat);
     const candidates = [
-      [side, 0.3],
-      [-side, 0.3],
+      [side * out, along],
+      [-side * out, along],
       [0, -end],
       [0, end],
     ];
@@ -683,7 +933,7 @@ export class LocalPlayer {
     try {
       for (const [x, z] of candidates) {
         const p = new THREE.Vector3(x, 0, z).applyQuaternion(car.quaternion).add(car.position);
-        const ground = this.groundBelow(p);
+        const ground = this.groundBelow(p, inside.body);
         if (ground === null) continue;
         p.y = ground;
         if (this.character.fits(p)) return p;
@@ -694,11 +944,11 @@ export class LocalPlayer {
     }
   }
 
-  /** Height of the first surface below `p` (ignoring the car), or null if none nearby. */
-  private groundBelow(p: THREE.Vector3): number | null {
+  /** Height of the first surface below `p` (ignoring the car, `car`), or null if none nearby. */
+  private groundBelow(p: THREE.Vector3, car: RAPIER.RigidBody): number | null {
     const from = p.clone().setY(p.y + 1.5);
     const ray = new RAPIER.Ray(from, { x: 0, y: -1, z: 0 });
-    const hit = this.world.physics.castRay(ray, 4, true, undefined, undefined, this.character.collider, this.car.bodyHandle);
+    const hit = this.world.physics.castRay(ray, 4, true, undefined, undefined, this.character.collider, car);
     return hit ? from.y - hit.timeOfImpact : null;
   }
 
@@ -716,6 +966,12 @@ export class LocalPlayer {
 function yawOf(q: THREE.Quaternion): number {
   const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
   return Math.atan2(forward.x, forward.z);
+}
+
+/** What the place a car is in does to it (low gravity, ice...). */
+function placeOf(car: Car) {
+  const at = car.physics.body.translation();
+  return placeEffects(at.x, at.y, at.z);
 }
 
 function round(n: number): number {

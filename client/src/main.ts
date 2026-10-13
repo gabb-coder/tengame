@@ -1,11 +1,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { TICK_RATE, type PlayerInfo, type StrikeKind, type WelcomeMessage } from '../../shared/protocol.ts';
+import { type CarSeat, TICK_RATE, type PlayerInfo, type StrikeKind, type WelcomeMessage } from '../../shared/protocol.ts';
+import { DRIVER } from '../../shared/seats.ts';
 import { Media } from './assets/media.ts';
 import { Sounds } from './audio/sounds.ts';
 import { Labels } from './render/labels.ts';
 import { PostFX } from './render/postfx.ts';
 import { LocalPlayer } from './game/localPlayer.ts';
+import { Seating } from './game/seating.ts';
 import { Input } from './input.ts';
 import { keyOf, keyWords, labelOf, normalizeCode, onKeys, useCustomKeys } from './keys.ts';
 import { MissionClient } from './game/missions.ts';
@@ -180,7 +182,6 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   player.appliances = appliances;
   player.activities = game.activities;
   player.seats = [...world.town.houses.flatMap((h) => seatsOf(h, world.town.interiors.get(h.id)!)), ...zoneSeats];
-  const car = player.car;
   // Let the rides, buttons and treasures out in the world reach the player and the server.
   Object.assign(game, {
     ride: (mount: Parameters<typeof player.ride>[0]) => player.ride(mount),
@@ -200,14 +201,14 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     sounds,
   });
   // Crashes: a wrecked car burns until you call for a new one; being hit can knock you out.
-  car.onWrecked = () => {
+  player.onWrecked = (car, owner) => {
     sounds.wreck(car.object.position);
     const at = car.object.position;
     for (let i = 0; i < 60; i++) {
       const v = new THREE.Vector3((Math.random() - 0.5) * 6, 2 + Math.random() * 5, (Math.random() - 0.5) * 6);
       effects.fire.emit(at, v, new THREE.Color(2.6, 1.1 + Math.random() * 0.6, 0.3), 0.6 + Math.random() * 0.5, 0.5 + Math.random() * 0.5);
     }
-    showNotice('Your car is wrecked! Press T for a new one');
+    showNotice(`${owner ? `${owner}'s car` : 'Your car'} is wrecked! Press T for a new one`);
   };
   player.onKnockedOut = (out) => showNotice(out ? 'You were knocked out!' : 'You come round, sore but in one piece');
   world.scene.add(...effects.objects);
@@ -223,11 +224,41 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   relics.onFound = () => journal.render();
   fishing.onCatch = () => journal.render();
 
-  const remotes = new RemotePlayers(world.scene, world.physics, welcome.id, listener);
+  // Anyone can get in anyone's car: who sits where is the server's to say.
+  const seating = new Seating(welcome.seats);
+  const remotes = new RemotePlayers(world.scene, world.physics, welcome.id, listener, seating);
   welcome.players.forEach((p) => remotes.add(p));
   player.takenSeats = () => remotes.seatedPositions();
 
   const players = new Map<string, PlayerInfo>(welcome.players.map((p) => [p.id, p]));
+  player.seating = seating;
+  player.cars = {
+    ids: () => [...players.keys()],
+    owner: (id) => players.get(id) ?? null,
+    puppet: (id) => remotes.puppet(id),
+    setAway: (id, away, from) => remotes.setCarAway(id, away, from),
+  };
+  remotes.localCar = (id) => player.carObject(id);
+  let lastSend = 0;
+  /** Where we are, for the server: our own car while our game moves it, a friend's we drive, our character on foot. */
+  const sendState = () => {
+    const drive = player.driveReport;
+    conn.send({ type: 'state', ...player.ownReport, avatar: player.avatarState, ...(drive ? { drive } : {}) });
+    lastSend = performance.now();
+  };
+  // Where the car is goes first, so whoever moves it next carries on from just there.
+  player.requestSeat = (seat: CarSeat | null) => {
+    sendState();
+    conn.send({ type: 'seat', seat });
+  };
+  /** Someone else got in a car: worth a word if it's ours, or the one we're in. */
+  const tellSeat = (id: string, seat: CarSeat | null, was: CarSeat | null) => {
+    const tookWheel = seat?.n === DRIVER && was?.n !== DRIVER;
+    if (id === welcome.id || !seat || (seat.car === was?.car && !tookWheel)) return;
+    const name = players.get(id)?.name ?? 'Someone';
+    if (seat.car === player.seat?.car) showNotice(seat.n === DRIVER ? `${name} took the wheel` : `${name} got in`);
+    else if (seat.car === welcome.id && seat.n === DRIVER) showNotice(`${name} is driving your car`);
+  };
   const missionsMode = welcome.mode === 'missions';
   let scores = welcome.scores;
   const refreshList = () => renderPlayerList([...players.values()], welcome.id, missionsMode ? scores : undefined);
@@ -301,6 +332,7 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     switch (msg.type) {
       case 'player_joined':
         players.set(msg.player.id, msg.player);
+        seating.set(msg.player.id, { car: msg.player.id, n: DRIVER });
         remotes.add(msg.player);
         refreshList();
         chat.system(`${msg.player.name} joined`);
@@ -308,6 +340,7 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
       case 'player_left':
         chat.system(`${players.get(msg.id)?.name ?? 'Someone'} left`);
         players.delete(msg.id);
+        seating.remove(msg.id);
         remotes.remove(msg.id);
         refreshList();
         break;
@@ -330,6 +363,13 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
       case 'snapshot':
         remotes.applySnapshot(msg.players, performance.now());
         break;
+      case 'seat': {
+        const was = seating.of(msg.id);
+        seating.set(msg.id, msg.seat);
+        player.seatsChanged(msg.id, msg.cars);
+        tellSeat(msg.id, msg.seat, was);
+        break;
+      }
       case 'door':
         doors.setOpen(msg.id, msg.open);
         break;
@@ -375,7 +415,6 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
   conn.onClose = showDisconnected;
 
   let accumulator = 0;
-  let lastSend = 0;
   let last = performance.now();
 
   const frame = () => {
@@ -414,16 +453,13 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     relics.update(dt, world.camera.position);
     fishing.update(dt);
     // Jetpacks belong to Outpost Nova: wander off (or drive off) and it goes back.
-    if (player.jetpack && (player.mode === 'car' || zoneAt(player.focus.x, player.focus.z) !== 'space')) {
+    if (player.jetpack && (player.mode !== 'foot' || zoneAt(player.focus.x, player.focus.z) !== 'space')) {
       player.wearJetpack(false);
       showNotice('You left the jetpack at Outpost Nova');
     }
     renderFuel(player.jetpack?.fuel ?? null);
 
-    if (now - lastSend >= SEND_INTERVAL_MS) {
-      conn.send({ type: 'state', ...car.transform, car: car.state, avatar: player.avatarState });
-      lastSend = now;
-    }
+    if (now - lastSend >= SEND_INTERVAL_MS) sendState();
 
     remotes.walkersSolid = player.mode !== 'car';
     remotes.update(now, dt);
@@ -452,13 +488,14 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     player.speedScale = warmth.speed;
     renderWarmth(warmth.value, zone.id === 'arctic' && player.mode === 'foot');
     renderHealth(player.health, player.flash);
-    renderCarHealth(car.damage.health, player.mode === 'car' && car.damage.health < 1);
+    const vehicle = player.vehicle;
+    renderCarHealth(vehicle.damage.health, player.mode === 'car' && vehicle.damage.health < 1);
     if (warmth.takeWarning()) showNotice("You're freezing! Warm up by a fire, indoors or in your car");
     const night = world.dayNight.night;
     streetLights.update(night);
     world.materials.glassOutsideLit.emissiveIntensity = night * 1.4;
     CarModel.setHeadlights(night);
-    car.setNight(night);
+    player.setNight(night);
     remotes.setNight(night);
     renderClock(world.dayNight.hours(now));
     world.town.updateInteriors(world.camera.position);
@@ -474,11 +511,12 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     const reach = player.interaction;
     touch?.update({
       driving: player.mode === 'car',
+      riding: player.mode === 'passenger',
       canUse: !!reach && !(reach.kind === 'leave' && reach.blocked) && !(reach.kind === 'activity' && reach.prompt.waiting),
       muted,
     });
-    const speed = car.physics.speed;
-    renderGauges(Math.abs(speed) < 0.3 ? 0 : speed, car.physics.gear, car.physics.rpm / CAR.redlineRpm);
+    const speed = vehicle.physics.speed;
+    renderGauges(Math.abs(speed) < 0.3 ? 0 : speed, vehicle.physics.gear, vehicle.physics.rpm / CAR.redlineRpm);
     if (settings.showFps) renderFps(now);
     world.camera.getWorldDirection(view);
     const focus = player.focus;
