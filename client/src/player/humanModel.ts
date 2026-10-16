@@ -14,6 +14,16 @@ const IDLE = 'Idle_Loop';
 const KICK = 'Kick';
 const JUMP = 'Jump_Loop';
 const SIT = 'Sitting_Idle_Loop';
+/** Hands on the wheel. */
+export const DRIVE = 'Driving_Loop';
+/** Clips that play sitting down, instead of just sitting. */
+const SEATED = new Set(['Sitting_Talking_Loop', DRIVE]);
+/**
+ * Sitting in a car's low seat, not on a chair: how far forward of straight down the thighs
+ * and the shins point (radians: legs out toward the pedals, where a chair has the feet
+ * under the knees).
+ */
+const CAR_LEGS = { thigh: 1.7, shin: 1.35 };
 const GAITS = ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'];
 const SWIM_IDLE = 'Swim_Idle_Loop';
 const SWIM = 'Swim_Fwd_Loop';
@@ -52,6 +62,13 @@ const HOBBLE_LEAN = 0.1;
 
 /** The body's sideways axis (its left), which legs swing about and the back bends about. */
 const SIDEWAYS = new THREE.Vector3(1, 0, 0);
+
+/** Turns a bone by `turn`, a turn in the world's frame, on top of how it's turned already. */
+function turnInWorld(bone: THREE.Object3D, turn: THREE.Quaternion): void {
+  const parent = bone.parent!.getWorldQuaternion(new THREE.Quaternion());
+  bone.quaternion.premultiply(parent.clone().invert().multiply(turn).multiply(parent));
+  bone.updateMatrixWorld(true);
+}
 
 /** Eases in and out, 0..1. */
 const ease = (t: number) => {
@@ -193,6 +210,10 @@ export class Human {
   private phase = 0;
   /** Sitting down (plays the sitting pose instead of standing or walking). */
   seated = false;
+  /** Sitting in a car: legs out in front (see CAR_LEGS) and leaning back this far (radians: the head behind the hips). */
+  inCar: { lean: number } | null = null;
+  /** Driving: where the hands hold the wheel, relative to the hips (m; left hand, then right, mirrored). */
+  wheel: THREE.Vector3 | null = null;
   /** In the water: swim strokes instead of steps. */
   swimming = false;
   /**
@@ -432,7 +453,7 @@ export class Human {
     } else if (this.action && act && !this.seated) {
       target.set(this.action, 1);
     } else if (this.seated && this.actions.has(SIT)) {
-      target.set(this.action === 'Sitting_Talking_Loop' ? this.action : SIT, 1);
+      target.set(this.action && SEATED.has(this.action) && this.actions.has(this.action) ? this.action : SIT, 1);
     } else if (airborne && !this.swimming && this.actions.has(JUMP)) {
       target.set(JUMP, 1);
     } else {
@@ -474,6 +495,7 @@ export class Human {
     }
     this.mixer.update(0);
     if (this.playing === KICK) this.kickBones(this.actionClock);
+    if (this.seated && this.inCar) this.carBones(this.inCar.lean);
     if (!this.swimming && !this.seated && !this.action) this.hobbleBones(speed);
   }
 
@@ -497,6 +519,57 @@ export class Human {
     this.turnBone('calf_r', -(thighThen - knee - shinNow) * w);
     this.turnBone('thigh_l', -give * 0.6);
     this.turnBone('calf_l', give);
+  }
+
+  /** Sitting in a car: leaning back against the seat, with the legs out in front (see CAR_LEGS). */
+  private carBones(lean: number): void {
+    this.root.updateMatrixWorld(true);
+    scratch.toRoot.copy(this.root.matrixWorld).invert();
+    // Back against the seat: the head this far behind the hips, however the clip sits.
+    const hips = this.bones.get('pelvis')!.getWorldPosition(scratch.p).applyMatrix4(scratch.toRoot);
+    const head = this.bones.get('Head')!.getWorldPosition(scratch.target).applyMatrix4(scratch.toRoot);
+    this.turnBone('spine_01', -lean - Math.atan2(head.z - hips.z, head.y - hips.y));
+    for (const side of ['l', 'r']) {
+      const thighNow = this.legAngle(`thigh_${side}`, `calf_${side}`);
+      this.turnBone(`thigh_${side}`, -(CAR_LEGS.thigh - thighNow));
+      const shinNow = this.legAngle(`calf_${side}`, `foot_${side}`);
+      this.turnBone(`calf_${side}`, -(CAR_LEGS.shin - shinNow));
+    }
+    const wheel = this.wheel;
+    if (!wheel) return;
+    // Hands on the wheel, wherever the shoulders have ended up.
+    const pelvis = this.bones.get('pelvis')!.getWorldPosition(new THREE.Vector3());
+    for (const [side, x] of [['l', 1], ['r', -1]] as const) {
+      const grip = this.root.localToWorld(this.root.worldToLocal(pelvis.clone()).add(scratch.p.set(wheel.x * x, wheel.y, wheel.z)));
+      this.reach(`upperarm_${side}`, `lowerarm_${side}`, `hand_${side}`, grip);
+    }
+  }
+
+  /**
+   * Bends an arm (or leg) so its end reaches `target` (in the world): the middle joint
+   * opens or closes to the right distance, then the top one points it there.
+   */
+  private reach(top: string, middle: string, end: string, target: THREE.Vector3): void {
+    const [a, b, c] = [top, middle, end].map((n) => this.bones.get(n));
+    if (!a || !b || !c) return;
+    this.keep(a);
+    this.keep(b);
+    const s = a.getWorldPosition(new THREE.Vector3());
+    const e = b.getWorldPosition(new THREE.Vector3());
+    const h = c.getWorldPosition(new THREE.Vector3());
+    const upper = s.distanceTo(e);
+    const lower = e.distanceTo(h);
+    const want = THREE.MathUtils.clamp(s.distanceTo(target), Math.abs(upper - lower) + 0.01, upper + lower - 0.01);
+    const toTop = s.clone().sub(e);
+    const toEnd = h.clone().sub(e);
+    const axis = toTop.clone().cross(toEnd);
+    if (axis.lengthSq() > 1e-8) {
+      const now = toTop.angleTo(toEnd);
+      const then = Math.acos(THREE.MathUtils.clamp((upper * upper + lower * lower - want * want) / (2 * upper * lower), -1, 1));
+      turnInWorld(b, scratch.q.setFromAxisAngle(axis.normalize(), then - now));
+    }
+    const reached = c.getWorldPosition(new THREE.Vector3()).sub(s).normalize();
+    turnInWorld(a, scratch.q.setFromUnitVectors(reached, target.clone().sub(s).normalize()));
   }
 
   /** How far forward of straight down a bone points (toward the joint below it), as seen from the side, in `root`'s frame. */

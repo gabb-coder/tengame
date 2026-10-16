@@ -1,8 +1,9 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { Media } from '../assets/media.ts';
-import { choosePerson, Human, type HumanLibrary, loadHumans, type Outfit } from './humanModel.ts';
+import { choosePerson, DRIVE, Human, type HumanLibrary, loadHumans, type Outfit } from './humanModel.ts';
 import { Ragdoll } from './ragdoll.ts';
+import type { CarSeatSpot } from '../vehicles/carModel.ts';
 
 /** The realistic people's pack, once loaded (see AvatarModel.load). */
 let humans: HumanLibrary | null = null;
@@ -19,6 +20,9 @@ const SIMPLE_STRIKES: Record<string, { limb: 'arm' | 'leg'; side: 0 | 1; seconds
 };
 
 const HIP_HEIGHT = 0.9;
+/** Sitting, the hip joints are this far above the surface (m). */
+const HIPS_ABOVE_SEAT = 0.1;
+const SEAT_ORIGIN = new THREE.Vector3();
 const SHOULDER_HEIGHT = 1.42;
 const LEG_LENGTH = 0.86;
 const ARM_LENGTH = 0.62;
@@ -58,6 +62,8 @@ export class AvatarModel {
   private disposed = false;
   /** Sitting on something (see placeSeated). */
   seated = false;
+  /** In a car (see rideIn): how far back they lean, and at the wheel, where the left hand holds it from the hips. */
+  private inCar: { lean: number; grip: THREE.Vector3 | null } | null = null;
   /** In the water, swimming. */
   swimming = false;
   /** A clip to play instead of standing about (see Human.action); cleared when a one-shot ends. */
@@ -137,7 +143,29 @@ export class AvatarModel {
     const hips = this.human ? this.human.hipsLocal() : new THREE.Vector3(0, HIP_HEIGHT, 0);
     hips.applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
     // Hip joints sit a little above the surface you sit on.
-    this.root.position.set(seat.x - hips.x, seat.y + 0.1 - hips.y, seat.z - hips.z);
+    this.root.position.set(seat.x - hips.x, seat.y + HIPS_ABOVE_SEAT - hips.y, seat.z - hips.z);
+  }
+
+  /**
+   * Sits in a car seat (see CarModel.seat), moving into it if need be: at the wheel, or
+   * riding along. Call each frame instead of `animate`.
+   */
+  rideIn(seat: CarSeatSpot, dt: number): void {
+    if (this.root.parent !== seat.place) seat.place.add(this.root);
+    if (this.down) this.unfling();
+    const { grip } = seat;
+    const hands = grip && (this.inCar?.grip ?? new THREE.Vector3()).copy(grip).setY(grip.y - HIPS_ABOVE_SEAT);
+    this.inCar = { lean: seat.lean, grip: hands };
+    this.animate(0, dt);
+    this.placeSeated(SEAT_ORIGIN, 0);
+  }
+
+  /** Out of the car, back into the world (`scene`): put somewhere by the caller next. */
+  leaveCar(scene: THREE.Object3D): void {
+    if (!this.inCar) return;
+    this.inCar = null;
+    scene.add(this.root);
+    this.root.rotation.set(0, 0, 0);
   }
 
   /** Where a sitting body's hips are, in the world: on the seat. */
@@ -281,13 +309,18 @@ export class AvatarModel {
       return;
     }
     if (this.human) {
-      this.human.seated = this.seated;
+      const car = this.inCar;
+      this.human.seated = this.seated || !!car;
+      this.human.inCar = car && { lean: car.lean };
+      this.human.wheel = car?.grip ?? null;
       this.human.swimming = this.swimming;
-      if (this.human.action !== this.action) this.human.action = this.action;
+      // In a car the act waits: the driver's hands are on the wheel.
+      const action = car ? (car.grip ? DRIVE : null) : this.action;
+      if (this.human.action !== action) this.human.action = action;
       this.human.hobble = this.limp;
       this.human.animate(speed, dt, airborne);
       // A one-shot that finished clears itself.
-      this.action = this.human.action;
+      if (!car) this.action = this.human.action;
       return;
     }
     if (this.flat) {
@@ -303,7 +336,7 @@ export class AvatarModel {
       this.action = this.simpleStrike = null;
     }
     if (this.action && !strike) this.action = null;
-    if (this.seated) {
+    if (this.seated || this.inCar) {
       // Thighs forward, arms resting: as close to sitting as this simple body gets.
       for (const leg of this.legs) leg.rotation.x = -1.45;
       for (const arm of this.arms) arm.rotation.x = -0.5;

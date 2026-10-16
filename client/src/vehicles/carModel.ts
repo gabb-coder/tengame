@@ -32,6 +32,33 @@ const GROUND_Y = WHEEL_Y - CAR.wheelRadius;
 
 /** The real car model's wheel nodes, in our wheel order (left is +X). */
 const MODEL_WHEELS = ['WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR'];
+/**
+ * Where people sit in the real car model (its own frame, m): the middle of each seat, a
+ * little below the cushion's top (people sink in), and how far back they lean (radians).
+ * The driver sits in the middle at the front, at the wheel; seats 1 and 2 are either side
+ * just behind, and 3 at the back (numbered as in shared/seats.ts), lower and leaning back
+ * further under the sloping rear window.
+ */
+const MODEL_SEATS = [
+  { at: new THREE.Vector3(0, 0.08, 0.68), lean: 0.45 },
+  { at: new THREE.Vector3(-0.48, 0.09, -0.05), lean: 0.45 },
+  { at: new THREE.Vector3(0.48, 0.09, -0.05), lean: 0.45 },
+  { at: new THREE.Vector3(0, 0.04, -0.72), lean: 0.55 },
+];
+/** Where the driver holds the wheel (the left wrist; the right's mirrored), in the same frame. */
+const MODEL_WHEEL = new THREE.Vector3(0.17, 0.64, 0.88);
+const DRIVER_GRIP = MODEL_WHEEL.clone().sub(MODEL_SEATS[0].at);
+
+/**
+ * A seat in a car: where its occupant's hips go (just above it, see AvatarModel.rideIn),
+ * how far back they lean, and for the driver, where the left hand holds the wheel (from
+ * the seat; the right's mirrored).
+ */
+export interface CarSeatSpot {
+  place: THREE.Object3D;
+  lean: number;
+  grip: THREE.Vector3 | null;
+}
 
 /** The loaded car model (see CarModel.load), and every car waiting to switch to it. */
 let template: Model | null = null;
@@ -96,6 +123,8 @@ export class CarModel {
   private dentables: Dentable[] = [];
   private bounds = { front: 2.3, rear: -2.3, left: 0.9, right: -0.9 };
   private dents: CarDamage = [0, 0, 0, 0];
+  /** Each seat (see MODEL_SEATS): its occupant leans with the body. */
+  private seats: CarSeatSpot[] = MODEL_SEATS.map(({ lean }, n) => ({ place: new THREE.Group(), lean, grip: n === 0 ? DRIVER_GRIP : null }));
   /** Where smoke pours out of a damaged engine (car-local), and when the next puff is due. */
   private hood = new THREE.Vector3(0, 0.3, 1.6);
   private smokeDue = 0;
@@ -162,6 +191,7 @@ export class CarModel {
       for (const z of [0.55, -0.62]) add(new THREE.BoxGeometry(0.02, 0.025, 0.16), chromeMaterial, side * (BODY_WIDTH / 2 + 0.055), 0.08, z);
     }
     this.root.add(this.body);
+    this.placeSeats(new THREE.Vector3(0, GROUND_Y, 0));
 
     for (const [x, z] of WHEEL_POSITIONS) {
       const wheel = new THREE.Group();
@@ -182,6 +212,17 @@ export class CarModel {
     }
     cars.add(this);
     if (template) this.useModel(template);
+  }
+
+  /** Puts the seats where they are in the real model, shifted by `fit` (where it stands in the car). */
+  private placeSeats(fit: THREE.Vector3): void {
+    this.seats.forEach((seat, n) => seat.place.position.copy(MODEL_SEATS[n].at).add(fit));
+    this.body.add(...this.seats.map((seat) => seat.place));
+  }
+
+  /** Seat `n` (see AvatarModel.rideIn). */
+  seat(n: number): CarSeatSpot {
+    return this.seats[n] ?? this.seats[0];
   }
 
   /** Stops following model loading, for a car that's being removed. */
@@ -225,6 +266,7 @@ export class CarModel {
     this.body.clear();
     this.body.rotation.set(0, 0, 0);
     this.body.add(fit);
+    this.placeSeats(fit.position);
     for (const wheel of this.wheels) wheel.removeFromParent();
     this.wheels = [];
     this.wheelRestY = [];

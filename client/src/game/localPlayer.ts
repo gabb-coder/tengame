@@ -15,6 +15,7 @@ import { AvatarModel } from '../player/avatarModel.ts';
 import { AVATAR, CharacterPhysics } from '../player/character.ts';
 import { KICK_SECONDS } from '../player/humanModel.ts';
 import { Car } from '../vehicles/car.ts';
+import type { CarModel } from '../vehicles/carModel.ts';
 import { CAR, type CarControls } from '../vehicles/carPhysics.ts';
 import { Headlights } from '../vehicles/headlights.ts';
 import type { Appliances } from '../world/appliances.ts';
@@ -91,6 +92,7 @@ export interface DrawnCar {
   object: THREE.Object3D;
   body: RAPIER.RigidBody;
   speed: number;
+  model: CarModel;
 }
 
 /** What the player needs to know of every car in the room; set by main. */
@@ -407,6 +409,12 @@ export class LocalPlayer {
     if (this.ownHere) this.car.update(dt);
     this.borrowed?.car.update(dt);
     const inside = this.inside;
+    if (this.mode !== 'foot') {
+      // Sitting in the car: at the wheel, or riding along.
+      const seat = this.seat;
+      this.avatar.root.visible = !!inside && !!seat;
+      if (inside && seat) this.avatar.rideIn(inside.model.seat(seat.n), dt);
+    }
     if (this.mode === 'car') {
       input.takeLook(dt); // discard mouse movement while driving
       this.chase.update(this.vehicle.object, this.vehicle.physics.speed, dt);
@@ -641,10 +649,10 @@ export class LocalPlayer {
     return this.borrowed?.car ?? this.car;
   }
 
-  /** Where car `id` is drawn by our game, while ours moves it (our own, or a friend's we're driving). */
-  carObject(id: string): THREE.Object3D | null {
-    if (this.borrowed?.id === id) return this.borrowed.car.object;
-    return id === this.id && this.ownHere ? this.car.object : null;
+  /** How car `id` is drawn by our game, while ours moves it (our own, or a friend's we're driving). */
+  carModel(id: string): CarModel | null {
+    if (this.borrowed?.id === id) return this.borrowed.car.model;
+    return id === this.id && this.ownHere ? this.car.model : null;
   }
 
   /** The car we're sitting in, as drawn here. */
@@ -652,7 +660,7 @@ export class LocalPlayer {
     const car = this.seat?.car;
     if (!car) return null;
     const ours = this.borrowed?.id === car ? this.borrowed.car : car === this.id && this.ownHere ? this.car : null;
-    return ours ? { object: ours.object, body: ours.bodyHandle, speed: ours.physics.speed } : this.cars.puppet(car);
+    return ours ? { object: ours.object, body: ours.bodyHandle, speed: ours.physics.speed, model: ours.model } : this.cars.puppet(car);
   }
 
   /** Our own car for the server, while our game moves it (not while a friend drives it). */
@@ -734,7 +742,9 @@ export class LocalPlayer {
     this.striking = null;
     this.character.teleport(HIDDEN_FEET);
     this.character.setEnabled(false);
-    this.avatar.root.visible = false;
+    // No rod or jetpack in the car (it sits there now: see update).
+    showAct(this.avatar, null, null, false, this.shownAct, this.time);
+    this.shownAct = null;
   }
 
   /** At the wheel of a friend's car: our game moves it now, from where theirs left it. */
@@ -831,7 +841,7 @@ export class LocalPlayer {
     if (door) add(door.distance, doorPosition(door.house), { kind: 'door', houseId: door.house.id, address: door.house.address, open: door.open });
     // Any car: the wheel if nobody has it, else a seat beside whoever does.
     for (const id of this.cars.ids()) {
-      const object = this.carObject(id) ?? this.cars.puppet(id)?.object;
+      const object = this.carModel(id)?.root ?? this.cars.puppet(id)?.object;
       const distance = object ? feet.distanceTo(object.position) : Infinity;
       if (!object || distance > CAR_REACH) continue;
       const owner = id === this.id ? null : this.nameOf(id);
@@ -909,6 +919,9 @@ export class LocalPlayer {
     this.car.engineOn = false;
     this.character.setEnabled(true);
     this.character.teleport(spot, yaw);
+    this.avatar.leaveCar(this.world.scene);
+    this.avatar.root.position.copy(spot);
+    this.avatar.root.rotation.y = yaw;
     this.avatar.root.visible = true;
     this.orbit.yaw = yaw;
     this.orbit.pitch = 0.25;

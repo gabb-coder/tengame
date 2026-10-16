@@ -238,7 +238,7 @@ async function startGame(conn: Connection, welcome: WelcomeMessage, listener: TH
     puppet: (id) => remotes.puppet(id),
     setAway: (id, away, from) => remotes.setCarAway(id, away, from),
   };
-  remotes.localCar = (id) => player.carObject(id);
+  remotes.localCar = (id) => player.carModel(id);
   let lastSend = 0;
   /** Where we are, for the server: our own car while our game moves it, a friend's we drive, our character on foot. */
   const sendState = () => {

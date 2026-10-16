@@ -165,6 +165,8 @@ interface Remote {
   samples: AvatarSample[];
   /** The act last shown, so one-shot moves play once. */
   act: Act | null;
+  /** Out of the car, on their feet (or sitting about, or flying limp). */
+  walking: boolean;
   /** A stand-in in our physics world, moved to where the player is drawn, so we bump into them. */
   avatarBody: RAPIER.RigidBody;
   /** Something our car can knock flying, while they're walking. */
@@ -194,8 +196,8 @@ export class RemotePlayers {
    * they fly (see game/impacts.ts), rather than stopping dead as if at a post.
    */
   walkersSolid = true;
-  /** Where our own game draws car `id`, while it moves it (ours, or a friend's we drive); set by main. */
-  localCar: (id: string) => THREE.Object3D | null = () => null;
+  /** How our own game draws car `id`, while it moves it (ours, or a friend's we drive); set by main. */
+  localCar: (id: string) => CarModel | null = () => null;
 
   constructor(
     private scene: THREE.Scene,
@@ -230,7 +232,7 @@ export class RemotePlayers {
     let hittableAt = 0;
     const down = () => avatar.down || KNOCKED_DOWN.has(this.remotes.get(info.id)?.act ?? null);
     const target: Target = {
-      at: (out) => (avatar.root.visible && performance.now() > hittableAt && !down() ? out.copy(avatar.root.position) : null),
+      at: (out) => (this.remotes.get(info.id)?.walking && performance.now() > hittableAt && !down() ? out.copy(avatar.root.position) : null),
       radius: 0.35,
       height: 1.8,
       minSpeed: 1.2,
@@ -259,7 +261,7 @@ export class RemotePlayers {
     game.strikeables.set(info.id, (kind, v) => {
       if (kind === 'kick') this.fling(info.id, v);
     });
-    this.remotes.set(info.id, { info, avatar, nameTag, samples: [], act: null, avatarBody, target, flungAt: -Infinity });
+    this.remotes.set(info.id, { info, avatar, nameTag, samples: [], act: null, walking: false, avatarBody, target, flungAt: -Infinity });
   }
 
   /**
@@ -271,20 +273,25 @@ export class RemotePlayers {
   }
 
   /** A car drawn from the snapshots, if it's drawn here (not moved by our game). */
-  puppet(id: string): { object: THREE.Object3D; body: RAPIER.RigidBody; speed: number } | null {
+  puppet(id: string): { object: THREE.Object3D; body: RAPIER.RigidBody; speed: number; model: CarModel } | null {
     const car = this.cars.get(id);
-    return car?.drawn ? { object: car.model.root, body: car.body, speed: car.speed } : null;
+    return car?.drawn ? { object: car.model.root, body: car.body, speed: car.speed, model: car.model } : null;
   }
 
-  /** Where car `id` is drawn here, by our game or from the snapshots. */
+  /** How car `id` is drawn here, by our game or from the snapshots. */
+  carModel(id: string): CarModel | null {
+    return this.localCar(id) ?? this.puppet(id)?.model ?? null;
+  }
+
+  /** Where car `id` is drawn here. */
   carObject(id: string): THREE.Object3D | null {
-    return this.localCar(id) ?? this.puppet(id)?.object ?? null;
+    return this.carModel(id)?.root ?? null;
   }
 
   /** Knocks someone's body flying limp at `v` (m/s), if they're walking about and not already down. */
   private fling(id: string, v: THREE.Vector3Like): void {
     const r = this.remotes.get(id);
-    if (!r || !r.avatar.root.visible || r.avatar.down) return;
+    if (!r || !r.walking || r.avatar.down) return;
     r.avatar.fling(this.physics, v);
     r.flungAt = performance.now();
   }
@@ -294,7 +301,8 @@ export class RemotePlayers {
     if (!remote) return;
     remote.nameTag.dispose();
     remote.avatar.dispose();
-    this.scene.remove(remote.avatar.root);
+    // (Wherever they are: in the world, or sitting in a car.)
+    remote.avatar.root.removeFromParent();
     this.cars.get(id)?.dispose(this.scene);
     this.cars.delete(id);
     this.physics.removeRigidBody(remote.avatarBody);
@@ -307,7 +315,7 @@ export class RemotePlayers {
 
   /** Where players who are sitting down are (the seat area), so nobody sits on them. */
   seatedPositions(): THREE.Vector3[] {
-    return [...this.remotes.values()].filter((r) => r.avatar.root.visible && r.avatar.seated).map((r) => r.avatar.seatPosition());
+    return [...this.remotes.values()].filter((r) => r.walking && r.avatar.seated).map((r) => r.avatar.seatPosition());
   }
 
   /** Each other player's position, heading (yaw, 0 = +Z) and color, for the minimap. */
@@ -333,7 +341,7 @@ export class RemotePlayers {
   locate(id: string): { position: THREE.Vector3; walking: boolean } | null {
     const r = this.remotes.get(id);
     if (!r) return null;
-    if (r.avatar.root.visible) return { position: r.avatar.root.position, walking: true };
+    if (r.walking) return { position: r.avatar.root.position, walking: true };
     const seat = this.seating.of(id);
     const car = seat && this.carObject(seat.car);
     return car ? { position: car.position, walking: false } : null;
@@ -365,6 +373,20 @@ export class RemotePlayers {
     }
   }
 
+  /** Someone in a car: sitting in their seat in it (at the wheel, or riding along), as drawn here. */
+  private inCar(remote: Remote, dt: number): void {
+    const { avatar, info } = remote;
+    const seat = this.seating.of(info.id);
+    const car = seat && this.carModel(seat.car);
+    avatar.root.visible = !!car;
+    if (!car || !seat) return;
+    if (remote.act) {
+      showAct(avatar, null, null, false, remote.act, 0);
+      remote.act = null;
+    }
+    avatar.rideIn(car.seat(seat.n), dt);
+  }
+
   /**
    * Name tags go over people walking about, and over the car they're in otherwise (one
    * above another when friends ride together).
@@ -374,7 +396,7 @@ export class RemotePlayers {
     let parent: THREE.Object3D = avatar.root;
     let height = 2.05;
     const seat = this.seating.of(info.id);
-    const car = !avatar.root.visible && seat ? this.carObject(seat.car) : null;
+    const car = !remote.walking && seat ? this.carObject(seat.car) : null;
     if (car && seat) {
       parent = car;
       const others = this.seating.riders(seat.car).filter((r) => r.id !== this.localId);
@@ -389,12 +411,14 @@ export class RemotePlayers {
     const { avatar } = remote;
     const state = b ?? a;
     const walking = state !== null;
-    avatar.root.visible = walking;
+    remote.walking = walking;
     if (!walking || !this.walkersSolid) moveBody(remote.avatarBody, PARKED_FAR);
     if (!state) {
-      avatar.unfling();
+      this.inCar(remote, dt);
       return;
     }
+    avatar.leaveCar(this.scene);
+    avatar.root.visible = true;
     // Blend between samples only when both have the avatar (not across getting in/out).
     const from = a ?? state;
     const to = b ?? state;

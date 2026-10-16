@@ -249,6 +249,13 @@ fight the day/night cycle).
   as `drive`; their game puts its own away (and leaves it out of its `state`) and draws it
   from the snapshots instead, like any other car (net/remotePlayers.ts, PuppetCar). The
   server only takes a car's whereabouts from whoever moves it.
+- Everyone in a car is seen sitting in it (vehicles/carModel.ts, MODEL_SEATS: the real
+  model has the driver in the middle at the front, two seats either side just behind and
+  one at the back). The sitting pose has the legs bent for the low seats, leans back against
+  the seat (further in the back seat, under the sloping rear window), and the driver's hands
+  reach for the wheel, the arm's two joints bent to fit (player/humanModel.ts, carBones).
+  A test seats the tallest and shortest people in every seat: heads under the roof, feet on
+  the floor, hands on the wheel.
 - Riding along, the chase camera follows the car and the mouse turns it about. Name tags of
   everyone in a car stack above it; the minimap and mission arrows follow the car someone's
   in. Running people over and smashing things count for the driver, wherever their own car is.
@@ -258,8 +265,6 @@ fight the day/night cycle).
 ## Possible next steps
 
 - More real furniture (beds, kitchens, bathrooms) if good CC0 ones turn up.
-- Show the driver and passengers sitting in the car (the animation library has a driving
-  pose; it's now loaded).
 - Boats and horses you steer yourself, not just ride.
 - Doors inside houses (two-story houses currently have open doorways only).
 - More mission types (e.g. a cross-zone rally), more car choices.

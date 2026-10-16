@@ -274,8 +274,10 @@ If nobody's driving it, you drive it (**Drive Sam's car**); if someone is, you g
 them and ride along (**Ride with Sam**). The same goes for your own car while a friend has
 it. Riding along, the mouse looks about, **E** gets out when the car is nearly stopped, and
 **C** takes the wheel if it's free. The driver can press **C** to move over and let a friend
-riding with them drive, without anyone getting out. A car has four seats, and its owner is
-told when someone drives off in it. Each car keeps its owner's color, and goes with them when
+riding with them drive, without anyone getting out. A car has four seats, and you can see
+everyone sitting in it: the driver in the middle at the front with their hands on the wheel,
+a friend on either side just behind, and one more at the back. Its owner is told when
+someone drives off in it. Each car keeps its owner's color, and goes with them when
 they leave the room (anyone in it is left standing where it was). For a mission race, everyone
 is put back in their own car on the starting grid.
 
